@@ -32,12 +32,15 @@ GitHub Pages export verification:
 npm run build:pages
 ```
 
+This project’s Pages build exports into `.next-pages/`.
+
 ## Deploy to GitHub Pages
 
 - The repo now includes a GitHub Actions workflow at `.github/workflows/deploy-pages.yml`.
-- On every push to `main`, the workflow runs lint, typecheck, exports a static build, and deploys it to GitHub Pages.
+- On every push to `main`, the workflow runs lint, typecheck, exports a static build into `.next-pages/`, and deploys it to GitHub Pages.
 - For project pages, the workflow automatically uses `/<repo-name>` as the base path.
 - For user or organization pages in a repository named `<owner>.github.io`, it deploys at the root path.
+- The workflow opts into Node 24 for JavaScript actions to avoid the GitHub-hosted Node 20 deprecation path.
 
 GitHub-side setup:
 

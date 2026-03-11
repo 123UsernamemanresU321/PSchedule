@@ -5,6 +5,9 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 permissions:
   contents: read
   pages: write
@@ -21,12 +24,12 @@ jobs:
       name: github-pages
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Configure Pages
@@ -57,12 +60,12 @@ jobs:
           PAGES_BASE_PATH: ${{ env.PAGES_BASE_PATH }}
 
       - name: Disable Jekyll
-        run: touch out/.nojekyll
+        run: touch .next-pages/.nojekyll
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./out
+          path: ./.next-pages
 
   deploy:
     needs: build
