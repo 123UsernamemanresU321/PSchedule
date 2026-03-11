@@ -1,0 +1,318 @@
+"use client";
+
+import { create } from "zustand";
+
+import { fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
+import { generateStudyPlanHorizon } from "@/lib/scheduler/generator";
+import {
+  deleteFixedEventById,
+  exportPlannerData,
+  getCurrentWeekKey,
+  importPlannerData,
+  initializePlannerDatabase,
+  loadPlannerSnapshot,
+  replacePlanningHorizon,
+  saveCompletionLog,
+  saveFixedEvent,
+  savePreferences,
+  updateStudyBlock,
+  updateTopic,
+} from "@/lib/storage/planner-repository";
+import type {
+  CompletionLog,
+  FixedEvent,
+  PlannerExportPayload,
+  Preferences,
+  StudyBlock,
+  StudyBlockStatus,
+  Topic,
+} from "@/lib/types/planner";
+import { createId } from "@/lib/utils";
+
+interface PlannerState {
+  initialized: boolean;
+  loading: boolean;
+  error: string | null;
+  currentWeekStart: string;
+  goals: PlannerExportPayload["goals"];
+  subjects: PlannerExportPayload["subjects"];
+  topics: PlannerExportPayload["topics"];
+  fixedEvents: PlannerExportPayload["fixedEvents"];
+  studyBlocks: PlannerExportPayload["studyBlocks"];
+  completionLogs: PlannerExportPayload["completionLogs"];
+  weeklyPlans: PlannerExportPayload["weeklyPlans"];
+  preferences: Preferences | null;
+  selectedStudyBlockId: string | null;
+  initialize: () => Promise<void>;
+  refresh: () => Promise<void>;
+  setCurrentWeekStart: (weekStart: string) => void;
+  regenerateHorizon: () => Promise<void>;
+  saveFixedEvent: (event: FixedEvent) => Promise<void>;
+  deleteFixedEvent: (id: string) => Promise<void>;
+  updatePreferences: (patch: Partial<Preferences>) => Promise<void>;
+  updateStudyBlockStatus: (options: {
+    blockId: string;
+    status: Extract<StudyBlockStatus, "done" | "partial" | "missed" | "rescheduled">;
+    actualMinutes?: number;
+    notes?: string;
+    perceivedDifficulty?: CompletionLog["perceivedDifficulty"];
+  }) => Promise<void>;
+  exportToJson: () => Promise<string>;
+  importFromJson: (rawJson: string) => Promise<void>;
+  selectStudyBlock: (id: string | null) => void;
+}
+
+function deriveTopicStatus(topic: Topic) {
+  const completionRatio = topic.completedHours / Math.max(topic.estHours, 0.25);
+  if (completionRatio >= 1 && topic.mastery >= 4) {
+    return "strong";
+  }
+
+  if (completionRatio >= 1) {
+    return "reviewed";
+  }
+
+  if (completionRatio >= 0.7) {
+    return "first_pass_done";
+  }
+
+  if (completionRatio > 0) {
+    return "learning";
+  }
+
+  return "not_started";
+}
+
+async function recalculateCurrentWeek() {
+  const snapshot = await loadPlannerSnapshot();
+  const planningStartWeek = startOfPlannerWeek(new Date());
+  const replanned = generateStudyPlanHorizon({
+    startWeek: planningStartWeek,
+    goals: snapshot.goals,
+    subjects: snapshot.subjects,
+    topics: snapshot.topics,
+    fixedEvents: snapshot.fixedEvents,
+    preferences: snapshot.preferences,
+    existingStudyBlocks: snapshot.studyBlocks,
+  });
+
+  await replacePlanningHorizon(
+    replanned.studyBlocks,
+    replanned.weeklyPlans,
+    toDateKey(planningStartWeek),
+  );
+  return loadPlannerSnapshot();
+}
+
+export const usePlannerStore = create<PlannerState>((set, get) => ({
+  initialized: false,
+  loading: false,
+  error: null,
+  currentWeekStart: getCurrentWeekKey(),
+  goals: [],
+  subjects: [],
+  topics: [],
+  fixedEvents: [],
+  studyBlocks: [],
+  completionLogs: [],
+  weeklyPlans: [],
+  preferences: null,
+  selectedStudyBlockId: null,
+  initialize: async () => {
+    if (get().loading) {
+      return;
+    }
+
+    set({ loading: true, error: null });
+
+    try {
+      const snapshot = await initializePlannerDatabase();
+      set({
+        ...snapshot,
+        currentWeekStart: getCurrentWeekKey(),
+        initialized: true,
+        loading: false,
+      });
+    } catch (error) {
+      set({
+        loading: false,
+        error: error instanceof Error ? error.message : "Failed to initialize planner.",
+      });
+    }
+  },
+  refresh: async () => {
+    set({ loading: true, error: null });
+
+    try {
+      const snapshot = await loadPlannerSnapshot();
+      set({
+        ...snapshot,
+        loading: false,
+      });
+    } catch (error) {
+      set({
+        loading: false,
+        error: error instanceof Error ? error.message : "Failed to refresh planner state.",
+      });
+    }
+  },
+  setCurrentWeekStart: (weekStart) => {
+    set({
+      currentWeekStart: toDateKey(startOfPlannerWeek(fromDateKey(weekStart))),
+    });
+  },
+  regenerateHorizon: async () => {
+    set({ loading: true, error: null });
+
+    try {
+      const snapshot = await recalculateCurrentWeek();
+      set({
+        ...snapshot,
+        loading: false,
+      });
+    } catch (error) {
+      set({
+        loading: false,
+        error: error instanceof Error ? error.message : "Failed to regenerate the study plan.",
+      });
+    }
+  },
+  saveFixedEvent: async (event) => {
+    await saveFixedEvent(event);
+    await get().regenerateHorizon();
+    get().setCurrentWeekStart(toDateKey(new Date(event.start)));
+  },
+  deleteFixedEvent: async (id) => {
+    await deleteFixedEventById(id);
+    await get().regenerateHorizon();
+  },
+  updatePreferences: async (patch) => {
+    const current = get().preferences;
+    if (!current) {
+      return;
+    }
+
+    const nextPreferences: Preferences = {
+      ...current,
+      ...patch,
+      dailyStudyWindow: {
+        ...current.dailyStudyWindow,
+        ...patch.dailyStudyWindow,
+      },
+      subjectWeightOverrides: {
+        ...current.subjectWeightOverrides,
+        ...patch.subjectWeightOverrides,
+      },
+      schoolSchedule: {
+        ...current.schoolSchedule,
+        ...patch.schoolSchedule,
+        terms: patch.schoolSchedule?.terms ?? current.schoolSchedule.terms,
+        weekdays: patch.schoolSchedule?.weekdays ?? current.schoolSchedule.weekdays,
+      },
+      holidaySchedule: {
+        ...current.holidaySchedule,
+        ...patch.holidaySchedule,
+        dailyStudyWindow: {
+          ...current.holidaySchedule.dailyStudyWindow,
+          ...patch.holidaySchedule?.dailyStudyWindow,
+        },
+        preferredDeepWorkWindows:
+          patch.holidaySchedule?.preferredDeepWorkWindows ??
+          current.holidaySchedule.preferredDeepWorkWindows,
+      },
+    };
+
+    await savePreferences(nextPreferences);
+    await get().regenerateHorizon();
+  },
+  updateStudyBlockStatus: async ({
+    blockId,
+    status,
+    actualMinutes,
+    notes = "",
+    perceivedDifficulty = 3,
+  }) => {
+    const snapshot = await loadPlannerSnapshot();
+    const block = snapshot.studyBlocks.find((candidate) => candidate.id === blockId);
+
+    if (!block) {
+      return;
+    }
+
+    const nextActualMinutes = actualMinutes ?? block.estimatedMinutes;
+    const updatedBlock: StudyBlock = {
+      ...block,
+      status,
+      actualMinutes: nextActualMinutes,
+      notes,
+    };
+
+    await updateStudyBlock(updatedBlock);
+
+    if (status === "done" || status === "partial" || status === "missed") {
+      const completionLog: CompletionLog = {
+        id: createId("log"),
+        studyBlockId: block.id,
+        outcome: status,
+        actualMinutes: status === "missed" ? 0 : nextActualMinutes,
+        perceivedDifficulty,
+        notes,
+        recordedAt: new Date().toISOString(),
+      };
+      await saveCompletionLog(completionLog);
+    }
+
+    if (block.topicId) {
+      const topic = snapshot.topics.find((candidate) => candidate.id === block.topicId);
+      if (topic) {
+        const completedHoursDelta =
+          status === "done"
+            ? nextActualMinutes / 60
+            : status === "partial"
+              ? nextActualMinutes / 60
+              : 0;
+        const nextMastery =
+          status === "done"
+            ? Math.min(5, topic.mastery + 1)
+            : status === "partial"
+              ? Math.min(5, topic.mastery + 0.5)
+              : Math.max(0, topic.mastery - 0.25);
+        const nextTopic: Topic = {
+          ...topic,
+          completedHours: Math.min(topic.estHours, topic.completedHours + completedHoursDelta),
+          mastery: nextMastery,
+          lastStudiedAt: new Date().toISOString(),
+        };
+        nextTopic.status = deriveTopicStatus(nextTopic);
+        await updateTopic(nextTopic);
+      }
+    }
+
+    await get().regenerateHorizon();
+    get().setCurrentWeekStart(block.weekStart);
+  },
+  exportToJson: async () => {
+    const payload = await exportPlannerData();
+    return JSON.stringify(payload, null, 2);
+  },
+  importFromJson: async (rawJson) => {
+    set({ loading: true, error: null });
+
+    try {
+      const snapshot = await importPlannerData(rawJson);
+      set({
+        ...snapshot,
+        currentWeekStart: getCurrentWeekKey(),
+        loading: false,
+      });
+    } catch (error) {
+      set({
+        loading: false,
+        error: error instanceof Error ? error.message : "Failed to import planner data.",
+      });
+    }
+  },
+  selectStudyBlock: (id) => {
+    set({ selectedStudyBlockId: id });
+  },
+}));

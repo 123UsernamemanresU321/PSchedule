@@ -1,0 +1,11 @@
+.next
+.next-dev
+.next-build
+.next-pages
+node_modules
+out
+dist
+coverage
+.DS_Store
+*.tsbuildinfo
+tmp
