@@ -72,6 +72,61 @@ function cloneTasks(tasks: TaskCandidate[]) {
   return tasks.map((task) => ({ ...task }));
 }
 
+function buildDailyTargetMinutes(options: {
+  freeSlots: CalendarSlot[];
+  effectiveCapacityMinutes: number;
+  dailyCapBoostMinutes: number;
+}) {
+  const dayCapacityByDate = options.freeSlots.reduce<Record<string, number>>((accumulator, slot) => {
+    const dailyCap = slot.dayStudyCapMinutes + options.dailyCapBoostMinutes;
+    accumulator[slot.dateKey] = Math.min(
+      dailyCap,
+      (accumulator[slot.dateKey] ?? 0) + slot.durationMinutes,
+    );
+    return accumulator;
+  }, {});
+
+  const dayKeys = Object.keys(dayCapacityByDate).sort();
+  const totalDayCapacity = sum(Object.values(dayCapacityByDate));
+
+  if (!dayKeys.length || totalDayCapacity <= 0 || options.effectiveCapacityMinutes <= 0) {
+    return {} as Record<string, number>;
+  }
+
+  const targets = dayKeys.reduce<Record<string, number>>((accumulator, dayKey) => {
+    const rawShare =
+      (options.effectiveCapacityMinutes * dayCapacityByDate[dayKey]) / totalDayCapacity;
+    accumulator[dayKey] = Math.min(
+      dayCapacityByDate[dayKey],
+      Math.max(0, Math.floor(rawShare / 15) * 15),
+    );
+    return accumulator;
+  }, {});
+
+  let assignedTargetMinutes = sum(Object.values(targets));
+  let remainingTargetMinutes = Math.max(0, options.effectiveCapacityMinutes - assignedTargetMinutes);
+
+  while (remainingTargetMinutes >= 15) {
+    const nextDay = dayKeys
+      .filter((dayKey) => targets[dayKey] + 15 <= dayCapacityByDate[dayKey])
+      .sort((left, right) => {
+        const leftRemaining = dayCapacityByDate[left] - targets[left];
+        const rightRemaining = dayCapacityByDate[right] - targets[right];
+        return rightRemaining - leftRemaining;
+      })[0];
+
+    if (!nextDay) {
+      break;
+    }
+
+    targets[nextDay] += 15;
+    remainingTargetMinutes -= 15;
+    assignedTargetMinutes += 15;
+  }
+
+  return targets;
+}
+
 function createStudyBlockFromTask(options: {
   task: TaskCandidate;
   weekStart: string;
@@ -194,14 +249,39 @@ function allocateTasksToSlots(options: {
   const effectiveCapacityMinutes = needsIntensityRamp
     ? Math.min(totalFreeSlotMinutes, requiredMinutes)
     : bufferedCapacityMinutes;
+  const dailyCapBoostMinutes = options.dailyCapBoostMinutes ?? 0;
   const maxHeavySessionsPerDay =
     options.preferences.maxHeavySessionsPerDay + (needsIntensityRamp ? 1 : 0);
+  const dailyTargetMinutes = buildDailyTargetMinutes({
+    freeSlots: options.freeSlots,
+    effectiveCapacityMinutes,
+    dailyCapBoostMinutes,
+  });
   let consumedMinutes = 0;
   const workingTasks = cloneTasks(options.tasks);
   const scheduledBlocks: StudyBlock[] = [];
 
+  function shouldHoldCapacityForLaterDays(dateKey: string) {
+    const targetForToday = dailyTargetMinutes[dateKey] ?? 0;
+    const usedToday = dailyMinutes[dateKey] ?? 0;
+
+    if (targetForToday <= 0 || usedToday < targetForToday) {
+      return false;
+    }
+
+    return Object.entries(dailyTargetMinutes).some(
+      ([candidateDateKey, candidateTarget]) =>
+        candidateDateKey > dateKey &&
+        (dailyMinutes[candidateDateKey] ?? 0) + 15 <= candidateTarget,
+    );
+  }
+
   options.freeSlots.forEach((slot) => {
     if (consumedMinutes >= effectiveCapacityMinutes) {
+      return;
+    }
+
+    if (shouldHoldCapacityForLaterDays(slot.dateKey)) {
       return;
     }
 
@@ -214,6 +294,10 @@ function allocateTasksToSlots(options: {
       const availableToday = dailyBudget - usedToday;
 
       if (availableToday < 20) {
+        break;
+      }
+
+      if (shouldHoldCapacityForLaterDays(slot.dateKey)) {
         break;
       }
 
@@ -464,12 +548,12 @@ export function generateStudyPlanForWeek(options: {
     topics: options.topics,
     preferences: options.preferences,
     lockedBlocks,
-    priorPlannedBlocks: existingPlannedBlocks,
-    requiredHoursBySubject,
-    dailyCapBoostMinutes: Math.max(
-      options.dailyCapBoostMinutes ?? 0,
-      automaticDailyCapBoostMinutes,
-    ),
+      priorPlannedBlocks: existingPlannedBlocks,
+      requiredHoursBySubject,
+      dailyCapBoostMinutes: Math.max(
+        options.dailyCapBoostMinutes ?? 0,
+        automaticDailyCapBoostMinutes,
+      ),
   });
   const studyBlocks = [...lockedBlocks, ...scheduledBlocks].sort(
     (left, right) => new Date(left.start).getTime() - new Date(right.start).getTime(),
