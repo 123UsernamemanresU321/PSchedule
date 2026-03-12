@@ -40,8 +40,14 @@ export function buildTaskCandidates(options: {
   topics: Topic[];
   existingPlannedBlocks?: StudyBlock[];
   referenceDate?: Date;
+  subjectDeadlinesById?: Record<string, string>;
 }) {
-  const { topics, existingPlannedBlocks = [], referenceDate = new Date() } = options;
+  const {
+    topics,
+    existingPlannedBlocks = [],
+    referenceDate = new Date(),
+    subjectDeadlinesById = {},
+  } = options;
   const weekEnd = addDays(endOfPlannerWeek(referenceDate), 3);
   const activeTopicsBySubject = topics.reduce<Record<string, Topic[]>>((accumulator, topic) => {
     const remainingMinutes = Math.max(
@@ -116,7 +122,10 @@ export function buildTaskCandidates(options: {
         order: topic.order,
         blockedByEarlierTopics: blockedByEarlierTopicsById[topic.id] ?? 0,
         reviewDue: topic.reviewDue,
-        deadline: topic.reviewDue ?? new Date(referenceDate).toISOString().slice(0, 10),
+        deadline:
+          topic.reviewDue ??
+          subjectDeadlinesById[topic.subjectId] ??
+          new Date(referenceDate).toISOString().slice(0, 10),
         lastStudiedAt: topic.lastStudiedAt,
         preferredBlockTypes: topic.preferredBlockTypes,
         intensity: inferIntensity(topic),

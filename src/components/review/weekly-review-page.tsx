@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCarryOverBlocks, getWeekBlocks, getWeeklyPlan } from "@/lib/analytics/metrics";
+import { mainSubjectIds } from "@/lib/constants/planner";
 import { formatWeekRangeLabel, fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import { projectSubjectCompletion } from "@/lib/scheduler/feasibility";
 import { usePlannerStore } from "@/lib/store/planner-store";
@@ -37,9 +38,7 @@ export function WeeklyReviewPage() {
   const weekBlocks = getWeekBlocks(studyBlocks, currentWeekStart);
   const carryOverBlocks = getCarryOverBlocks(weekBlocks);
   const chartData = subjects
-    .filter((subject) =>
-      ["physics-hl", "maths-aa-hl", "chemistry-hl", "olympiad"].includes(subject.id),
-    )
+    .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
     .map((subject) => ({
       subjectId: subject.id,
       name: subject.shortName.replace(" HL", ""),
@@ -169,9 +168,7 @@ export function WeeklyReviewPage() {
 
           <div className="grid gap-4 xl:grid-cols-4 md:grid-cols-2">
             {subjects
-              .filter((subject) =>
-                ["physics-hl", "maths-aa-hl", "chemistry-hl", "olympiad"].includes(subject.id),
-              )
+              .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
               .map((subject) => {
                 const projection = projectSubjectCompletion({
                   subject,

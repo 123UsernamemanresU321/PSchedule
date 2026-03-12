@@ -5,6 +5,7 @@ const subjectTokenMap: Record<string, string> = {
   "maths-aa-hl": "subject-maths",
   "chemistry-hl": "subject-chemistry",
   olympiad: "subject-olympiad",
+  "cpp-book": "subject-programming",
   "english-a-sl": "subject-english",
   "french-b-sl": "subject-french",
   "geography-transition": "subject-geography",

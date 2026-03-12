@@ -61,6 +61,20 @@ export function buildSeedSubjects(referenceDate = new Date()): Subject[] {
       deadline: olympiadGoldDeadline,
     },
     {
+      id: "cpp-book",
+      name: "Programming: Principles and Practice Using C++",
+      shortName: "C++ Book",
+      category: "programming",
+      description:
+        "Chapter-by-chapter completion of Stroustrup's Programming: Principles and Practice Using C++ (3rd edition), with time for drills and coded examples.",
+      defaultPriority: 0.45,
+      weeklyMinimumHours: 2.5,
+      examMode: "syllabus",
+      colorToken: "subject-programming",
+      gradientClassName: "from-subject-programming/25 via-subject-programming/10 to-transparent",
+      deadline,
+    },
+    {
       id: "english-a-sl",
       name: "English A SL",
       shortName: "English A",
@@ -147,6 +161,14 @@ export function buildSeedGoals(referenceDate = new Date()): Goal[] {
       deadline: olympiadGoldDeadline,
       targetCompletion: 1,
       priorityWeight: 0.9,
+    },
+    {
+      id: "goal-cpp-book",
+      title: "Finish Programming: Principles and Practice Using C++ (Ch. 0-21) by July 31",
+      subjectId: "cpp-book",
+      deadline,
+      targetCompletion: 1,
+      priorityWeight: 0.45,
     },
   ];
 }

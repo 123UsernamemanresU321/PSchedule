@@ -98,21 +98,19 @@ export function computeSubjectDeadlineTracks(options: {
       Math.max(targetHours - progress.completed - plannedTowardTargetHours, 0),
     );
     const baselineWeeklyHours = targetRemainingHours > 0 ? targetRemainingHours / weeksRemaining : 0;
-    const urgencyMultiplier = weeksRemaining <= 4 ? 1.2 : weeksRemaining <= 8 ? 1.1 : 1;
-    const priorityMultiplier = Math.max(
-      1,
-      0.94 + Math.max(subject.defaultPriority, activeGoal?.priorityWeight ?? subject.defaultPriority) * 0.2,
-    );
+    const hasExplicitGoal = Boolean(activeGoal);
+    const roundedBaselineWeeklyHours =
+      baselineWeeklyHours <= 0
+        ? 0
+        : Math.max(0.5, Math.ceil(baselineWeeklyHours * 2) / 2);
+    const minimumGuidanceHours =
+      hasExplicitGoal && subject.examMode !== "maintenance" ? 0 : subject.weeklyMinimumHours;
     const recommendedWeeklyHours =
       targetRemainingHours <= 0
         ? 0
         : Math.min(
             targetRemainingHours,
-            Math.max(
-              subject.weeklyMinimumHours,
-              baselineWeeklyHours,
-              baselineWeeklyHours * urgencyMultiplier * priorityMultiplier,
-            ),
+            Math.max(roundedBaselineWeeklyHours, minimumGuidanceHours),
           );
 
     accumulator[subject.id] = {

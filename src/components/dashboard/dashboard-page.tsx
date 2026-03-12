@@ -28,6 +28,7 @@ import {
   getWeekBlocks,
   getWeeklyPlan,
 } from "@/lib/analytics/metrics";
+import { mainSubjectIds } from "@/lib/constants/planner";
 import { usePlannerStore } from "@/lib/store/planner-store";
 
 export function DashboardPage() {
@@ -48,9 +49,7 @@ export function DashboardPage() {
   const urgentTopics = getUrgentTopics(topics, subjects).slice(0, 3);
   const roadmapSummary = getHorizonRoadmapSummary(weeklyPlans, topics, currentWeekStart);
   const subjectProgress = subjects
-    .filter((subject) =>
-      ["physics-hl", "maths-aa-hl", "chemistry-hl", "olympiad"].includes(subject.id),
-    )
+    .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
     .map((subject) => getSubjectProgress(subject, topics));
 
   const chartData = subjectProgress.map((progress) => ({

@@ -4,7 +4,7 @@ import { subjectIds } from "@/lib/constants/planner";
 import {
   buildUnconfiguredWeeklyPlan,
   buildWeeklyPlan,
-  computeWeeklyRequiredHours,
+  computeSubjectDeadlineTracks,
 } from "@/lib/scheduler/feasibility";
 import { calculateFreeSlots } from "@/lib/scheduler/free-slots";
 import { scoreTaskCandidate, buildGeneratedReason } from "@/lib/scheduler/scoring";
@@ -119,17 +119,16 @@ function allocateTasksToSlots(options: {
   preferences: Preferences;
   lockedBlocks: StudyBlock[];
   priorPlannedBlocks?: StudyBlock[];
+  requiredHoursBySubject?: Record<string, number>;
   dailyCapBoostMinutes?: number;
 }) {
   const weekStartKey = toDateKey(options.weekStart);
   const subjectMap = new Map(options.subjects.map((subject) => [subject.id, subject]));
-  const requiredHoursBySubject = computeWeeklyRequiredHours({
-    subjects: options.subjects,
-    goals: options.goals,
-    topics: options.topics,
-    referenceDate: options.referenceDate,
-    priorPlannedBlocks: options.priorPlannedBlocks,
-  });
+  const requiredHoursBySubject =
+    options.requiredHoursBySubject ??
+    Object.fromEntries(
+      options.subjects.map((subject) => [subject.id, 0]),
+    );
   const requiredMinutesBySubject = Object.fromEntries(
     Object.entries(requiredHoursBySubject).map(([key, value]) => [key, Math.round(value * 60)]),
   );
@@ -186,9 +185,17 @@ function allocateTasksToSlots(options: {
     }
   });
 
-  const effectiveCapacityMinutes = Math.round(
-    sum(options.freeSlots.map((slot) => slot.durationMinutes)) * (1 - options.preferences.weeklyBufferRatio),
+  const totalFreeSlotMinutes = Math.round(sum(options.freeSlots.map((slot) => slot.durationMinutes)));
+  const bufferedCapacityMinutes = Math.round(
+    totalFreeSlotMinutes * (1 - options.preferences.weeklyBufferRatio),
   );
+  const requiredMinutes = sum(Object.values(requiredMinutesBySubject));
+  const needsIntensityRamp = requiredMinutes > bufferedCapacityMinutes;
+  const effectiveCapacityMinutes = needsIntensityRamp
+    ? Math.min(totalFreeSlotMinutes, requiredMinutes)
+    : bufferedCapacityMinutes;
+  const maxHeavySessionsPerDay =
+    options.preferences.maxHeavySessionsPerDay + (needsIntensityRamp ? 1 : 0);
   let consumedMinutes = 0;
   const workingTasks = cloneTasks(options.tasks);
   const scheduledBlocks: StudyBlock[] = [];
@@ -228,7 +235,7 @@ function allocateTasksToSlots(options: {
 
           if (
             blockOption.intensity === "heavy" &&
-            (heavyBlocksPerDay[slot.dateKey] ?? 0) >= options.preferences.maxHeavySessionsPerDay
+            (heavyBlocksPerDay[slot.dateKey] ?? 0) >= maxHeavySessionsPerDay
           ) {
             return null;
           }
@@ -259,12 +266,41 @@ function allocateTasksToSlots(options: {
 
       const winner = scoredOptions[0];
       const allTargetsMet = allWeeklyTargetsSatisfied();
+      const shouldProtectRecovery = !needsIntensityRamp || allTargetsMet;
 
-      if (!winner || (winner.scoreBreakdown.total < 8 && (slotSlice.energy === "low" || allTargetsMet))) {
+      if (!winner) {
         if (
+          shouldProtectRecovery &&
           canInsertRecoveryBlock(slotSlice, usedToday, dailyBudget) &&
           (slotSlice.energy === "low" || allTargetsMet)
         ) {
+          const recoveryDuration = clamp(Math.min(30, remainingSlotMinutes), 20, 30);
+          const recoverySlot = {
+            ...slotSlice,
+            end: addMinutes(cursor, recoveryDuration),
+            durationMinutes: recoveryDuration,
+          };
+          const recoveryBlock = buildRecoveryBlock(recoverySlot, weekStartKey);
+          scheduledBlocks.push(recoveryBlock);
+          dailyMinutes[slot.dateKey] = (dailyMinutes[slot.dateKey] ?? 0) + recoveryDuration;
+          cursor = addMinutes(cursor, recoveryDuration + options.preferences.minBreakMinutes);
+          remainingSlotMinutes = Math.max(
+            0,
+            remainingSlotMinutes - recoveryDuration - options.preferences.minBreakMinutes,
+          );
+          consumedMinutes += recoveryDuration;
+          continue;
+        }
+
+        break;
+      }
+
+      if (
+        winner.scoreBreakdown.total < 8 &&
+        shouldProtectRecovery &&
+        (slotSlice.energy === "low" || allTargetsMet)
+      ) {
+        if (canInsertRecoveryBlock(slotSlice, usedToday, dailyBudget)) {
           const recoveryDuration = clamp(Math.min(30, remainingSlotMinutes), 20, 30);
           const recoverySlot = {
             ...slotSlice,
@@ -344,6 +380,25 @@ export function generateStudyPlanForWeek(options: {
   const lockedBlocks = options.lockedBlocks ?? [];
   const weekStartKey = toDateKey(weekStart);
   const existingPlannedBlocks = options.existingPlannedBlocks ?? lockedBlocks;
+  const deadlineTracks = computeSubjectDeadlineTracks({
+    subjects: options.subjects,
+    goals: options.goals,
+    topics: options.topics,
+    referenceDate,
+    priorPlannedBlocks: existingPlannedBlocks,
+  });
+  const requiredHoursBySubject = Object.fromEntries(
+    options.subjects.map((subject) => [
+      subject.id,
+      deadlineTracks[subject.id]?.recommendedWeeklyHours ?? 0,
+    ]),
+  );
+  const subjectDeadlinesById = Object.fromEntries(
+    options.subjects.map((subject) => [
+      subject.id,
+      deadlineTracks[subject.id]?.deadline ?? subject.deadline,
+    ]),
+  );
   const hasAvailabilityConstraints =
     options.fixedEvents.length > 0 ||
     options.preferences.schoolSchedule.enabled ||
@@ -369,6 +424,7 @@ export function generateStudyPlanForWeek(options: {
         topics: options.topics,
         existingPlannedBlocks,
         referenceDate,
+        subjectDeadlinesById,
       }),
     };
   }
@@ -380,10 +436,23 @@ export function generateStudyPlanForWeek(options: {
     blockedStudyBlocks: lockedBlocks,
     planningStart: referenceDate,
   });
+  const requiredMinutes = sum(Object.values(requiredHoursBySubject).map((value) => value * 60));
+  const totalFreeSlotMinutes = sum(freeSlots.map((slot) => slot.durationMinutes));
+  const bufferedCapacityMinutes = totalFreeSlotMinutes * (1 - options.preferences.weeklyBufferRatio);
+  const activeDayCount = new Set(freeSlots.map((slot) => slot.dateKey)).size;
+  const automaticDailyCapBoostMinutes =
+    activeDayCount > 0
+      ? clamp(
+          Math.ceil(Math.max(0, requiredMinutes - bufferedCapacityMinutes) / activeDayCount / 15) * 15,
+          0,
+          120,
+        )
+      : 0;
   const tasks = buildTaskCandidates({
     topics: options.topics,
     existingPlannedBlocks,
     referenceDate,
+    subjectDeadlinesById,
   });
   const { scheduledBlocks, unscheduledTasks } = allocateTasksToSlots({
     weekStart,
@@ -396,7 +465,11 @@ export function generateStudyPlanForWeek(options: {
     preferences: options.preferences,
     lockedBlocks,
     priorPlannedBlocks: existingPlannedBlocks,
-    dailyCapBoostMinutes: options.dailyCapBoostMinutes,
+    requiredHoursBySubject,
+    dailyCapBoostMinutes: Math.max(
+      options.dailyCapBoostMinutes ?? 0,
+      automaticDailyCapBoostMinutes,
+    ),
   });
   const studyBlocks = [...lockedBlocks, ...scheduledBlocks].sort(
     (left, right) => new Date(left.start).getTime() - new Date(right.start).getTime(),

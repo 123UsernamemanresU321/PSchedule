@@ -3,6 +3,7 @@ export const subjectIds = [
   "maths-aa-hl",
   "chemistry-hl",
   "olympiad",
+  "cpp-book",
   "english-a-sl",
   "french-b-sl",
   "geography-transition",
@@ -13,6 +14,7 @@ export const mainSubjectIds = [
   "maths-aa-hl",
   "chemistry-hl",
   "olympiad",
+  "cpp-book",
 ] as const;
 
 export const topicStatusValues = [
@@ -139,6 +141,7 @@ export const subjectPrioritySeed: Record<string, number> = {
   "physics-hl": 1,
   "chemistry-hl": 0.9,
   olympiad: 0.85,
+  "cpp-book": 0.45,
   "english-a-sl": 0.35,
   "french-b-sl": 0.35,
   "geography-transition": 0.4,

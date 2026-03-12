@@ -42,6 +42,7 @@ const config: Config = {
           maths: "hsl(var(--subject-maths))",
           chemistry: "hsl(var(--subject-chemistry))",
           olympiad: "hsl(var(--subject-olympiad))",
+          programming: "hsl(var(--subject-programming))",
           english: "hsl(var(--subject-english))",
           french: "hsl(var(--subject-french))",
           geography: "hsl(var(--subject-geography))",

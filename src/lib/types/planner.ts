@@ -28,6 +28,7 @@ export type SubjectCategory =
   | "maths"
   | "chemistry"
   | "olympiad"
+  | "programming"
   | "english"
   | "french"
   | "geography";

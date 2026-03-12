@@ -20,6 +20,7 @@ import type {
 } from "@/lib/types/planner";
 
 const PLANNING_MODEL_VERSION = "2026-03-11-holiday-horizon-v1";
+const CPP_BOOK_SUBJECT_ID = "cpp-book";
 
 function normalizeFixedEvent(event: PlannerExportPayload["fixedEvents"][number]) {
   return {
@@ -226,6 +227,52 @@ async function migrateLegacySeededSyllabus(snapshot: PlannerSnapshot, referenceD
   return ensureCurrentWeekPlan(migratedSnapshot, referenceDate);
 }
 
+async function migrateCppBookGoal(snapshot: PlannerSnapshot, referenceDate: Date) {
+  const seedDataset = buildSeedDataset(referenceDate);
+  const seededSubject = seedDataset.subjects.find((subject) => subject.id === CPP_BOOK_SUBJECT_ID);
+  const seededGoals = seedDataset.goals.filter((goal) => goal.subjectId === CPP_BOOK_SUBJECT_ID);
+  const seededTopics = seedDataset.topics.filter((topic) => topic.subjectId === CPP_BOOK_SUBJECT_ID);
+
+  if (!seededSubject || !seededGoals.length || !seededTopics.length) {
+    return snapshot;
+  }
+
+  const hasSubject = snapshot.subjects.some((subject) => subject.id === CPP_BOOK_SUBJECT_ID);
+  const missingGoals = seededGoals.filter(
+    (goal) => !snapshot.goals.some((candidate) => candidate.id === goal.id),
+  );
+  const missingTopics = seededTopics.filter(
+    (topic) => !snapshot.topics.some((candidate) => candidate.id === topic.id),
+  );
+
+  if (hasSubject && !missingGoals.length && !missingTopics.length) {
+    return snapshot;
+  }
+
+  await db.transaction(
+    "rw",
+    [db.subjects, db.goals, db.topics, db.preferences],
+    async () => {
+      if (!hasSubject) {
+        await db.subjects.put(seededSubject);
+      }
+
+      if (missingGoals.length) {
+        await db.goals.bulkPut(missingGoals);
+      }
+
+      if (missingTopics.length) {
+        await db.topics.bulkPut(missingTopics);
+      }
+
+      await db.preferences.put(normalizePreferences(snapshot.preferences));
+    },
+  );
+
+  const migratedSnapshot = await loadPlannerSnapshot();
+  return refreshPlanningModel(migratedSnapshot, referenceDate);
+}
+
 async function writeSeedDataset(seed: SeedDataset) {
   await db.transaction(
     "rw",
@@ -296,6 +343,7 @@ export async function initializePlannerDatabase(referenceDate = new Date()) {
   let snapshot = await loadPlannerSnapshot();
   snapshot = await migrateLegacySeededFixedEvents(snapshot, referenceDate);
   snapshot = await migrateLegacySeededSyllabus(snapshot, referenceDate);
+  snapshot = await migrateCppBookGoal(snapshot, referenceDate);
   const planningModelVersion = await db.meta.get("planning-model-version");
   if (planningModelVersion?.value !== PLANNING_MODEL_VERSION) {
     snapshot = await refreshPlanningModel(snapshot, referenceDate);
