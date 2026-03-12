@@ -164,6 +164,7 @@ export function PlannerCalendar({
         key={weekStart}
         plugins={[timeGridPlugin, interactionPlugin]}
         initialView="timeGridWeek"
+        firstDay={1}
         allDaySlot
         selectable
         editable={false}

@@ -566,8 +566,8 @@ function buildAutomaticDailyCapBoost(options: {
     : 0;
 }
 
-function buildAllocationPasses(baseDailyCapBoostMinutes: number): AllocationPassPolicy[] {
-  return [
+function buildAllocationPasses(baseDailyCapBoostMinutes: number, options?: { partialCurrentWeek?: boolean }): AllocationPassPolicy[] {
+  const passes: AllocationPassPolicy[] = [
     {
       protectRecovery: true,
       skipMovableRecovery: false,
@@ -600,6 +600,12 @@ function buildAllocationPasses(baseDailyCapBoostMinutes: number): AllocationPass
       countAsForcedCoverage: true,
     },
   ];
+
+  if (options?.partialCurrentWeek) {
+    return passes.slice(0, 1);
+  }
+
+  return passes;
 }
 
 export function generateStudyPlanForWeek(options: {
@@ -617,6 +623,7 @@ export function generateStudyPlanForWeek(options: {
   const weekStart = startOfPlannerWeek(options.weekStart ?? new Date());
   const referenceDate = getPlannerReferenceDate(weekStart);
   const horizonStartDate = options.horizonStartDate ?? getPlannerReferenceDate(startOfPlannerWeek(new Date()));
+  const isPartialCurrentWeek = toDateKey(referenceDate) !== toDateKey(weekStart);
   const lockedBlocks = options.lockedBlocks ?? [];
   const weekStartKey = toDateKey(weekStart);
   const existingPlannedBlocks = options.existingPlannedBlocks ?? lockedBlocks;
@@ -682,6 +689,7 @@ export function generateStudyPlanForWeek(options: {
   });
   const passPolicies = buildAllocationPasses(
     Math.max(options.dailyCapBoostMinutes ?? 0, automaticDailyCapBoostMinutes),
+    { partialCurrentWeek: isPartialCurrentWeek },
   );
   const scheduledBlocks: StudyBlock[] = [];
   let usedSundayMinutes = 0;
