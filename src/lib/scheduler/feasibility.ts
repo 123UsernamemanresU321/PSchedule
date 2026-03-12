@@ -94,6 +94,7 @@ export function computeSubjectDeadlineTracks(options: {
   topics: Topic[];
   referenceDate: Date;
   horizonStartDate?: Date;
+  weekStartDate?: Date;
   weekEndDate?: Date;
   priorPlannedBlocks?: StudyBlock[];
 }) {
@@ -101,6 +102,7 @@ export function computeSubjectDeadlineTracks(options: {
   const topicHoursBySubject = computeTopicHoursBySubject(options.topics);
   const plannedMinutesByTopic = computePlannedMinutesByTopic(options.priorPlannedBlocks);
   const horizonStartDate = options.horizonStartDate ?? options.referenceDate;
+  const weekStartDate = options.weekStartDate ?? options.referenceDate;
   const weekEndDate = options.weekEndDate ?? endOfPlannerWeek(options.referenceDate);
 
   return options.subjects.reduce<
@@ -142,6 +144,8 @@ export function computeSubjectDeadlineTracks(options: {
     const targetRemainingHours = roundToTenth(Math.max(targetHours - scheduledToGoalHours, 0));
     const totalPlanningDays = Math.max(differenceInCalendarDays(deadline, horizonStartDate) + 1, 1);
     const cumulativeWindowEnd = minDate([deadline, weekEndDate]);
+    const effectiveWeekStart =
+      weekStartDate > horizonStartDate ? weekStartDate : horizonStartDate;
     const coveredPlanningDays =
       cumulativeWindowEnd < horizonStartDate
         ? 0
@@ -150,6 +154,14 @@ export function computeSubjectDeadlineTracks(options: {
             0,
             totalPlanningDays,
           );
+    const remainingPlanningDaysFromWeek =
+      deadline < effectiveWeekStart
+        ? 0
+        : Math.max(differenceInCalendarDays(deadline, effectiveWeekStart) + 1, 1);
+    const weekPlanningDays =
+      cumulativeWindowEnd < effectiveWeekStart
+        ? 0
+        : Math.max(differenceInCalendarDays(cumulativeWindowEnd, effectiveWeekStart) + 1, 0);
     const cumulativeTargetHoursByWeekEnd =
       totalRemainingTargetHours > 0
         ? roundToTenth((totalRemainingTargetHours * coveredPlanningDays) / totalPlanningDays)
@@ -160,15 +172,20 @@ export function computeSubjectDeadlineTracks(options: {
     const minimumGuidanceHours =
       hasExplicitGoal && subject.examMode !== "maintenance" ? 0 : subject.weeklyMinimumHours;
     const cumulativeGapHours = Math.max(cumulativeTargetHoursByWeekEnd - plannedTowardTargetHours, 0);
+    const evenWeekShareHours =
+      targetRemainingHours > 0 && remainingPlanningDaysFromWeek > 0
+        ? roundToTenth((targetRemainingHours * weekPlanningDays) / remainingPlanningDaysFromWeek)
+        : 0;
     const recommendedWeeklyHours =
       totalRemainingTargetHours <= 0
         ? 0
         : Math.min(
-            totalRemainingTargetHours,
+            targetRemainingHours,
             Math.max(
+              evenWeekShareHours,
               cumulativeGapHours,
               minimumGuidanceHours > 0
-                ? Math.min(minimumGuidanceHours, totalRemainingTargetHours)
+                ? Math.min(minimumGuidanceHours, targetRemainingHours)
                 : 0,
             ),
           );
@@ -234,6 +251,7 @@ export function buildWeeklyPlan(options: {
     topics: options.topics,
     referenceDate: options.referenceDate,
     horizonStartDate: options.horizonStartDate,
+    weekStartDate: new Date(`${options.weekStart}T00:00:00`),
     weekEndDate,
     priorPlannedBlocks: options.cumulativePlannedBlocks ?? options.priorPlannedBlocks,
   });

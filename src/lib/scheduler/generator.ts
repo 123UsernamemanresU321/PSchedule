@@ -633,6 +633,7 @@ export function generateStudyPlanForWeek(options: {
     topics: options.topics,
     referenceDate,
     horizonStartDate,
+    weekStartDate: weekStart,
     weekEndDate: addDays(weekStart, 6),
     priorPlannedBlocks: existingPlannedBlocks,
   });
