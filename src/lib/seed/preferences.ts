@@ -38,7 +38,7 @@ export function buildSeedPreferences(): Preferences {
       },
       {
         label: "Sunday recovery",
-        start: "18:00",
+        start: "20:00",
         end: "22:00",
         days: [0],
         movable: false,

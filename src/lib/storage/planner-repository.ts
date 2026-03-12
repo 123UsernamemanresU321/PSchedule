@@ -19,8 +19,33 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-12-full-capacity-holiday-v3";
+const PLANNING_MODEL_VERSION = "2026-03-12-full-capacity-holiday-v4";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
+
+function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreferences: Preferences) {
+  const fallbackWindows = seedPreferences.lockedRecoveryWindows;
+  const inputWindows =
+    preferences.lockedRecoveryWindows?.length
+      ? preferences.lockedRecoveryWindows
+      : fallbackWindows;
+
+  return inputWindows.map((window) => {
+    if (
+      window.label === "Sunday recovery" &&
+      window.start === "18:00" &&
+      window.end === "22:00" &&
+      window.days.length === 1 &&
+      window.days[0] === 0
+    ) {
+      return {
+        ...window,
+        start: "20:00",
+      };
+    }
+
+    return window;
+  });
+}
 
 function normalizeFixedEvent(event: PlannerExportPayload["fixedEvents"][number]) {
   return {
@@ -43,6 +68,7 @@ function normalizePreferences(preferences: Preferences): Preferences {
       ...seedPreferences.subjectWeightOverrides,
       ...preferences.subjectWeightOverrides,
     },
+    lockedRecoveryWindows: normalizeLockedRecoveryWindows(preferences, seedPreferences),
     schoolSchedule: {
       ...seedPreferences.schoolSchedule,
       ...preferences.schoolSchedule,

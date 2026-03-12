@@ -631,7 +631,7 @@ export function SettingsPage() {
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="font-medium text-foreground">Reserve Sunday evening as free time</p>
-                    <p className="text-sm text-muted-foreground">Keep a true recovery zone so Monday starts realistic.</p>
+                    <p className="text-sm text-muted-foreground">Keep Sunday 20:00-22:00 clear so Monday starts realistic.</p>
                   </div>
                   <Switch
                     checked={form.reserveSundayEvening}
