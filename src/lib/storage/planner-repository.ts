@@ -19,8 +19,10 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-12-full-capacity-holiday-v5";
+const PLANNING_MODEL_VERSION = "2026-03-12-imo-roadmap-homework-piano-v6";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
+const OLYMPIAD_SUBJECT_ID = "olympiad";
+const OLYMPIAD_ROADMAP_VERSION = "2026-03-12-april-camp-roadmap-v1";
 
 function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreferences: Preferences) {
   const fallbackWindows = seedPreferences.lockedRecoveryWindows;
@@ -45,6 +47,25 @@ function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreference
 
     return window;
   });
+}
+
+function normalizeReservedCommitmentRules(preferences: Preferences, seedPreferences: Preferences) {
+  if (!preferences.reservedCommitmentRules?.length) {
+    return seedPreferences.reservedCommitmentRules;
+  }
+
+  const mergedRules = new Map(
+    seedPreferences.reservedCommitmentRules.map((rule) => [rule.id, rule]),
+  );
+
+  preferences.reservedCommitmentRules.forEach((rule) => {
+    mergedRules.set(rule.id, {
+      ...(mergedRules.get(rule.id) ?? {}),
+      ...rule,
+    });
+  });
+
+  return Array.from(mergedRules.values());
 }
 
 function normalizeFixedEvent(event: PlannerExportPayload["fixedEvents"][number]) {
@@ -72,6 +93,7 @@ function normalizePreferences(preferences: Preferences): Preferences {
       ...preferences.subjectWeightOverrides,
     },
     lockedRecoveryWindows: normalizeLockedRecoveryWindows(preferences, seedPreferences),
+    reservedCommitmentRules: normalizeReservedCommitmentRules(preferences, seedPreferences),
     schoolSchedule: {
       ...seedPreferences.schoolSchedule,
       ...preferences.schoolSchedule,
@@ -320,6 +342,64 @@ async function migrateCppBookGoal(snapshot: PlannerSnapshot, referenceDate: Date
   return refreshPlanningModel(migratedSnapshot, referenceDate);
 }
 
+function mergeSeedTopicProgress<T extends PlannerSnapshot["topics"][number]>(
+  seededTopic: T,
+  existingTopic?: T,
+) {
+  if (!existingTopic) {
+    return seededTopic;
+  }
+
+  return {
+    ...seededTopic,
+    completedHours: existingTopic.completedHours,
+    status: existingTopic.status,
+    mastery: existingTopic.mastery,
+    reviewDue: existingTopic.reviewDue,
+    lastStudiedAt: existingTopic.lastStudiedAt,
+    notes: existingTopic.notes ?? seededTopic.notes,
+  };
+}
+
+async function migrateOlympiadRoadmap(snapshot: PlannerSnapshot, referenceDate: Date) {
+  const roadmapVersion = await db.meta.get("olympiad-roadmap-version");
+  if (roadmapVersion?.value === OLYMPIAD_ROADMAP_VERSION) {
+    return snapshot;
+  }
+
+  const seedDataset = buildSeedDataset(referenceDate);
+  const seededSubject = seedDataset.subjects.find((subject) => subject.id === OLYMPIAD_SUBJECT_ID);
+  const seededGoals = seedDataset.goals.filter((goal) => goal.subjectId === OLYMPIAD_SUBJECT_ID);
+  const seededTopics = seedDataset.topics.filter((topic) => topic.subjectId === OLYMPIAD_SUBJECT_ID);
+
+  if (!seededSubject || !seededGoals.length || !seededTopics.length) {
+    return snapshot;
+  }
+
+  const existingTopicsById = new Map(
+    snapshot.topics
+      .filter((topic) => topic.subjectId === OLYMPIAD_SUBJECT_ID)
+      .map((topic) => [topic.id, topic]),
+  );
+
+  const mergedTopics = seededTopics.map((seededTopic) =>
+    mergeSeedTopicProgress(
+      seededTopic,
+      existingTopicsById.get(seededTopic.id),
+    ),
+  );
+
+  await db.transaction("rw", [db.subjects, db.goals, db.topics, db.meta], async () => {
+    await db.subjects.put(seededSubject);
+    await db.goals.bulkPut(seededGoals);
+    await db.topics.bulkPut(mergedTopics);
+    await db.meta.put({ key: "olympiad-roadmap-version", value: OLYMPIAD_ROADMAP_VERSION });
+  });
+
+  const migratedSnapshot = await loadPlannerSnapshot();
+  return refreshPlanningModel(migratedSnapshot, referenceDate);
+}
+
 async function writeSeedDataset(seed: SeedDataset) {
   await db.transaction(
     "rw",
@@ -332,6 +412,7 @@ async function writeSeedDataset(seed: SeedDataset) {
       await db.preferences.put(seed.preferences);
       await db.meta.put({ key: "seeded", value: "true" });
       await db.meta.put({ key: "planning-model-version", value: PLANNING_MODEL_VERSION });
+      await db.meta.put({ key: "olympiad-roadmap-version", value: OLYMPIAD_ROADMAP_VERSION });
     },
   );
 }
@@ -391,6 +472,7 @@ export async function initializePlannerDatabase(referenceDate = new Date()) {
   snapshot = await migrateLegacySeededFixedEvents(snapshot, referenceDate);
   snapshot = await migrateLegacySeededSyllabus(snapshot, referenceDate);
   snapshot = await migrateCppBookGoal(snapshot, referenceDate);
+  snapshot = await migrateOlympiadRoadmap(snapshot, referenceDate);
   const planningModelVersion = await db.meta.get("planning-model-version");
   if (planningModelVersion?.value !== PLANNING_MODEL_VERSION) {
     snapshot = await refreshPlanningModel(snapshot, referenceDate);

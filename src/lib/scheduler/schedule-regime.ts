@@ -14,6 +14,7 @@ export interface DailyScheduleProfile {
   };
   preferredDeepWorkWindows: TimeWindow[];
   maxStudyHoursPerDay: number;
+  reservedCommitmentMinutes: number;
 }
 
 function timeStringToMinutes(value: string) {
@@ -58,17 +59,42 @@ export function isDateInActiveSchoolTerm(day: Date, preferences: Preferences) {
   });
 }
 
+function getReservedCommitmentMinutes(day: Date, preferences: Preferences, inSchoolTerm: boolean) {
+  return preferences.reservedCommitmentRules.reduce((total, rule) => {
+    if (!rule.days.includes(day.getDay())) {
+      return total;
+    }
+
+    const appliesToday =
+      rule.appliesDuring === "all" ||
+      (rule.appliesDuring === "school-term" && inSchoolTerm) ||
+      (rule.appliesDuring === "holiday" && !inSchoolTerm);
+
+    if (!appliesToday) {
+      return total;
+    }
+
+    return total + rule.durationMinutes;
+  }, 0);
+}
+
 export function resolveDailyScheduleProfile(day: Date, preferences: Preferences): DailyScheduleProfile {
   const inSchoolTerm = isDateInActiveSchoolTerm(day, preferences);
   const isSunday = day.getDay() === 0;
   const isSaturday = day.getDay() === 6;
   const isWeekend = isSaturday || isSunday;
   const defaultRegime: ScheduleRegime = inSchoolTerm ? "school-term" : "default";
+  const reservedCommitmentMinutes = getReservedCommitmentMinutes(day, preferences, inSchoolTerm);
+  const applyReservedCommitments = (maxStudyHoursPerDay: number) =>
+    Math.max(0, Math.round((maxStudyHoursPerDay - reservedCommitmentMinutes / 60) * 10) / 10);
   const holidayLikeProfile = {
     regime: "holiday" as const,
     dailyStudyWindow: preferences.holidaySchedule.dailyStudyWindow,
     preferredDeepWorkWindows: preferences.holidaySchedule.preferredDeepWorkWindows,
-    maxStudyHoursPerDay: getWindowDurationHours(preferences.holidaySchedule.dailyStudyWindow),
+    maxStudyHoursPerDay: applyReservedCommitments(
+      getWindowDurationHours(preferences.holidaySchedule.dailyStudyWindow),
+    ),
+    reservedCommitmentMinutes,
   };
 
   const baseProfile =
@@ -79,7 +105,8 @@ export function resolveDailyScheduleProfile(day: Date, preferences: Preferences)
           regime: defaultRegime,
           dailyStudyWindow: preferences.dailyStudyWindow,
           preferredDeepWorkWindows: preferences.preferredDeepWorkWindows,
-          maxStudyHoursPerDay: preferences.maxStudyHoursPerDay,
+          maxStudyHoursPerDay: applyReservedCommitments(preferences.maxStudyHoursPerDay),
+          reservedCommitmentMinutes,
         };
 
   if (isSunday && !preferences.sundayStudy.enabled) {
@@ -95,7 +122,7 @@ export function resolveDailyScheduleProfile(day: Date, preferences: Preferences)
       ...baseProfile,
       isStudyEnabled: true,
       maxStudyHoursPerDay: Math.max(
-        0.5,
+        0,
         Math.round(baseProfile.maxStudyHoursPerDay * preferences.sundayStudy.workloadIntensity * 10) /
           10,
       ),

@@ -44,6 +44,22 @@ export function buildSeedPreferences(): Preferences {
         movable: false,
       },
     ],
+    reservedCommitmentRules: [
+      {
+        id: "piano-practice",
+        label: "Piano",
+        durationMinutes: 60,
+        days: [0, 2, 3, 4, 5, 6],
+        appliesDuring: "all",
+      },
+      {
+        id: "term-homework",
+        label: "Homework",
+        durationMinutes: 90,
+        days: [0, 1, 2, 3, 4, 5, 6],
+        appliesDuring: "school-term",
+      },
+    ],
     maxHeavySessionsPerDay: 2,
     maxStudyHoursPerDay: 5,
     minBreakMinutes: 15,

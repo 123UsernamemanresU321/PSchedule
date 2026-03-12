@@ -171,6 +171,14 @@ export const schoolScheduleSchema = z.object({
   terms: z.array(schoolTermSchema),
 });
 
+export const reservedCommitmentRuleSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  durationMinutes: z.number().min(0),
+  days: z.array(z.number().min(0).max(6)),
+  appliesDuring: z.enum(["all", "school-term", "holiday"]),
+});
+
 export const holidayScheduleSchema = z.object({
   enabled: z.boolean(),
   dailyStudyWindow: z.object({
@@ -194,6 +202,22 @@ export const preferencesSchema = z.object({
   }),
   preferredDeepWorkWindows: z.array(timeWindowSchema),
   lockedRecoveryWindows: z.array(timeWindowSchema),
+  reservedCommitmentRules: z.array(reservedCommitmentRuleSchema).optional().default([
+    {
+      id: "piano-practice",
+      label: "Piano",
+      durationMinutes: 60,
+      days: [0, 2, 3, 4, 5, 6],
+      appliesDuring: "all",
+    },
+    {
+      id: "term-homework",
+      label: "Homework",
+      durationMinutes: 90,
+      days: [0, 1, 2, 3, 4, 5, 6],
+      appliesDuring: "school-term",
+    },
+  ]),
   maxHeavySessionsPerDay: z.number(),
   maxStudyHoursPerDay: z.number(),
   minBreakMinutes: z.number(),

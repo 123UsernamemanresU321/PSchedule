@@ -191,6 +191,14 @@ export interface SchoolSchedule {
   terms: SchoolTerm[];
 }
 
+export interface ReservedCommitmentRule {
+  id: string;
+  label: string;
+  durationMinutes: number;
+  days: number[];
+  appliesDuring: "all" | "school-term" | "holiday";
+}
+
 export interface HolidaySchedule {
   enabled: boolean;
   dailyStudyWindow: {
@@ -214,6 +222,7 @@ export interface Preferences {
   };
   preferredDeepWorkWindows: TimeWindow[];
   lockedRecoveryWindows: TimeWindow[];
+  reservedCommitmentRules: ReservedCommitmentRule[];
   maxHeavySessionsPerDay: number;
   maxStudyHoursPerDay: number;
   minBreakMinutes: number;

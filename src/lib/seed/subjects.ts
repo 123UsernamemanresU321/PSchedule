@@ -52,9 +52,10 @@ export function buildSeedSubjects(referenceDate = new Date()): Subject[] {
       name: "Olympiad Prep",
       shortName: "Olympiad",
       category: "olympiad",
-      description: "High-quality slots for proof-based maths and advanced problem solving.",
+      description:
+        "Evidence-based April-camp-to-IMO-gold roadmap spanning algebra, number theory, combinatorics, geometry, inequalities, functional equations, and contest execution.",
       defaultPriority: 0.85,
-      weeklyMinimumHours: 4,
+      weeklyMinimumHours: 6,
       examMode: "olympiad",
       colorToken: "subject-olympiad",
       gradientClassName: "from-subject-olympiad/25 via-subject-olympiad/10 to-transparent",
@@ -148,7 +149,7 @@ export function buildSeedGoals(referenceDate = new Date()): Goal[] {
     },
     {
       id: "goal-olympiad-imo-ready",
-      title: `Reach IMO-ready Olympiad coverage by ${olympiadReadyDeadline}`,
+      title: `Reach the April-camp roadmap's pre-IMO coverage target by ${olympiadReadyDeadline}`,
       subjectId: "olympiad",
       deadline: olympiadReadyDeadline,
       targetCompletion: 0.65,
@@ -156,7 +157,7 @@ export function buildSeedGoals(referenceDate = new Date()): Goal[] {
     },
     {
       id: "goal-olympiad-gold",
-      title: `Reach IMO gold-standard Olympiad depth by ${olympiadGoldDeadline}`,
+      title: `Reach the April-camp roadmap's IMO gold depth target by ${olympiadGoldDeadline}`,
       subjectId: "olympiad",
       deadline: olympiadGoldDeadline,
       targetCompletion: 1,
