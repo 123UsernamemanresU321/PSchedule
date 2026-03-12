@@ -19,6 +19,7 @@ import { SubjectBadge } from "@/components/planner/subject-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  getCalendarCompletionForecast,
   countTrackStatus,
   getDashboardMetrics,
   getHorizonRoadmapSummary,
@@ -33,6 +34,7 @@ import { usePlannerStore } from "@/lib/store/planner-store";
 
 export function DashboardPage() {
   const currentWeekStart = usePlannerStore((state) => state.currentWeekStart);
+  const goals = usePlannerStore((state) => state.goals);
   const subjects = usePlannerStore((state) => state.subjects);
   const topics = usePlannerStore((state) => state.topics);
   const studyBlocks = usePlannerStore((state) => state.studyBlocks);
@@ -51,6 +53,17 @@ export function DashboardPage() {
   const subjectProgress = subjects
     .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
     .map((subject) => getSubjectProgress(subject, topics));
+  const completionForecasts = subjects
+    .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
+    .map((subject) =>
+      getCalendarCompletionForecast({
+        subject,
+        topics,
+        goals,
+        studyBlocks,
+        referenceDate: new Date(),
+      }),
+    );
 
   const chartData = subjectProgress.map((progress) => ({
     name: progress.subject.shortName.replace(" HL", ""),
@@ -120,6 +133,56 @@ export function DashboardPage() {
         compact
         description="This is the forward allocation from the selected week to July 31. If assigned pace slips below required pace, the roadmap flags it immediately."
       />
+
+      <Card>
+        <CardHeader className="flex-row items-end justify-between">
+          <div>
+            <CardTitle>Calendar finish dates</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              These dates come from the actual study blocks already on your calendar, not from a one-week extrapolation.
+            </p>
+          </div>
+          <Badge variant="muted">{completionForecasts.length} tracked subjects</Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 xl:grid-cols-5 md:grid-cols-2">
+            {completionForecasts.map((forecast) => (
+              <div key={forecast.subject.id} className="rounded-sm border border-white/6 bg-white/4 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <SubjectBadge subjectId={forecast.subject.id} label={forecast.subject.shortName} />
+                  <Badge
+                    variant={
+                      !forecast.isFullyScheduled
+                        ? "warning"
+                        : forecast.isOnTrack
+                          ? "success"
+                          : "danger"
+                    }
+                  >
+                    {!forecast.isFullyScheduled
+                      ? "Needs blocks"
+                      : forecast.isOnTrack
+                        ? "On calendar"
+                        : "Past deadline"}
+                  </Badge>
+                </div>
+                <p className="mt-4 text-sm text-muted-foreground">Projected finish</p>
+                <p className="mt-2 text-2xl font-semibold text-foreground">
+                  {forecast.completionDate ? format(forecast.completionDate, "d MMM yyyy") : "Not scheduled"}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Goal by {forecast.deadline}
+                </p>
+                <p className="mt-4 text-sm text-muted-foreground">
+                  {forecast.isFullyScheduled
+                    ? `${forecast.remainingTargetHours.toFixed(1)}h remaining is already covered on the horizon.`
+                    : `${forecast.missingHours.toFixed(1)}h still missing from the calendar horizon.`}
+                </p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 xl:grid-cols-[1.45fr_1fr]">
         <Card>
@@ -235,7 +298,7 @@ export function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle>Subject progress</CardTitle>
-            <p className="text-sm text-muted-foreground">Completion, remaining hours, and topic risk across the four core tracks.</p>
+            <p className="text-sm text-muted-foreground">Completion, remaining hours, and topic risk across the tracked goal subjects.</p>
           </CardHeader>
           <CardContent className="space-y-4">
             {subjectProgress.map((progress) => (

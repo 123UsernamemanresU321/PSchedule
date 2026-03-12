@@ -9,6 +9,7 @@ import {
   toDateKey,
 } from "@/lib/dates/helpers";
 import type {
+  Goal,
   HorizonRoadmapSummary,
   StudyBlock,
   Subject,
@@ -174,6 +175,91 @@ export function getWeeklyCompletionRatio(weeklyPlan: WeeklyPlan | undefined, sub
   const planned = weeklyPlan.assignedHoursBySubject[subjectId] ?? 0;
   const completed = weeklyPlan.completedHoursBySubject[subjectId] ?? 0;
   return planned ? clamp(completed / planned, 0, 1.5) : 0;
+}
+
+function getActiveGoalForSubject(subject: Subject, topics: Topic[], goals: Goal[]) {
+  const subjectTopics = topics.filter((topic) => topic.subjectId === subject.id);
+  const totalHours = subjectTopics.reduce((total, topic) => total + topic.estHours, 0);
+  const completedHours = subjectTopics.reduce(
+    (total, topic) => total + Math.min(topic.completedHours, topic.estHours),
+    0,
+  );
+  const completionRatio = totalHours > 0 ? completedHours / totalHours : 1;
+  const subjectGoals = goals
+    .filter((goal) => goal.subjectId === subject.id)
+    .sort((left, right) => left.deadline.localeCompare(right.deadline));
+
+  return (
+    subjectGoals.find((goal) => goal.targetCompletion > completionRatio + 0.001) ??
+    subjectGoals[subjectGoals.length - 1]
+  );
+}
+
+export function getCalendarCompletionForecast(options: {
+  subject: Subject;
+  topics: Topic[];
+  goals: Goal[];
+  studyBlocks: StudyBlock[];
+  referenceDate?: Date;
+  currentDate?: Date;
+}) {
+  const referenceDate = options.referenceDate ?? new Date();
+  const currentDate = options.currentDate ?? new Date();
+  const subjectTopics = options.topics.filter((topic) => topic.subjectId === options.subject.id);
+  const totalHours = subjectTopics.reduce((total, topic) => total + topic.estHours, 0);
+  const completedHours = subjectTopics.reduce(
+    (total, topic) => total + Math.min(topic.completedHours, topic.estHours),
+    0,
+  );
+  const activeGoal = getActiveGoalForSubject(options.subject, options.topics, options.goals);
+  const targetHours = totalHours * (activeGoal?.targetCompletion ?? 1);
+  const assumedCompletedHoursBeforeReference = options.studyBlocks
+    .filter((block) => block.subjectId === options.subject.id)
+    .filter((block) => ["planned", "rescheduled"].includes(block.status))
+    .filter((block) => new Date(block.end) >= currentDate && new Date(block.end) < referenceDate)
+    .reduce((total, block) => total + block.estimatedMinutes / 60, 0);
+  const effectiveCompletedHours = Math.min(
+    targetHours,
+    completedHours + assumedCompletedHoursBeforeReference,
+  );
+  const remainingTargetHours = Math.max(targetHours - effectiveCompletedHours, 0);
+  const futureBlocks = options.studyBlocks
+    .filter((block) => block.subjectId === options.subject.id)
+    .filter((block) => !["missed"].includes(block.status))
+    .filter((block) => new Date(block.end) >= referenceDate)
+    .sort((left, right) => new Date(left.end).getTime() - new Date(right.end).getTime());
+
+  let scheduledHours = 0;
+  let completionDate: Date | null = remainingTargetHours <= 0 ? referenceDate : null;
+
+  futureBlocks.forEach((block) => {
+    if (completionDate) {
+      return;
+    }
+
+    scheduledHours += (block.actualMinutes ?? block.estimatedMinutes) / 60;
+    if (effectiveCompletedHours + scheduledHours >= targetHours) {
+      completionDate = new Date(block.end);
+    }
+  });
+
+  const scheduledHoursToHorizon = Number(Math.min(scheduledHours, remainingTargetHours).toFixed(1));
+  const missingHours = Number(Math.max(remainingTargetHours - scheduledHours, 0).toFixed(1));
+  const deadline = activeGoal?.deadline ?? options.subject.deadline;
+
+  return {
+    subject: options.subject,
+    deadline,
+    targetHours: Number(targetHours.toFixed(1)),
+    completedHours: Number(effectiveCompletedHours.toFixed(1)),
+    remainingTargetHours: Number(remainingTargetHours.toFixed(1)),
+    scheduledHoursToHorizon,
+    missingHours,
+    completionDate,
+    isFullyScheduled: !!completionDate,
+    isOnTrack:
+      !!completionDate && completionDate.getTime() <= new Date(deadline).getTime(),
+  };
 }
 
 export function getHorizonRoadmapSummary(

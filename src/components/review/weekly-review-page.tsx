@@ -18,14 +18,19 @@ import { SubjectBadge } from "@/components/planner/subject-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getCarryOverBlocks, getWeekBlocks, getWeeklyPlan } from "@/lib/analytics/metrics";
+import {
+  getCalendarCompletionForecast,
+  getCarryOverBlocks,
+  getWeekBlocks,
+  getWeeklyPlan,
+} from "@/lib/analytics/metrics";
 import { mainSubjectIds } from "@/lib/constants/planner";
 import { formatWeekRangeLabel, fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
-import { projectSubjectCompletion } from "@/lib/scheduler/feasibility";
 import { usePlannerStore } from "@/lib/store/planner-store";
 
 export function WeeklyReviewPage() {
   const currentWeekStart = usePlannerStore((state) => state.currentWeekStart);
+  const goals = usePlannerStore((state) => state.goals);
   const subjects = usePlannerStore((state) => state.subjects);
   const topics = usePlannerStore((state) => state.topics);
   const studyBlocks = usePlannerStore((state) => state.studyBlocks);
@@ -50,6 +55,17 @@ export function WeeklyReviewPage() {
   const plannedHours = chartData.reduce((total, item) => total + item.planned, 0);
   const completedHours = chartData.reduce((total, item) => total + item.completed, 0);
   const carryOverHours = carryOverBlocks.reduce((total, block) => total + block.estimatedMinutes / 60, 0);
+  const completionForecasts = subjects
+    .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
+    .map((subject) =>
+      getCalendarCompletionForecast({
+        subject,
+        topics,
+        goals,
+        studyBlocks,
+        referenceDate: visibleWeekStart,
+      }),
+    );
 
   return (
     <div className="space-y-6">
@@ -145,7 +161,7 @@ export function WeeklyReviewPage() {
         <CardHeader className="flex-row items-end justify-between">
           <div>
             <CardTitle>Feasibility analysis</CardTitle>
-            <p className="text-sm text-muted-foreground">Projected completion dates based on the current weekly allocation.</p>
+            <p className="text-sm text-muted-foreground">Projected completion dates based on the actual scheduled horizon on the calendar.</p>
           </div>
           <Badge variant={weeklyPlan?.riskFlag === "high" ? "danger" : weeklyPlan?.riskFlag === "medium" ? "warning" : "success"}>
             {weeklyPlan?.riskFlag === "high" ? "High risk" : weeklyPlan?.riskFlag === "medium" ? "Medium risk" : "On track"}
@@ -167,28 +183,40 @@ export function WeeklyReviewPage() {
           ) : null}
 
           <div className="grid gap-4 xl:grid-cols-4 md:grid-cols-2">
-            {subjects
-              .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
-              .map((subject) => {
-                const projection = projectSubjectCompletion({
-                  subject,
-                  weeklyPlan,
-                  topics,
-                  referenceDate: visibleWeekStart,
-                });
-                return (
-                  <div key={subject.id} className="rounded-sm border border-white/6 bg-white/4 p-4">
-                    <SubjectBadge subjectId={subject.id} label={subject.shortName} />
-                    <p className="mt-4 text-sm text-muted-foreground">Projected completion</p>
-                    <p className="mt-2 text-2xl font-semibold text-foreground">
-                      {projection.projectedDate.toLocaleDateString()}
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {projection.remainingHours.toFixed(1)}h left • ~{projection.weeksNeeded.toFixed(1)} weeks needed
-                    </p>
-                  </div>
-                );
-              })}
+            {completionForecasts.map((forecast) => (
+              <div key={forecast.subject.id} className="rounded-sm border border-white/6 bg-white/4 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <SubjectBadge subjectId={forecast.subject.id} label={forecast.subject.shortName} />
+                  <Badge
+                    variant={
+                      !forecast.isFullyScheduled
+                        ? "warning"
+                        : forecast.isOnTrack
+                          ? "success"
+                          : "danger"
+                    }
+                  >
+                    {!forecast.isFullyScheduled
+                      ? "Needs blocks"
+                      : forecast.isOnTrack
+                        ? "On calendar"
+                        : "Past deadline"}
+                  </Badge>
+                </div>
+                <p className="mt-4 text-sm text-muted-foreground">Projected completion</p>
+                <p className="mt-2 text-2xl font-semibold text-foreground">
+                  {forecast.completionDate ? forecast.completionDate.toLocaleDateString() : "Not scheduled"}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Goal by {forecast.deadline}
+                </p>
+                <p className="mt-3 text-sm text-muted-foreground">
+                  {forecast.isFullyScheduled
+                    ? `${forecast.remainingTargetHours.toFixed(1)}h remaining is already covered on the calendar.`
+                    : `${forecast.missingHours.toFixed(1)}h still missing from scheduled blocks.`}
+                </p>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
