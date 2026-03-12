@@ -19,7 +19,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-12-imo-roadmap-homework-piano-priority-v7";
+const PLANNING_MODEL_VERSION = "2026-03-12-dinner-split-priority-v8";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-12-april-camp-roadmap-v1";
@@ -32,6 +32,17 @@ function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreference
       : fallbackWindows;
 
   return inputWindows.map((window) => {
+    if (
+      window.label === "Dinner reset" &&
+      window.start === "19:15" &&
+      window.end === "20:00"
+    ) {
+      return {
+        ...window,
+        days: [0, 1, 2, 3, 4, 5, 6],
+      };
+    }
+
     if (
       window.label === "Sunday recovery" &&
       window.start === "18:00" &&

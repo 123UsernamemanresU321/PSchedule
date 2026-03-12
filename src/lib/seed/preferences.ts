@@ -33,7 +33,7 @@ export function buildSeedPreferences(): Preferences {
         label: "Dinner reset",
         start: "19:15",
         end: "20:00",
-        days: [1, 2, 3, 4, 5],
+        days: [0, 1, 2, 3, 4, 5, 6],
         movable: true,
       },
       {

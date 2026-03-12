@@ -324,32 +324,62 @@ function resolveReservedCommitmentStart(options: {
   return createDateAtTime(options.day, options.rule.preferredStart);
 }
 
-function shiftReservedCommitmentInterval(options: {
+function placeReservedCommitmentIntervals(options: {
   day: Date;
-  interval: TimeInterval;
+  start: Date;
+  durationMinutes: number;
   busyIntervals: TimeInterval[];
-  preferences: Preferences;
 }) {
-  const durationMinutes = minutesBetween(options.interval.start, options.interval.end);
-  const mergedBusyIntervals = mergeIntervals(options.busyIntervals);
+  const mergedBusyIntervals = mergeIntervals(
+    options.busyIntervals.filter((interval) => interval.end > options.start),
+  );
   const absoluteLatestEnd = createDateAtTime(options.day, "23:00");
-  let candidateStart = options.interval.start;
-  let candidateEnd = options.interval.end;
+  const segments: TimeInterval[] = [];
+  let cursor = options.start;
+  let remainingMinutes = options.durationMinutes;
 
-  mergedBusyIntervals.forEach((busyInterval) => {
-    if (candidateEnd <= busyInterval.start || candidateStart >= busyInterval.end) {
-      return;
+  for (const busyInterval of mergedBusyIntervals) {
+    if (remainingMinutes <= 0 || cursor >= absoluteLatestEnd) {
+      break;
     }
 
-    candidateStart = new Date(Math.max(candidateStart.getTime(), busyInterval.end.getTime()));
-    candidateEnd = addMinutes(candidateStart, durationMinutes);
-  });
+    if (busyInterval.end <= cursor) {
+      continue;
+    }
 
-  if (candidateEnd <= absoluteLatestEnd) {
-    return createInterval(candidateStart, candidateEnd);
+    if (busyInterval.start > cursor) {
+      const freeEnd = busyInterval.start < absoluteLatestEnd ? busyInterval.start : absoluteLatestEnd;
+      const freeMinutes = minutesBetween(cursor, freeEnd);
+
+      if (freeMinutes > 0) {
+        const minutesToUse = Math.min(freeMinutes, remainingMinutes);
+        const segmentEnd = addMinutes(cursor, minutesToUse);
+        segments.push(createInterval(cursor, segmentEnd));
+        remainingMinutes -= minutesToUse;
+        cursor = segmentEnd;
+
+        if (remainingMinutes <= 0) {
+          break;
+        }
+      }
+    }
+
+    if (busyInterval.end > cursor) {
+      cursor = busyInterval.end;
+    }
   }
 
-  return null;
+  if (remainingMinutes > 0 && cursor < absoluteLatestEnd) {
+    const freeMinutes = minutesBetween(cursor, absoluteLatestEnd);
+    const minutesToUse = Math.min(freeMinutes, remainingMinutes);
+
+    if (minutesToUse > 0) {
+      segments.push(createInterval(cursor, addMinutes(cursor, minutesToUse)));
+      remainingMinutes -= minutesToUse;
+    }
+  }
+
+  return remainingMinutes <= 0 ? segments : [];
 }
 
 export function expandReservedCommitmentWindowsForWeek(
@@ -362,6 +392,13 @@ export function expandReservedCommitmentWindowsForWeek(
   return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)).flatMap((day) => {
     const inSchoolTerm = isDateInActiveSchoolTerm(day, preferences);
     const dayFixedEventIntervals = buildEventIntervals(day, expandedFixedEvents, preferences);
+    const dayRecoveryIntervals = resolveRecoveryWindowsForDay({
+      day,
+      fixedEvents: expandedFixedEvents,
+      preferences,
+      blockedStudyBlocks: [],
+      skipMovableRecovery: false,
+    }).map((window) => createInterval(window.start, window.end));
     const resolvedIntervals: TimeInterval[] = [];
 
     return preferences.reservedCommitmentRules.flatMap((rule) => {
@@ -384,28 +421,26 @@ export function expandReservedCommitmentWindowsForWeek(
         rule,
         inSchoolTerm,
       });
-      const shiftedInterval = shiftReservedCommitmentInterval({
+      const commitmentSegments = placeReservedCommitmentIntervals({
         day,
-        interval: createInterval(start, addMinutes(start, rule.durationMinutes)),
-        busyIntervals: [...dayFixedEventIntervals, ...resolvedIntervals],
-        preferences,
+        start,
+        durationMinutes: rule.durationMinutes,
+        busyIntervals: [...dayFixedEventIntervals, ...dayRecoveryIntervals, ...resolvedIntervals],
       });
 
-      if (!shiftedInterval) {
+      if (!commitmentSegments.length) {
         return [];
       }
 
-      resolvedIntervals.push(shiftedInterval);
+      resolvedIntervals.push(...commitmentSegments);
 
-      return [
-        {
-          id: `${rule.id}:${toDateKey(day)}`,
-          title: rule.label,
-          start: shiftedInterval.start.toISOString(),
-          end: shiftedInterval.end.toISOString(),
-          label: rule.label,
-        },
-      ];
+      return commitmentSegments.map((segment, segmentIndex) => ({
+        id: `${rule.id}:${toDateKey(day)}:${segmentIndex + 1}`,
+        title: rule.label,
+        start: segment.start.toISOString(),
+        end: segment.end.toISOString(),
+        label: rule.label,
+      }));
     });
   });
 }
