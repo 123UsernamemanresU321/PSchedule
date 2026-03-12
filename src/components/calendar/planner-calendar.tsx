@@ -103,6 +103,7 @@ export function PlannerCalendar({
   const reservedCommitments = expandReservedCommitmentWindowsForWeek(
     visibleWeekStart,
     preferences,
+    fixedEvents,
   );
   const blockedIntervals = [
     ...recoveryWindows.map((window) => ({

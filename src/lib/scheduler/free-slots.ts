@@ -324,12 +324,45 @@ function resolveReservedCommitmentStart(options: {
   return createDateAtTime(options.day, options.rule.preferredStart);
 }
 
+function shiftReservedCommitmentInterval(options: {
+  day: Date;
+  interval: TimeInterval;
+  busyIntervals: TimeInterval[];
+  preferences: Preferences;
+}) {
+  const durationMinutes = minutesBetween(options.interval.start, options.interval.end);
+  const mergedBusyIntervals = mergeIntervals(options.busyIntervals);
+  const absoluteLatestEnd = createDateAtTime(options.day, "23:00");
+  let candidateStart = options.interval.start;
+  let candidateEnd = options.interval.end;
+
+  mergedBusyIntervals.forEach((busyInterval) => {
+    if (candidateEnd <= busyInterval.start || candidateStart >= busyInterval.end) {
+      return;
+    }
+
+    candidateStart = new Date(Math.max(candidateStart.getTime(), busyInterval.end.getTime()));
+    candidateEnd = addMinutes(candidateStart, durationMinutes);
+  });
+
+  if (candidateEnd <= absoluteLatestEnd) {
+    return createInterval(candidateStart, candidateEnd);
+  }
+
+  return null;
+}
+
 export function expandReservedCommitmentWindowsForWeek(
   weekStart: Date,
   preferences: Preferences,
+  fixedEvents: FixedEvent[] = [],
 ): ReservedCommitmentOccurrence[] {
+  const expandedFixedEvents = expandPlannerFixedEventsForWeek(weekStart, fixedEvents, preferences);
+
   return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)).flatMap((day) => {
     const inSchoolTerm = isDateInActiveSchoolTerm(day, preferences);
+    const dayFixedEventIntervals = buildEventIntervals(day, expandedFixedEvents, preferences);
+    const resolvedIntervals: TimeInterval[] = [];
 
     return preferences.reservedCommitmentRules.flatMap((rule) => {
       if (!rule.days.includes(day.getDay())) {
@@ -351,14 +384,25 @@ export function expandReservedCommitmentWindowsForWeek(
         rule,
         inSchoolTerm,
       });
-      const end = addMinutes(start, rule.durationMinutes);
+      const shiftedInterval = shiftReservedCommitmentInterval({
+        day,
+        interval: createInterval(start, addMinutes(start, rule.durationMinutes)),
+        busyIntervals: [...dayFixedEventIntervals, ...resolvedIntervals],
+        preferences,
+      });
+
+      if (!shiftedInterval) {
+        return [];
+      }
+
+      resolvedIntervals.push(shiftedInterval);
 
       return [
         {
           id: `${rule.id}:${toDateKey(day)}`,
           title: rule.label,
-          start: start.toISOString(),
-          end: end.toISOString(),
+          start: shiftedInterval.start.toISOString(),
+          end: shiftedInterval.end.toISOString(),
           label: rule.label,
         },
       ];
@@ -435,7 +479,11 @@ export function calculateFreeSlots(options: {
 }) {
   const { weekStart, preferences, planningStart } = options;
   const fixedEvents = expandPlannerFixedEventsForWeek(weekStart, options.fixedEvents, preferences);
-  const reservedCommitments = expandReservedCommitmentWindowsForWeek(weekStart, preferences);
+  const reservedCommitments = expandReservedCommitmentWindowsForWeek(
+    weekStart,
+    preferences,
+    options.fixedEvents,
+  );
   const blockedStudyBlocks = options.blockedStudyBlocks ?? [];
   const recoveryWindows = expandLockedRecoveryWindowsForWeek(
     weekStart,
