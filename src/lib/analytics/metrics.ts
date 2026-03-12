@@ -130,7 +130,7 @@ export function getWeeklyCoverageState(weeklyPlan: WeeklyPlan | undefined) {
     return { label: "On target", tone: "success" as const };
   }
 
-  if (!weeklyPlan.coverageComplete && weeklyPlan.overloadMinutes > 0 && weeklyPlan.slackMinutes === 0) {
+  if (!weeklyPlan.coverageComplete && weeklyPlan.slackMinutes === 0) {
     return { label: "Calendar-impossible", tone: "danger" as const };
   }
 
@@ -361,6 +361,7 @@ export function getHorizonRoadmapSummary(
           .reduce((total, subjectId) => total + (plan.remainingHoursBySubject[subjectId] ?? 0), 0)
           .toFixed(1),
       ),
+      slackMinutes: plan.slackMinutes,
       riskFlag: plan.riskFlag,
       coverageComplete: plan.coverageComplete,
       forcedCoverageMinutes: plan.forcedCoverageMinutes,

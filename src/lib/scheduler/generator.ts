@@ -73,51 +73,138 @@ function cloneTasks(tasks: TaskCandidate[]) {
   return tasks.map((task) => ({ ...task }));
 }
 
-function buildDailyTargetMinutes(options: {
-  freeSlots: CalendarSlot[];
-  effectiveCapacityMinutes: number;
-  dailyCapBoostMinutes: number;
-  preferences: Preferences;
-}) {
-  const dayCapacityByDate = options.freeSlots.reduce<
-    Record<string, { capacity: number; dayIndex: number }>
-  >((accumulator, slot) => {
-    const dailyCap = slot.dayStudyCapMinutes + options.dailyCapBoostMinutes;
+interface DayCapacityEntry {
+  capacity: number;
+  dayIndex: number;
+  scheduleRegime: CalendarSlot["scheduleRegime"];
+}
+
+function buildDayCapacityByDate(
+  freeSlots: CalendarSlot[],
+  dailyCapBoostMinutes: number,
+) {
+  return freeSlots.reduce<Record<string, DayCapacityEntry>>((accumulator, slot) => {
+    const dailyCap = slot.dayStudyCapMinutes + dailyCapBoostMinutes;
     const current = accumulator[slot.dateKey] ?? {
       capacity: 0,
       dayIndex: slot.dayIndex,
+      scheduleRegime: slot.scheduleRegime,
     };
     current.capacity = Math.min(dailyCap, current.capacity + slot.durationMinutes);
+    current.dayIndex = slot.dayIndex;
+    current.scheduleRegime = slot.scheduleRegime;
     accumulator[slot.dateKey] = current;
     return accumulator;
   }, {});
+}
 
-  const dayKeys = Object.keys(dayCapacityByDate).sort();
-  const totalDayCapacity = sum(Object.values(dayCapacityByDate).map((entry) => entry.capacity));
+function getReservedTargetMinutesForDay(options: {
+  dayEntry: DayCapacityEntry;
+  preferences: Preferences;
+  fillAvailableStudyDays: boolean;
+}) {
+  const { dayEntry, preferences, fillAvailableStudyDays } = options;
+
+  if (fillAvailableStudyDays) {
+    if (dayEntry.scheduleRegime === "holiday" || dayEntry.dayIndex === 6) {
+      return dayEntry.capacity;
+    }
+
+    if (dayEntry.dayIndex === 0 && preferences.sundayStudy.enabled) {
+      return Math.min(
+        dayEntry.capacity,
+        Math.max(
+          45,
+          Math.floor((dayEntry.capacity * preferences.sundayStudy.workloadIntensity) / 15) * 15,
+        ),
+      );
+    }
+
+    return 0;
+  }
+
+  if (dayEntry.dayIndex === 6) {
+    return Math.min(
+      dayEntry.capacity,
+      Math.max(240, Math.floor((dayEntry.capacity * 0.55) / 15) * 15),
+    );
+  }
+
+  if (dayEntry.dayIndex === 0 && preferences.sundayStudy.enabled) {
+    return Math.min(dayEntry.capacity, 60);
+  }
+
+  return 0;
+}
+
+function buildDailyTargetMinutes(options: {
+  dayCapacityByDate: Record<string, DayCapacityEntry>;
+  effectiveCapacityMinutes: number;
+  preferences: Preferences;
+  fillAvailableStudyDays: boolean;
+}) {
+  const dayKeys = Object.keys(options.dayCapacityByDate).sort();
+  const totalDayCapacity = sum(Object.values(options.dayCapacityByDate).map((entry) => entry.capacity));
 
   if (!dayKeys.length || totalDayCapacity <= 0 || options.effectiveCapacityMinutes <= 0) {
     return {} as Record<string, number>;
   }
 
   const targets = dayKeys.reduce<Record<string, number>>((accumulator, dayKey) => {
-    const rawShare =
-      (options.effectiveCapacityMinutes * dayCapacityByDate[dayKey].capacity) / totalDayCapacity;
-    accumulator[dayKey] = Math.min(
-      dayCapacityByDate[dayKey].capacity,
-      Math.max(0, Math.floor(rawShare / 15) * 15),
-    );
+    accumulator[dayKey] = getReservedTargetMinutesForDay({
+      dayEntry: options.dayCapacityByDate[dayKey],
+      preferences: options.preferences,
+      fillAvailableStudyDays: options.fillAvailableStudyDays,
+    });
     return accumulator;
   }, {});
 
-  let assignedTargetMinutes = sum(Object.values(targets));
-  let remainingTargetMinutes = Math.max(0, options.effectiveCapacityMinutes - assignedTargetMinutes);
+  const reservedTargetMinutes = sum(Object.values(targets));
+  const cappedEffectiveCapacityMinutes = clamp(
+    Math.max(options.effectiveCapacityMinutes, reservedTargetMinutes),
+    0,
+    totalDayCapacity,
+  );
+  let assignedTargetMinutes = reservedTargetMinutes;
+  let remainingTargetMinutes = Math.max(0, cappedEffectiveCapacityMinutes - assignedTargetMinutes);
+
+  if (remainingTargetMinutes > 0) {
+    dayKeys.forEach((dayKey) => {
+      const remainingCapacity = Math.max(
+        options.dayCapacityByDate[dayKey].capacity - targets[dayKey],
+        0,
+      );
+
+      if (remainingCapacity < 15) {
+        return;
+      }
+
+      const rawShare = (remainingTargetMinutes * remainingCapacity) / Math.max(
+        15,
+        totalDayCapacity - reservedTargetMinutes,
+      );
+      const roundedShare = Math.min(
+        remainingCapacity,
+        Math.max(0, Math.floor(rawShare / 15) * 15),
+      );
+      targets[dayKey] += roundedShare;
+      assignedTargetMinutes += roundedShare;
+    });
+
+    remainingTargetMinutes = Math.max(
+      0,
+      cappedEffectiveCapacityMinutes - assignedTargetMinutes,
+    );
+  }
 
   while (remainingTargetMinutes >= 15) {
     const nextDay = dayKeys
-      .filter((dayKey) => targets[dayKey] + 15 <= dayCapacityByDate[dayKey].capacity)
+      .filter(
+        (dayKey) => targets[dayKey] + 15 <= options.dayCapacityByDate[dayKey].capacity,
+      )
       .sort((left, right) => {
-        const leftRemaining = dayCapacityByDate[left].capacity - targets[left];
-        const rightRemaining = dayCapacityByDate[right].capacity - targets[right];
+        const leftRemaining = options.dayCapacityByDate[left].capacity - targets[left];
+        const rightRemaining = options.dayCapacityByDate[right].capacity - targets[right];
         return rightRemaining - leftRemaining;
       })[0];
 
@@ -129,51 +216,6 @@ function buildDailyTargetMinutes(options: {
     remainingTargetMinutes -= 15;
     assignedTargetMinutes += 15;
   }
-
-  const minimumWeekendTargets = dayKeys
-    .map((dayKey) => {
-      const dayEntry = dayCapacityByDate[dayKey];
-
-      if (dayEntry.dayIndex === 6) {
-        const saturdayTarget = Math.min(
-          dayEntry.capacity,
-          Math.max(240, Math.floor((dayEntry.capacity * 0.55) / 15) * 15),
-        );
-
-        return { dayKey, targetMinutes: saturdayTarget };
-      }
-
-      if (dayEntry.dayIndex === 0 && options.preferences.sundayStudy.enabled) {
-        const sundayTarget = Math.min(
-          dayEntry.capacity,
-          options.effectiveCapacityMinutes >= 60 ? 60 : 45,
-        );
-
-        return { dayKey, targetMinutes: sundayTarget };
-      }
-
-      return null;
-    })
-    .filter(Boolean) as Array<{ dayKey: string; targetMinutes: number }>;
-
-  minimumWeekendTargets.forEach(({ dayKey, targetMinutes }) => {
-    if (targetMinutes <= 0 || targets[dayKey] >= targetMinutes) {
-      return;
-    }
-
-    let minutesNeeded = targetMinutes - targets[dayKey];
-
-    dayKeys
-      .filter((candidateDayKey) => candidateDayKey !== dayKey)
-      .sort((left, right) => targets[right] - targets[left])
-      .forEach((candidateDayKey) => {
-        while (minutesNeeded > 0 && targets[candidateDayKey] >= 30) {
-          targets[candidateDayKey] -= 15;
-          targets[dayKey] += 15;
-          minutesNeeded -= 15;
-        }
-      });
-  });
 
   return targets;
 }
@@ -279,6 +321,7 @@ function allocateTasksToSlots(options: {
   minBreakMinutes?: number;
   protectRecovery?: boolean;
   blockSelectionPolicy?: BlockSelectionPolicy;
+  fillAvailableStudyDays?: boolean;
 }) {
   const weekStartKey = toDateKey(options.weekStart);
   const subjectMap = new Map(options.subjects.map((subject) => [subject.id, subject]));
@@ -295,6 +338,10 @@ function allocateTasksToSlots(options: {
   const heavyBlocksPerDay: Record<string, number> = {};
 
   function hasReachedWeeklyTarget(task: TaskCandidate) {
+    if (options.fillAvailableStudyDays) {
+      return false;
+    }
+
     if (!task.subjectId) {
       return false;
     }
@@ -310,6 +357,10 @@ function allocateTasksToSlots(options: {
   }
 
   function allWeeklyTargetsSatisfied() {
+    if (options.fillAvailableStudyDays) {
+      return workingTasks.every((task) => task.remainingMinutes < 20);
+    }
+
     return Object.entries(requiredMinutesBySubject)
       .filter(([, requiredMinutes]) => requiredMinutes > 0)
       .every(
@@ -349,20 +400,39 @@ function allocateTasksToSlots(options: {
   );
   const requiredMinutes = sum(Object.values(requiredMinutesBySubject));
   const needsIntensityRamp = requiredMinutes > bufferedCapacityMinutes;
-  const effectiveCapacityMinutes = needsIntensityRamp
-    ? Math.min(totalFreeSlotMinutes, requiredMinutes)
-    : bufferedCapacityMinutes;
   const dailyCapBoostMinutes = options.dailyCapBoostMinutes ?? 0;
+  const dayCapacityByDate = buildDayCapacityByDate(options.freeSlots, dailyCapBoostMinutes);
+  const aggressiveStudyDayMinutes = Object.values(dayCapacityByDate).reduce((total, dayEntry) => {
+    return total + getReservedTargetMinutesForDay({
+      dayEntry,
+      preferences: options.preferences,
+      fillAvailableStudyDays: true,
+    });
+  }, 0);
+  const effectiveCapacityMinutes = clamp(
+    options.fillAvailableStudyDays
+      ? Math.max(
+          needsIntensityRamp
+            ? Math.min(totalFreeSlotMinutes, requiredMinutes)
+            : bufferedCapacityMinutes,
+          aggressiveStudyDayMinutes,
+        )
+      : needsIntensityRamp
+        ? Math.min(totalFreeSlotMinutes, requiredMinutes)
+        : bufferedCapacityMinutes,
+    0,
+    totalFreeSlotMinutes,
+  );
   const maxHeavySessionsPerDay =
     options.preferences.maxHeavySessionsPerDay +
     (needsIntensityRamp ? 1 : 0) +
     (options.heavySessionBoost ?? 0);
   const minBreakMinutes = options.minBreakMinutes ?? options.preferences.minBreakMinutes;
   const dailyTargetMinutes = buildDailyTargetMinutes({
-    freeSlots: options.freeSlots,
+    dayCapacityByDate,
     effectiveCapacityMinutes,
-    dailyCapBoostMinutes,
     preferences: options.preferences,
+    fillAvailableStudyDays: options.fillAvailableStudyDays ?? false,
   });
   let consumedStudyMinutes = 0;
   const workingTasks = cloneTasks(options.tasks);
@@ -700,6 +770,22 @@ export function generateStudyPlanForWeek(options: {
     blockedStudyBlocks: lockedBlocks,
     planningStart: referenceDate,
   });
+  const capacityFreeSlots = calculateFreeSlots({
+    weekStart,
+    fixedEvents: options.fixedEvents,
+    preferences: options.preferences,
+    blockedStudyBlocks: lockedBlocks,
+    planningStart: referenceDate,
+    skipMovableRecovery: true,
+  });
+  const shouldFillAvailableStudyDays =
+    Object.values(deadlineTracks).some((track) => track.uncoveredGoalHours > 0.1) &&
+    initialFreeSlots.some(
+      (slot) =>
+        slot.scheduleRegime === "holiday" ||
+        slot.dayIndex === 6 ||
+        (slot.dayIndex === 0 && options.preferences.sundayStudy.enabled),
+    );
   const requiredMinutes = sum(Object.values(requiredHoursBySubject).map((value) => value * 60));
   const automaticDailyCapBoostMinutes = buildAutomaticDailyCapBoost({
     freeSlots: initialFreeSlots,
@@ -774,6 +860,7 @@ export function generateStudyPlanForWeek(options: {
       minBreakMinutes: passPolicy.minBreakMinutes,
       protectRecovery: passPolicy.protectRecovery,
       blockSelectionPolicy: passPolicy.blockSelectionPolicy,
+      fillAvailableStudyDays: shouldFillAvailableStudyDays,
     });
 
     if (!result.scheduledBlocks.length) {
@@ -815,6 +902,7 @@ export function generateStudyPlanForWeek(options: {
     topics: options.topics,
     goals: options.goals,
     freeSlots: finalFreeSlots,
+    capacityFreeSlots,
     referenceDate,
     horizonStartDate,
     requiredHoursBySubject,

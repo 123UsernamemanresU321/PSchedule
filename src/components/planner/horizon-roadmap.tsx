@@ -76,7 +76,7 @@ export function HorizonRoadmap({
           {visibleWeeks.map((week) => {
             const ratio = week.requiredHours > 0 ? Math.min(week.assignedHours / week.requiredHours, 1.25) : 1;
             const weekState =
-              !week.coverageComplete && week.overloadMinutes > 0
+              !week.coverageComplete && week.slackMinutes === 0
                 ? { label: "Calendar-impossible", variant: "danger" as const }
                 : week.coverageComplete && week.overloadMinutes > 0
                   ? { label: "Overloaded", variant: "warning" as const }

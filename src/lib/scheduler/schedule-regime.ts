@@ -16,6 +16,22 @@ export interface DailyScheduleProfile {
   maxStudyHoursPerDay: number;
 }
 
+function timeStringToMinutes(value: string) {
+  const [hours, minutes] = value.split(":").map((part) => Number(part));
+  return hours * 60 + minutes;
+}
+
+function getWindowDurationHours(window: { start: string; end: string }) {
+  const startMinutes = timeStringToMinutes(window.start);
+  let endMinutes = timeStringToMinutes(window.end);
+
+  if (endMinutes <= startMinutes) {
+    endMinutes += 24 * 60;
+  }
+
+  return (endMinutes - startMinutes) / 60;
+}
+
 function isValidScheduleDate(value: string) {
   if (!value) {
     return false;
@@ -45,17 +61,18 @@ export function isDateInActiveSchoolTerm(day: Date, preferences: Preferences) {
 export function resolveDailyScheduleProfile(day: Date, preferences: Preferences): DailyScheduleProfile {
   const inSchoolTerm = isDateInActiveSchoolTerm(day, preferences);
   const isSunday = day.getDay() === 0;
+  const isSaturday = day.getDay() === 6;
   const defaultRegime: ScheduleRegime = inSchoolTerm ? "school-term" : "default";
+  const holidayLikeProfile = {
+    regime: "holiday" as const,
+    dailyStudyWindow: preferences.holidaySchedule.dailyStudyWindow,
+    preferredDeepWorkWindows: preferences.holidaySchedule.preferredDeepWorkWindows,
+    maxStudyHoursPerDay: getWindowDurationHours(preferences.holidaySchedule.dailyStudyWindow),
+  };
 
   const baseProfile =
-    !inSchoolTerm && preferences.holidaySchedule.enabled
-      ? {
-          regime: "holiday" as const,
-          dailyStudyWindow: preferences.holidaySchedule.dailyStudyWindow,
-          preferredDeepWorkWindows: preferences.holidaySchedule.preferredDeepWorkWindows,
-          maxStudyHoursPerDay:
-            preferences.holidaySchedule.maxStudyHoursPerDay ?? preferences.maxStudyHoursPerDay,
-        }
+    isSaturday || (!inSchoolTerm && preferences.holidaySchedule.enabled)
+      ? holidayLikeProfile
       : {
           regime: defaultRegime,
           dailyStudyWindow: preferences.dailyStudyWindow,

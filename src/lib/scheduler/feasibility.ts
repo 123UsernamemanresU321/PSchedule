@@ -230,6 +230,7 @@ export function buildWeeklyPlan(options: {
   topics: Topic[];
   goals: Goal[];
   freeSlots: CalendarSlot[];
+  capacityFreeSlots?: CalendarSlot[];
   referenceDate: Date;
   horizonStartDate?: Date;
   requiredHoursBySubject?: Record<string, number>;
@@ -318,12 +319,16 @@ export function buildWeeklyPlan(options: {
     }
   });
 
+  const capacitySlots = options.capacityFreeSlots ?? options.freeSlots;
   const studyCapacityMinutes = Math.round(
-    sum(options.freeSlots.map((slot) => slot.durationMinutes)),
+    sum(capacitySlots.map((slot) => slot.durationMinutes)),
   );
   const assignedMinutes = sum(Object.values(assignedMinutesBySubject));
   const requiredMinutes = sum(Object.values(requiredHoursBySubject).map((hours) => hours * 60));
-  const slackMinutes = Math.max(studyCapacityMinutes - assignedMinutes, 0);
+  const recoveryMinutes = options.studyBlocks
+    .filter((block) => !block.subjectId)
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+  const slackMinutes = Math.max(studyCapacityMinutes - assignedMinutes - recoveryMinutes, 0);
   const assignedStudyMinutesByDay = options.studyBlocks.reduce<Record<string, number>>((accumulator, block) => {
     if (!block.subjectId) {
       return accumulator;
@@ -332,7 +337,7 @@ export function buildWeeklyPlan(options: {
     accumulator[block.date] = (accumulator[block.date] ?? 0) + block.estimatedMinutes;
     return accumulator;
   }, {});
-  const baseDayCapByDate = options.freeSlots.reduce<Record<string, number>>((accumulator, slot) => {
+  const baseDayCapByDate = capacitySlots.reduce<Record<string, number>>((accumulator, slot) => {
     accumulator[slot.dateKey] = Math.max(accumulator[slot.dateKey] ?? 0, slot.dayStudyCapMinutes);
     return accumulator;
   }, {});
@@ -391,7 +396,7 @@ export function buildWeeklyPlan(options: {
   const coverageComplete = underplannedSubjectIds.length === 0;
   const forcedCoverageMinutes = options.forcedCoverageMinutes ?? 0;
 
-  if (!coverageComplete && slackMinutes === 0 && overloadMinutes > 0) {
+  if (!coverageComplete && slackMinutes === 0) {
     warnings.push(
       "Calendar constraints are exhausted for this week. Remaining coverage will only finish if later weeks absorb the deficit.",
     );

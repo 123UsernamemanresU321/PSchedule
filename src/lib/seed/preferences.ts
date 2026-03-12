@@ -86,7 +86,7 @@ export function buildSeedPreferences(): Preferences {
           days: [0, 1, 2, 3, 4, 5, 6],
         },
       ],
-      maxStudyHoursPerDay: 6,
+      maxStudyHoursPerDay: null,
     },
     sundayStudy: {
       enabled: true,

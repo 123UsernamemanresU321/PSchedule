@@ -302,6 +302,7 @@ export interface HorizonRoadmapWeek {
   assignedHours: number;
   completedHours: number;
   remainingCoreHours: number;
+  slackMinutes: number;
   riskFlag: RiskFlag;
   coverageComplete: boolean;
   forcedCoverageMinutes: number;

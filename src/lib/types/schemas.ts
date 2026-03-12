@@ -235,7 +235,7 @@ export const preferencesSchema = z.object({
         days: [0, 1, 2, 3, 4, 5, 6],
       },
     ],
-    maxStudyHoursPerDay: 6,
+    maxStudyHoursPerDay: null,
   }),
   sundayStudy: sundayStudySchema.optional().default({
     enabled: true,

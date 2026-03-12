@@ -349,7 +349,7 @@ export function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Holiday daily cap</label>
+                  <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Holiday soft cap</label>
                   <Input
                     type="number"
                     min={1}
@@ -368,6 +368,9 @@ export function SettingsPage() {
                       })
                     }
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Holiday days and Saturdays now use the full study window whenever hard-goal work still needs coverage. This value only acts as a softer planning preference outside that catch-up behavior.
+                  </p>
                 </div>
               </div>
               <div className="space-y-4">
@@ -600,7 +603,13 @@ export function SettingsPage() {
                   <div className="rounded-sm border border-white/6 bg-white/4 px-3 py-2 text-sm text-foreground">
                     {((
                       (form.holidaySchedule.enabled
-                        ? form.holidaySchedule.maxStudyHoursPerDay ?? form.maxStudyHoursPerDay
+                        ? ((Number(form.holidaySchedule.dailyStudyWindow.end.slice(0, 2)) * 60 +
+                            Number(form.holidaySchedule.dailyStudyWindow.end.slice(3, 5)) -
+                            (Number(form.holidaySchedule.dailyStudyWindow.start.slice(0, 2)) * 60 +
+                              Number(form.holidaySchedule.dailyStudyWindow.start.slice(3, 5))) +
+                            24 * 60) %
+                            (24 * 60) || 24 * 60
+                          ) / 60
                         : form.maxStudyHoursPerDay) * form.sundayStudy.workloadIntensity
                     )).toFixed(1)} hours
                   </div>
