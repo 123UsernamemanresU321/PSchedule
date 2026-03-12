@@ -3,6 +3,8 @@ import { addDays } from "date-fns";
 import { endOfPlannerWeek } from "@/lib/dates/helpers";
 import type { StudyBlock, TaskCandidate, Topic } from "@/lib/types/planner";
 
+const MIN_ALLOCATABLE_MINUTES = 15;
+
 function inferIntensity(topic: Topic): TaskCandidate["intensity"] {
   if (
     topic.preferredBlockTypes.includes("deep_work") ||
@@ -55,7 +57,7 @@ export function buildTaskCandidates(options: {
       0,
     );
 
-    if (remainingMinutes < 20 || topic.status === "strong") {
+    if (remainingMinutes < MIN_ALLOCATABLE_MINUTES || topic.status === "strong") {
       return accumulator;
     }
 
@@ -108,7 +110,7 @@ export function buildTaskCandidates(options: {
 
     const candidates: TaskCandidate[] = [];
 
-    if (rawRemainingMinutes >= 20 && topic.status !== "strong") {
+    if (rawRemainingMinutes >= MIN_ALLOCATABLE_MINUTES && topic.status !== "strong") {
       candidates.push({
         id: topic.id,
         subjectId: topic.subjectId,

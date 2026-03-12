@@ -31,6 +31,8 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
+const MIN_ALLOCATABLE_MINUTES = 15;
+
 function buildRecoveryBlock(slot: CalendarSlot, weekStart: string): StudyBlock {
   return {
     id: createId("block"),
@@ -358,7 +360,7 @@ function allocateTasksToSlots(options: {
 
   function allWeeklyTargetsSatisfied() {
     if (options.fillAvailableStudyDays) {
-      return workingTasks.every((task) => task.remainingMinutes < 20);
+      return workingTasks.every((task) => task.remainingMinutes < MIN_ALLOCATABLE_MINUTES);
     }
 
     return Object.entries(requiredMinutesBySubject)
@@ -371,7 +373,7 @@ function allocateTasksToSlots(options: {
   }
 
   function canInsertRecoveryBlock(slot: CalendarSlot, usedToday: number, dailyBudget: number) {
-    if (slot.durationMinutes < 20) {
+    if (slot.durationMinutes < MIN_ALLOCATABLE_MINUTES) {
       return false;
     }
 
@@ -466,12 +468,15 @@ function allocateTasksToSlots(options: {
     let cursor = slot.start;
     let remainingSlotMinutes = slot.durationMinutes;
 
-    while (remainingSlotMinutes >= 20 && consumedStudyMinutes < effectiveCapacityMinutes) {
+    while (
+      remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES &&
+      consumedStudyMinutes < effectiveCapacityMinutes
+    ) {
       const dailyBudget = slot.dayStudyCapMinutes + (options.dailyCapBoostMinutes ?? 0);
       const usedToday = dailyMinutes[slot.dateKey] ?? 0;
       const availableToday = dailyBudget - usedToday;
 
-      if (availableToday < 20) {
+      if (availableToday < MIN_ALLOCATABLE_MINUTES) {
         break;
       }
 
@@ -487,7 +492,7 @@ function allocateTasksToSlots(options: {
       };
 
       const scoredOptions = workingTasks
-        .filter((task) => task.remainingMinutes >= 20)
+        .filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES)
         .filter((task) => !hasReachedWeeklyTarget(task))
         .map((task) => {
           const blockOption = selectBlockOption(
@@ -542,7 +547,11 @@ function allocateTasksToSlots(options: {
           canInsertRecoveryBlock(slotSlice, usedToday, dailyBudget) &&
           (slotSlice.energy === "low" || allTargetsMet)
         ) {
-          const recoveryDuration = clamp(Math.min(30, remainingSlotMinutes), 20, 30);
+          const recoveryDuration = clamp(
+            Math.min(30, remainingSlotMinutes),
+            MIN_ALLOCATABLE_MINUTES,
+            30,
+          );
           const recoverySlot = {
             ...slotSlice,
             end: addMinutes(cursor, recoveryDuration),
@@ -568,7 +577,11 @@ function allocateTasksToSlots(options: {
         (slotSlice.energy === "low" || allTargetsMet)
       ) {
         if (canInsertRecoveryBlock(slotSlice, usedToday, dailyBudget)) {
-          const recoveryDuration = clamp(Math.min(30, remainingSlotMinutes), 20, 30);
+          const recoveryDuration = clamp(
+            Math.min(30, remainingSlotMinutes),
+            MIN_ALLOCATABLE_MINUTES,
+            30,
+          );
           const recoverySlot = {
             ...slotSlice,
             end: addMinutes(cursor, recoveryDuration),
@@ -629,7 +642,7 @@ function allocateTasksToSlots(options: {
 
   return {
     scheduledBlocks,
-    unscheduledTasks: workingTasks.filter((task) => task.remainingMinutes >= 20),
+    unscheduledTasks: workingTasks.filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES),
     usedSundayMinutes,
     scheduledStudyMinutes: consumedStudyMinutes,
   };

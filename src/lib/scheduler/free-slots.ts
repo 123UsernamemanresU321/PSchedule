@@ -29,6 +29,8 @@ export interface RecoveryWindowOccurrence {
   movable: boolean;
 }
 
+const MIN_ALLOCATABLE_MINUTES = 15;
+
 function mergeIntervals(intervals: TimeInterval[]) {
   if (!intervals.length) {
     return [];
@@ -397,7 +399,7 @@ export function calculateFreeSlots(options: {
     ]);
 
     subtractIntervals(plannerWindow, busyIntervals)
-      .filter((interval) => minutesBetween(interval.start, interval.end) >= 20)
+      .filter((interval) => minutesBetween(interval.start, interval.end) >= MIN_ALLOCATABLE_MINUTES)
       .forEach((interval, slotIndex) => {
         const slot: CalendarSlot = {
           id: `${toDateKey(day)}-slot-${slotIndex + 1}`,

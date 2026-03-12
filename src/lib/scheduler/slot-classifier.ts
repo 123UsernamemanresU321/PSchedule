@@ -27,6 +27,8 @@ export interface BlockSelectionPolicy {
   preferLongerBlocks?: boolean;
 }
 
+const MIN_ALLOCATABLE_MINUTES = 15;
+
 function overlapsWindow(slot: CalendarSlot, window: TimeWindow) {
   if (!window.days.includes(slot.start.getDay())) {
     return false;
@@ -117,8 +119,12 @@ export function selectBlockOption(
         task.remainingMinutes,
         slot.durationMinutes,
       );
+      const minimumDuration =
+        task.remainingMinutes <= 30 || slot.durationMinutes <= 30
+          ? MIN_ALLOCATABLE_MINUTES
+          : preset.minMinutes;
 
-      if (maxDuration < preset.minMinutes) {
+      if (maxDuration < minimumDuration) {
         return null;
       }
 
