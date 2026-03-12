@@ -130,32 +130,50 @@ function buildDailyTargetMinutes(options: {
     assignedTargetMinutes += 15;
   }
 
-  if (options.preferences.sundayStudy.enabled) {
-    const sundayKey = dayKeys.find((dayKey) => dayCapacityByDate[dayKey].dayIndex === 0);
+  const minimumWeekendTargets = dayKeys
+    .map((dayKey) => {
+      const dayEntry = dayCapacityByDate[dayKey];
 
-    if (sundayKey) {
-      const sundayCapacity = dayCapacityByDate[sundayKey].capacity;
-      const minimumSundayTarget = Math.min(
-        sundayCapacity,
-        options.effectiveCapacityMinutes >= 60 ? 60 : 45,
-      );
+      if (dayEntry.dayIndex === 6) {
+        const saturdayTarget = Math.min(
+          dayEntry.capacity,
+          Math.max(240, Math.floor((dayEntry.capacity * 0.55) / 15) * 15),
+        );
 
-      if (minimumSundayTarget > 0 && targets[sundayKey] < minimumSundayTarget) {
-        let minutesNeeded = minimumSundayTarget - targets[sundayKey];
-
-        dayKeys
-          .filter((dayKey) => dayKey !== sundayKey)
-          .sort((left, right) => targets[right] - targets[left])
-          .forEach((dayKey) => {
-            while (minutesNeeded > 0 && targets[dayKey] >= 30) {
-              targets[dayKey] -= 15;
-              targets[sundayKey] += 15;
-              minutesNeeded -= 15;
-            }
-          });
+        return { dayKey, targetMinutes: saturdayTarget };
       }
+
+      if (dayEntry.dayIndex === 0 && options.preferences.sundayStudy.enabled) {
+        const sundayTarget = Math.min(
+          dayEntry.capacity,
+          options.effectiveCapacityMinutes >= 60 ? 60 : 45,
+        );
+
+        return { dayKey, targetMinutes: sundayTarget };
+      }
+
+      return null;
+    })
+    .filter(Boolean) as Array<{ dayKey: string; targetMinutes: number }>;
+
+  minimumWeekendTargets.forEach(({ dayKey, targetMinutes }) => {
+    if (targetMinutes <= 0 || targets[dayKey] >= targetMinutes) {
+      return;
     }
-  }
+
+    let minutesNeeded = targetMinutes - targets[dayKey];
+
+    dayKeys
+      .filter((candidateDayKey) => candidateDayKey !== dayKey)
+      .sort((left, right) => targets[right] - targets[left])
+      .forEach((candidateDayKey) => {
+        while (minutesNeeded > 0 && targets[candidateDayKey] >= 30) {
+          targets[candidateDayKey] -= 15;
+          targets[dayKey] += 15;
+          minutesNeeded -= 15;
+        }
+      });
+  });
 
   return targets;
 }
@@ -578,7 +596,7 @@ function buildAllocationPasses(baseDailyCapBoostMinutes: number, options?: { par
     {
       protectRecovery: false,
       skipMovableRecovery: true,
-      dailyCapBoostMinutes: baseDailyCapBoostMinutes + 45,
+      dailyCapBoostMinutes: baseDailyCapBoostMinutes + 240,
       heavySessionBoost: 1,
       minBreakMinutes: 10,
       blockSelectionPolicy: {
@@ -589,7 +607,7 @@ function buildAllocationPasses(baseDailyCapBoostMinutes: number, options?: { par
     {
       protectRecovery: false,
       skipMovableRecovery: true,
-      dailyCapBoostMinutes: baseDailyCapBoostMinutes + 90,
+      dailyCapBoostMinutes: baseDailyCapBoostMinutes + 600,
       heavySessionBoost: 2,
       minBreakMinutes: 5,
       blockSelectionPolicy: {
