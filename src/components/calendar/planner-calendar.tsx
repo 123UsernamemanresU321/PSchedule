@@ -71,7 +71,11 @@ interface PlannerCalendarProps {
   studyBlocks: StudyBlock[];
   subjects: Subject[];
   onCreateEvent: (selection: { start: string; end: string; allDay: boolean }) => void;
-  onEditFixedEvent: (event: FixedEvent) => void;
+  onEditFixedEvent: (options: {
+    event: FixedEvent;
+    occurrenceStart: string;
+    occurrenceEnd: string;
+  }) => void;
   onSelectStudyBlock: (id: string) => void;
 }
 
@@ -200,7 +204,13 @@ export function PlannerCalendar({
             if (clickInfo.event.extendedProps.readOnly) {
               return;
             }
-            onEditFixedEvent(clickInfo.event.extendedProps.event as FixedEvent);
+            const occurrenceStart = clickInfo.event.extendedProps.occurrenceStart as string;
+            const occurrenceEnd = clickInfo.event.extendedProps.occurrenceEnd as string;
+            onEditFixedEvent({
+              event: clickInfo.event.extendedProps.event as FixedEvent,
+              occurrenceStart,
+              occurrenceEnd,
+            });
             return;
           }
 

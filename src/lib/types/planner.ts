@@ -91,6 +91,7 @@ export interface FixedEvent {
   recurrence: FixedEventRecurrence;
   daysOfWeek?: number[];
   repeatUntil?: string;
+  excludedDates?: string[];
   flexibility: FixedEventFlexibility;
   category: FixedEventCategory;
   notes?: string;

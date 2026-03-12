@@ -6,6 +6,7 @@ import { fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers"
 import { generateStudyPlanHorizon } from "@/lib/scheduler/generator";
 import {
   deleteFixedEventById,
+  excludeFixedEventOccurrence,
   exportPlannerData,
   getCurrentWeekKey,
   importPlannerData,
@@ -48,7 +49,11 @@ interface PlannerState {
   setCurrentWeekStart: (weekStart: string) => void;
   regenerateHorizon: () => Promise<void>;
   saveFixedEvent: (event: FixedEvent) => Promise<void>;
-  deleteFixedEvent: (id: string) => Promise<void>;
+  deleteFixedEvent: (options: {
+    id: string;
+    scope?: "occurrence" | "series";
+    occurrenceDate?: string;
+  }) => Promise<void>;
   updatePreferences: (patch: Partial<Preferences>) => Promise<void>;
   updateStudyBlockStatus: (options: {
     blockId: string;
@@ -182,8 +187,12 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     await get().regenerateHorizon();
     get().setCurrentWeekStart(toDateKey(new Date(event.start)));
   },
-  deleteFixedEvent: async (id) => {
-    await deleteFixedEventById(id);
+  deleteFixedEvent: async ({ id, scope = "series", occurrenceDate }) => {
+    if (scope === "occurrence" && occurrenceDate) {
+      await excludeFixedEventOccurrence(id, occurrenceDate);
+    } else {
+      await deleteFixedEventById(id);
+    }
     await get().regenerateHorizon();
   },
   updatePreferences: async (patch) => {

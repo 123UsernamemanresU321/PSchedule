@@ -135,6 +135,7 @@ export function expandFixedEventsForWeek(weekStart: Date, fixedEvents: FixedEven
     .flatMap((event) => {
       const originalStart = new Date(event.start);
       const originalEnd = new Date(event.end);
+      const excludedDates = new Set(event.excludedDates ?? []);
 
       if (event.recurrence === "none") {
         return [event];
@@ -173,12 +174,17 @@ export function expandFixedEventsForWeek(weekStart: Date, fixedEvents: FixedEven
         };
       }).filter((occurrence) => {
         const occurrenceDate = fromDateKey(toDateKey(new Date(occurrence.start)));
+        const occurrenceDateKey = toDateKey(new Date(occurrence.start));
 
         if (occurrenceDate < firstOccurrenceDate) {
           return false;
         }
 
         if (lastOccurrenceDate && occurrenceDate > lastOccurrenceDate) {
+          return false;
+        }
+
+        if (excludedDates.has(occurrenceDateKey)) {
           return false;
         }
 

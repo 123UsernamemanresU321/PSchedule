@@ -51,6 +51,9 @@ function normalizeFixedEvent(event: PlannerExportPayload["fixedEvents"][number])
   return {
     ...event,
     isAllDay: event.isAllDay ?? false,
+    excludedDates: event.excludedDates?.length
+      ? Array.from(new Set(event.excludedDates)).sort((left, right) => left.localeCompare(right))
+      : undefined,
   };
 }
 
@@ -446,6 +449,30 @@ export async function saveFixedEvent(event: PlannerSnapshot["fixedEvents"][numbe
 
 export async function deleteFixedEventById(id: string) {
   await db.fixedEvents.delete(id);
+}
+
+export async function excludeFixedEventOccurrence(id: string, dateKey: string) {
+  const event = await db.fixedEvents.get(id);
+
+  if (!event) {
+    return;
+  }
+
+  if (event.recurrence === "none") {
+    await db.fixedEvents.delete(id);
+    return;
+  }
+
+  const excludedDates = Array.from(
+    new Set([...(event.excludedDates ?? []), dateKey]),
+  ).sort((left, right) => left.localeCompare(right));
+
+  await db.fixedEvents.put(
+    normalizeFixedEvent({
+      ...event,
+      excludedDates,
+    }),
+  );
 }
 
 export async function updateStudyBlock(block: StudyBlock) {

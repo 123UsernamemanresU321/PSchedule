@@ -141,10 +141,12 @@ export function CalendarPage() {
               allDay,
             })
           }
-          onEditFixedEvent={(event) =>
+          onEditFixedEvent={({ event, occurrenceStart, occurrenceEnd }) =>
             setEditorDraft({
               mode: "edit",
               event,
+              occurrenceStart,
+              occurrenceEnd,
             })
           }
           onSelectStudyBlock={selectStudyBlock}
@@ -166,8 +168,12 @@ export function CalendarPage() {
           await savePlannerFixedEvent(event);
           setEditorDraft(null);
         }}
-        onDelete={async (id) => {
-          await deleteFixedEvent(id);
+        onDelete={async ({ event, scope, occurrenceDate }) => {
+          await deleteFixedEvent({
+            id: event.id,
+            scope,
+            occurrenceDate,
+          });
           setEditorDraft(null);
         }}
       />

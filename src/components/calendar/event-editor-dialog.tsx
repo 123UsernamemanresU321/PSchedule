@@ -18,7 +18,11 @@ interface EventEditorDialogProps {
   draft: EventEditorDraft;
   onClose: () => void;
   onSave: (event: FixedEvent) => Promise<void>;
-  onDelete?: (id: string) => Promise<void>;
+  onDelete?: (options: {
+    event: FixedEvent;
+    scope: "occurrence" | "series";
+    occurrenceDate?: string;
+  }) => Promise<void>;
 }
 
 export type EventEditorDraft =
@@ -31,6 +35,8 @@ export type EventEditorDraft =
   | {
       mode: "edit";
       event: FixedEvent;
+      occurrenceStart?: string;
+      occurrenceEnd?: string;
     }
   | null;
 
@@ -187,11 +193,22 @@ function EventEditorDialogPanel({
   const [notes, setNotes] = useState(
     draft.mode === "create" ? "" : draft.event.notes ?? "",
   );
+  const [showDeleteOptions, setShowDeleteOptions] = useState(false);
   const eventId = draft.mode === "edit" ? draft.event.id : createId("event");
   const normalizedDaysOfWeek =
     recurrence === "weekly"
       ? (daysOfWeek.length ? daysOfWeek : [getInputDayOfWeek(start)]).sort((left, right) => left - right)
       : undefined;
+  const selectedOccurrenceDate =
+    draft.mode === "edit" && draft.occurrenceStart
+      ? draft.occurrenceStart.slice(0, 10)
+      : draft.mode === "edit"
+        ? draft.event.start.slice(0, 10)
+        : undefined;
+  const canChooseDeleteScope =
+    draft.mode === "edit" &&
+    draft.event.recurrence === "weekly" &&
+    Boolean(selectedOccurrenceDate);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
@@ -397,9 +414,68 @@ function EventEditorDialogPanel({
             <div className="flex flex-wrap justify-between gap-3 pt-2">
               <div>
                 {draft.mode === "edit" && onDelete ? (
-                  <Button variant="danger" onClick={() => void onDelete(draft.event.id)}>
-                    Delete event
-                  </Button>
+                  <>
+                    <Button
+                      variant="danger"
+                      onClick={() => {
+                        if (canChooseDeleteScope) {
+                          setShowDeleteOptions((current) => !current);
+                          return;
+                        }
+
+                        void onDelete({
+                          event: draft.event,
+                          scope: "series",
+                          occurrenceDate: selectedOccurrenceDate,
+                        });
+                      }}
+                    >
+                      Delete event
+                    </Button>
+                    {showDeleteOptions ? (
+                      <div className="mt-3 w-full max-w-sm rounded-sm border border-white/8 bg-white/4 p-3">
+                        <p className="text-sm font-medium text-foreground">Delete recurring event</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Choose whether to remove only the selected day or the whole recurring series.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              void onDelete({
+                                event: draft.event,
+                                scope: "occurrence",
+                                occurrenceDate: selectedOccurrenceDate,
+                              })
+                            }
+                          >
+                            Delete this day
+                          </Button>
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={() =>
+                              void onDelete({
+                                event: draft.event,
+                                scope: "series",
+                                occurrenceDate: selectedOccurrenceDate,
+                              })
+                            }
+                          >
+                            Delete entire event
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowDeleteOptions(false)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
                 ) : null}
               </div>
               <div className="flex gap-3">
@@ -432,6 +508,8 @@ function EventEditorDialogPanel({
                         recurrence === "weekly"
                           ? repeatUntil || start.slice(0, 10)
                           : undefined,
+                      excludedDates:
+                        draft.mode === "edit" ? draft.event.excludedDates : undefined,
                       notes,
                     });
                   }}

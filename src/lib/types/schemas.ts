@@ -71,6 +71,7 @@ export const fixedEventSchema = z.object({
   recurrence: z.enum(fixedEventRecurrenceValues),
   daysOfWeek: z.array(z.number().min(0).max(6)).optional(),
   repeatUntil: z.string().optional(),
+  excludedDates: z.array(z.string()).optional(),
   flexibility: z.enum(fixedEventFlexibilityValues),
   category: z.enum(fixedEventCategoryValues),
   notes: z.string().optional(),
