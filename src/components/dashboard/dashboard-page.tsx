@@ -27,6 +27,7 @@ import {
   getTodayBlocks,
   getUrgentTopics,
   getWeekBlocks,
+  getWeeklyCoverageState,
   getWeeklyPlan,
 } from "@/lib/analytics/metrics";
 import { mainSubjectIds } from "@/lib/constants/planner";
@@ -48,6 +49,7 @@ export function DashboardPage() {
   const todayBlocks = getTodayBlocks(weekBlocks);
   const metrics = getDashboardMetrics(weekBlocks, weeklyPlan);
   const trackStatus = countTrackStatus(weeklyPlan);
+  const weeklyCoverageState = getWeeklyCoverageState(weeklyPlan);
   const urgentTopics = getUrgentTopics(topics, subjects).slice(0, 3);
   const roadmapSummary = getHorizonRoadmapSummary(weeklyPlans, topics, currentWeekStart);
   const subjectProgress = subjects
@@ -101,10 +103,10 @@ export function DashboardPage() {
           accent={<CheckCircle2 className="h-5 w-5 text-success" />}
         />
         <MetricCard
-          eyebrow="Workload risk"
-          value={weeklyPlan ? weeklyPlan.riskFlag[0].toUpperCase() + weeklyPlan.riskFlag.slice(1) : "Low"}
+          eyebrow="Coverage state"
+          value={weeklyCoverageState.label}
           detail={weeklyPlan?.feasibilityWarnings[0] ?? "Buffer capacity is still protecting the week."}
-          tone={weeklyPlan?.riskFlag === "high" ? "danger" : weeklyPlan?.riskFlag === "medium" ? "warning" : "success"}
+          tone={weeklyCoverageState.tone}
           accent={<Flame className="h-5 w-5 text-warning" />}
         />
       </div>
@@ -152,15 +154,15 @@ export function DashboardPage() {
                   <SubjectBadge subjectId={forecast.subject.id} label={forecast.subject.shortName} />
                   <Badge
                     variant={
-                      !forecast.isFullyScheduled
-                        ? "warning"
+                      forecast.isCalendarImpossible
+                        ? "danger"
                         : forecast.isOnTrack
                           ? "success"
-                          : "danger"
+                          : "warning"
                     }
                   >
-                    {!forecast.isFullyScheduled
-                      ? "Needs blocks"
+                    {forecast.isCalendarImpossible
+                      ? "Impossible"
                       : forecast.isOnTrack
                         ? "On calendar"
                         : "Past deadline"}
@@ -168,7 +170,9 @@ export function DashboardPage() {
                 </div>
                 <p className="mt-4 text-sm text-muted-foreground">Projected finish</p>
                 <p className="mt-2 text-2xl font-semibold text-foreground">
-                  {forecast.completionDate ? format(forecast.completionDate, "d MMM yyyy") : "Not scheduled"}
+                  {forecast.completionDate
+                    ? format(forecast.completionDate, "d MMM yyyy")
+                    : "Calendar impossible"}
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Goal by {forecast.deadline}
@@ -176,7 +180,9 @@ export function DashboardPage() {
                 <p className="mt-4 text-sm text-muted-foreground">
                   {forecast.isFullyScheduled
                     ? `${forecast.remainingTargetHours.toFixed(1)}h remaining is already covered on the horizon.`
-                    : `${forecast.missingHours.toFixed(1)}h still missing from the calendar horizon.`}
+                    : forecast.lastScheduledDate
+                      ? `${forecast.missingHours.toFixed(1)}h still missing after ${format(forecast.lastScheduledDate, "d MMM")}.`
+                      : `${forecast.missingHours.toFixed(1)}h still missing because the horizon has no future coverage.`}
                 </p>
               </div>
             ))}

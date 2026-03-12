@@ -104,10 +104,10 @@ export function countTrackStatus(weeklyPlan: WeeklyPlan | undefined) {
   return mainSubjectIds.reduce(
     (accumulator, subjectId) => {
       const required = weeklyPlan.requiredHoursBySubject[subjectId] ?? 0;
-      const assigned = weeklyPlan.assignedHoursBySubject[subjectId] ?? 0;
-      const ratio = required ? assigned / required : 1;
+      const gap = weeklyPlan.coverageGapHoursBySubject[subjectId] ?? 0;
+      const ratio = required > 0 ? Math.max(0, 1 - gap / Math.max(required, 0.25)) : 1;
 
-      if (ratio >= 0.95) {
+      if (gap <= 0.1 || ratio >= 0.95) {
         accumulator.onTrack += 1;
       } else if (ratio >= 0.8) {
         accumulator.atRisk += 1;
@@ -123,6 +123,26 @@ export function countTrackStatus(weeklyPlan: WeeklyPlan | undefined) {
       behind: 0,
     },
   );
+}
+
+export function getWeeklyCoverageState(weeklyPlan: WeeklyPlan | undefined) {
+  if (!weeklyPlan) {
+    return { label: "On target", tone: "success" as const };
+  }
+
+  if (!weeklyPlan.coverageComplete && weeklyPlan.overloadMinutes > 0 && weeklyPlan.slackMinutes === 0) {
+    return { label: "Calendar-impossible", tone: "danger" as const };
+  }
+
+  if (weeklyPlan.coverageComplete && weeklyPlan.overloadMinutes > 0) {
+    return { label: "Overloaded but covered", tone: "warning" as const };
+  }
+
+  if (!weeklyPlan.coverageComplete || weeklyPlan.forcedCoverageMinutes > 0) {
+    return { label: "Catch-up", tone: "warning" as const };
+  }
+
+  return { label: "On target", tone: "success" as const };
 }
 
 export function getCarryOverBlocks(studyBlocks: StudyBlock[]) {
@@ -228,6 +248,9 @@ export function getCalendarCompletionForecast(options: {
     .filter((block) => !["missed"].includes(block.status))
     .filter((block) => new Date(block.end) >= referenceDate)
     .sort((left, right) => new Date(left.end).getTime() - new Date(right.end).getTime());
+  const lastScheduledDate = futureBlocks.length
+    ? new Date(futureBlocks[futureBlocks.length - 1].end)
+    : null;
 
   let scheduledHours = 0;
   let completionDate: Date | null = remainingTargetHours <= 0 ? referenceDate : null;
@@ -246,6 +269,7 @@ export function getCalendarCompletionForecast(options: {
   const scheduledHoursToHorizon = Number(Math.min(scheduledHours, remainingTargetHours).toFixed(1));
   const missingHours = Number(Math.max(remainingTargetHours - scheduledHours, 0).toFixed(1));
   const deadline = activeGoal?.deadline ?? options.subject.deadline;
+  const isCalendarImpossible = missingHours > 0;
 
   return {
     subject: options.subject,
@@ -255,7 +279,9 @@ export function getCalendarCompletionForecast(options: {
     remainingTargetHours: Number(remainingTargetHours.toFixed(1)),
     scheduledHoursToHorizon,
     missingHours,
+    lastScheduledDate,
     completionDate,
+    isCalendarImpossible,
     isFullyScheduled: !!completionDate,
     isOnTrack:
       !!completionDate && completionDate.getTime() <= new Date(deadline).getTime(),
@@ -336,6 +362,10 @@ export function getHorizonRoadmapSummary(
           .toFixed(1),
       ),
       riskFlag: plan.riskFlag,
+      coverageComplete: plan.coverageComplete,
+      forcedCoverageMinutes: plan.forcedCoverageMinutes,
+      usedSundayMinutes: plan.usedSundayMinutes,
+      overloadMinutes: plan.overloadMinutes,
       underplannedSubjectIds: plan.underplannedSubjectIds,
     })),
   };

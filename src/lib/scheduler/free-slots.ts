@@ -250,6 +250,7 @@ function resolveRecoveryWindowsForDay(options: {
   fixedEvents: FixedEvent[];
   preferences: Preferences;
   blockedStudyBlocks?: StudyBlock[];
+  skipMovableRecovery?: boolean;
 }) {
   const resolvedIntervals: Array<TimeInterval & { label: string; movable: boolean }> = [];
   const eventIntervals = buildEventIntervals(options.day, options.fixedEvents, options.preferences);
@@ -257,6 +258,7 @@ function resolveRecoveryWindowsForDay(options: {
 
   options.preferences.lockedRecoveryWindows
     .filter((window) => window.days.includes(options.day.getDay()))
+    .filter((window) => !(options.skipMovableRecovery && window.movable))
     .filter(
       (window) =>
         !(window.label === "Sunday recovery" && options.day.getDay() === 0 && !options.preferences.reserveSundayEvening),
@@ -293,6 +295,7 @@ export function expandLockedRecoveryWindowsForWeek(
   preferences: Preferences,
   fixedEvents: FixedEvent[] = [],
   blockedStudyBlocks: StudyBlock[] = [],
+  skipMovableRecovery = false,
 ): RecoveryWindowOccurrence[] {
   const expandedFixedEvents = expandPlannerFixedEventsForWeek(weekStart, fixedEvents, preferences);
 
@@ -302,6 +305,7 @@ export function expandLockedRecoveryWindowsForWeek(
       fixedEvents: expandedFixedEvents,
       preferences,
       blockedStudyBlocks,
+      skipMovableRecovery,
     }).map((window) => ({
       id: `${window.label}-${toDateKey(day)}`,
       title: window.label,
@@ -351,6 +355,7 @@ export function calculateFreeSlots(options: {
   preferences: Preferences;
   blockedStudyBlocks?: StudyBlock[];
   planningStart?: Date;
+  skipMovableRecovery?: boolean;
 }) {
   const { weekStart, preferences, planningStart } = options;
   const fixedEvents = expandPlannerFixedEventsForWeek(weekStart, options.fixedEvents, preferences);
@@ -360,6 +365,7 @@ export function calculateFreeSlots(options: {
     preferences,
     options.fixedEvents,
     blockedStudyBlocks,
+    options.skipMovableRecovery ?? false,
   );
 
   const slots: CalendarSlot[] = [];

@@ -22,6 +22,7 @@ import {
   getCalendarCompletionForecast,
   getCarryOverBlocks,
   getWeekBlocks,
+  getWeeklyCoverageState,
   getWeeklyPlan,
 } from "@/lib/analytics/metrics";
 import { mainSubjectIds } from "@/lib/constants/planner";
@@ -40,6 +41,7 @@ export function WeeklyReviewPage() {
 
   const visibleWeekStart = startOfPlannerWeek(fromDateKey(currentWeekStart));
   const weeklyPlan = getWeeklyPlan(weeklyPlans, currentWeekStart);
+  const weeklyCoverageState = getWeeklyCoverageState(weeklyPlan);
   const weekBlocks = getWeekBlocks(studyBlocks, currentWeekStart);
   const carryOverBlocks = getCarryOverBlocks(weekBlocks);
   const chartData = subjects
@@ -63,7 +65,7 @@ export function WeeklyReviewPage() {
         topics,
         goals,
         studyBlocks,
-        referenceDate: visibleWeekStart,
+        referenceDate: new Date(),
       }),
     );
 
@@ -105,7 +107,7 @@ export function WeeklyReviewPage() {
         <MetricCard eyebrow="Planned hours" value={plannedHours.toFixed(1)} detail="hours scheduled this week" />
         <MetricCard eyebrow="Completed hours" value={completedHours.toFixed(1)} detail="hours marked done or partial" tone={completedHours / Math.max(plannedHours, 1) >= 0.8 ? "success" : "warning"} />
         <MetricCard eyebrow="Carry-over hours" value={carryOverHours.toFixed(1)} detail="hours to reschedule" tone={carryOverHours > 4 ? "warning" : "default"} />
-        <MetricCard eyebrow="Feasibility risk" value={weeklyPlan ? weeklyPlan.riskFlag[0].toUpperCase() + weeklyPlan.riskFlag.slice(1) : "Low"} detail={weeklyPlan?.feasibilityWarnings[0] ?? "No major risk flags this week."} tone={weeklyPlan?.riskFlag === "high" ? "danger" : weeklyPlan?.riskFlag === "medium" ? "warning" : "success"} />
+        <MetricCard eyebrow="Coverage state" value={weeklyCoverageState.label} detail={weeklyPlan?.feasibilityWarnings[0] ?? "No major risk flags this week."} tone={weeklyCoverageState.tone} />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
@@ -163,8 +165,8 @@ export function WeeklyReviewPage() {
             <CardTitle>Feasibility analysis</CardTitle>
             <p className="text-sm text-muted-foreground">Projected completion dates based on the actual scheduled horizon on the calendar.</p>
           </div>
-          <Badge variant={weeklyPlan?.riskFlag === "high" ? "danger" : weeklyPlan?.riskFlag === "medium" ? "warning" : "success"}>
-            {weeklyPlan?.riskFlag === "high" ? "High risk" : weeklyPlan?.riskFlag === "medium" ? "Medium risk" : "On track"}
+          <Badge variant={weeklyCoverageState.tone}>
+            {weeklyCoverageState.label}
           </Badge>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -189,15 +191,15 @@ export function WeeklyReviewPage() {
                   <SubjectBadge subjectId={forecast.subject.id} label={forecast.subject.shortName} />
                   <Badge
                     variant={
-                      !forecast.isFullyScheduled
-                        ? "warning"
+                      forecast.isCalendarImpossible
+                        ? "danger"
                         : forecast.isOnTrack
                           ? "success"
-                          : "danger"
+                          : "warning"
                     }
                   >
-                    {!forecast.isFullyScheduled
-                      ? "Needs blocks"
+                    {forecast.isCalendarImpossible
+                      ? "Impossible"
                       : forecast.isOnTrack
                         ? "On calendar"
                         : "Past deadline"}
@@ -205,7 +207,9 @@ export function WeeklyReviewPage() {
                 </div>
                 <p className="mt-4 text-sm text-muted-foreground">Projected completion</p>
                 <p className="mt-2 text-2xl font-semibold text-foreground">
-                  {forecast.completionDate ? forecast.completionDate.toLocaleDateString() : "Not scheduled"}
+                  {forecast.completionDate
+                    ? forecast.completionDate.toLocaleDateString()
+                    : "Calendar impossible"}
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Goal by {forecast.deadline}
@@ -213,7 +217,9 @@ export function WeeklyReviewPage() {
                 <p className="mt-3 text-sm text-muted-foreground">
                   {forecast.isFullyScheduled
                     ? `${forecast.remainingTargetHours.toFixed(1)}h remaining is already covered on the calendar.`
-                    : `${forecast.missingHours.toFixed(1)}h still missing from scheduled blocks.`}
+                    : forecast.lastScheduledDate
+                      ? `${forecast.missingHours.toFixed(1)}h still missing after ${forecast.lastScheduledDate.toLocaleDateString()}.`
+                      : `${forecast.missingHours.toFixed(1)}h still missing because there are no future blocks yet.`}
                 </p>
               </div>
             ))}

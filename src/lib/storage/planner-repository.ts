@@ -19,7 +19,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-11-holiday-horizon-v1";
+const PLANNING_MODEL_VERSION = "2026-03-12-hard-coverage-v1";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 
 function normalizeFixedEvent(event: PlannerExportPayload["fixedEvents"][number]) {
@@ -107,7 +107,19 @@ function normalizeWeeklyPlan(
       ...emptyBySubject,
       ...weeklyPlan.remainingHoursBySubject,
     },
+    coverageGapHoursBySubject: {
+      ...emptyBySubject,
+      ...weeklyPlan.coverageGapHoursBySubject,
+    },
+    scheduledToGoalHoursBySubject: {
+      ...emptyBySubject,
+      ...weeklyPlan.scheduledToGoalHoursBySubject,
+    },
     underplannedSubjectIds: weeklyPlan.underplannedSubjectIds ?? [],
+    forcedCoverageMinutes: weeklyPlan.forcedCoverageMinutes ?? 0,
+    usedSundayMinutes: weeklyPlan.usedSundayMinutes ?? 0,
+    overloadMinutes: weeklyPlan.overloadMinutes ?? 0,
+    coverageComplete: weeklyPlan.coverageComplete ?? false,
     weeksRemainingToDeadline: weeklyPlan.weeksRemainingToDeadline ?? 1,
     horizonEndDate: weeklyPlan.horizonEndDate ?? horizonEndDate,
   };

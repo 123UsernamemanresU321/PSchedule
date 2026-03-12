@@ -75,6 +75,14 @@ export function HorizonRoadmap({
         <div className="space-y-3">
           {visibleWeeks.map((week) => {
             const ratio = week.requiredHours > 0 ? Math.min(week.assignedHours / week.requiredHours, 1.25) : 1;
+            const weekState =
+              !week.coverageComplete && week.overloadMinutes > 0
+                ? { label: "Calendar-impossible", variant: "danger" as const }
+                : week.coverageComplete && week.overloadMinutes > 0
+                  ? { label: "Overloaded", variant: "warning" as const }
+                  : !week.coverageComplete || week.forcedCoverageMinutes > 0
+                    ? { label: "Catch-up", variant: "warning" as const }
+                    : { label: "On target", variant: "success" as const };
 
             return (
               <div
@@ -89,8 +97,8 @@ export function HorizonRoadmap({
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge variant={week.riskFlag === "high" ? "danger" : week.riskFlag === "medium" ? "warning" : "success"}>
-                      {week.riskFlag === "low" ? "On track" : week.riskFlag === "medium" ? "Watch" : "At risk"}
+                    <Badge variant={weekState.variant}>
+                      {weekState.label}
                     </Badge>
                     <span className="text-sm font-medium text-foreground">
                       {(ratio * 100).toFixed(0)}%
@@ -103,6 +111,12 @@ export function HorizonRoadmap({
                     style={{ width: `${Math.min(ratio * 100, 100)}%` }}
                   />
                 </div>
+                {week.usedSundayMinutes > 0 || week.forcedCoverageMinutes > 0 ? (
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    {week.usedSundayMinutes > 0 ? `${Math.round(week.usedSundayMinutes)} min on Sunday` : "No Sunday load"} •{" "}
+                    {week.forcedCoverageMinutes > 0 ? `${Math.round(week.forcedCoverageMinutes)} forced catch-up min` : "No forced catch-up"}
+                  </p>
+                ) : null}
                 {week.underplannedSubjectIds.length ? (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {week.underplannedSubjectIds.map((subjectId) => (

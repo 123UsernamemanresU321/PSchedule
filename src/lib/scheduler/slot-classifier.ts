@@ -21,6 +21,12 @@ export interface BlockOption {
   fragmentationPenalty: number;
 }
 
+export interface BlockSelectionPolicy {
+  allowLowEnergyHeavy?: boolean;
+  allowLateNightDeepWork?: boolean;
+  preferLongerBlocks?: boolean;
+}
+
 function overlapsWindow(slot: CalendarSlot, window: TimeWindow) {
   if (!window.days.includes(slot.start.getDay())) {
     return false;
@@ -61,16 +67,17 @@ function getEnergyPenalty(
   blockType: BlockType,
   slot: CalendarSlot,
   preferences: Preferences,
+  policy?: BlockSelectionPolicy,
 ) {
   const slotEnergy = slot.energy;
   const slotEndsLate = slot.end >= createDateAtTime(slot.start, preferences.lateNightCutoff);
 
   if ((blockType === "deep_work" || blockType === "standard_focus") && slotEnergy === "low") {
-    return Number.POSITIVE_INFINITY;
+    return policy?.allowLowEnergyHeavy ? 8 : Number.POSITIVE_INFINITY;
   }
 
   if (preferences.avoidLateNightHeavy && slotEndsLate && blockType === "deep_work") {
-    return Number.POSITIVE_INFINITY;
+    return policy?.allowLateNightDeepWork ? 6 : Number.POSITIVE_INFINITY;
   }
 
   if (slotEnergy === "prime") {
@@ -92,12 +99,13 @@ export function selectBlockOption(
   task: TaskCandidate,
   slot: CalendarSlot,
   preferences: Preferences,
+  policy?: BlockSelectionPolicy,
 ): BlockOption | null {
   const candidates = expandCandidateBlockTypes(task);
   const viableOptions = candidates
     .map((blockType) => {
       const preset = blockPresets[blockType];
-      const slotFitPenalty = getEnergyPenalty(blockType, slot, preferences);
+      const slotFitPenalty = getEnergyPenalty(blockType, slot, preferences, policy);
 
       if (slotFitPenalty === Number.POSITIVE_INFINITY) {
         return null;
@@ -134,10 +142,15 @@ export function selectBlockOption(
   }
 
   return viableOptions.sort((left, right) => {
-    const penaltyGap =
+    const leftPenalty =
       left.slotFitPenalty +
       left.fragmentationPenalty -
-      (right.slotFitPenalty + right.fragmentationPenalty);
+      (policy?.preferLongerBlocks ? left.durationMinutes / 60 : 0);
+    const rightPenalty =
+      right.slotFitPenalty +
+      right.fragmentationPenalty -
+      (policy?.preferLongerBlocks ? right.durationMinutes / 60 : 0);
+    const penaltyGap = leftPenalty - rightPenalty;
 
     if (penaltyGap !== 0) {
       return penaltyGap;

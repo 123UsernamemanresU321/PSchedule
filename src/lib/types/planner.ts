@@ -150,12 +150,18 @@ export interface WeeklyPlan {
   assignedHoursBySubject: Record<string, number>;
   completedHoursBySubject: Record<string, number>;
   remainingHoursBySubject: Record<string, number>;
+  coverageGapHoursBySubject: Record<string, number>;
+  scheduledToGoalHoursBySubject: Record<string, number>;
   underplannedSubjectIds: string[];
   slackMinutes: number;
   carryOverBlockIds: string[];
   feasibilityScore: number;
   riskFlag: RiskFlag;
   feasibilityWarnings: string[];
+  forcedCoverageMinutes: number;
+  usedSundayMinutes: number;
+  overloadMinutes: number;
+  coverageComplete: boolean;
   weeksRemainingToDeadline: number;
   horizonEndDate: string;
   generatedAt: string;
@@ -297,6 +303,10 @@ export interface HorizonRoadmapWeek {
   completedHours: number;
   remainingCoreHours: number;
   riskFlag: RiskFlag;
+  coverageComplete: boolean;
+  forcedCoverageMinutes: number;
+  usedSundayMinutes: number;
+  overloadMinutes: number;
   underplannedSubjectIds: string[];
 }
 
