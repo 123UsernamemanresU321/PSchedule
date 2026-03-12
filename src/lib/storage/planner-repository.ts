@@ -19,7 +19,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-12-full-capacity-holiday-v4";
+const PLANNING_MODEL_VERSION = "2026-03-12-full-capacity-holiday-v5";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 
 function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreferences: Preferences) {

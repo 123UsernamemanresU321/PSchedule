@@ -265,6 +265,17 @@ function getRemainingRequiredHoursBySubject(
   );
 }
 
+function buildRequiredHoursFromTasks(tasks: TaskCandidate[]) {
+  return tasks.reduce<Record<string, number>>((accumulator, task) => {
+    if (!task.subjectId) {
+      return accumulator;
+    }
+
+    accumulator[task.subjectId] = (accumulator[task.subjectId] ?? 0) + task.remainingMinutes / 60;
+    return accumulator;
+  }, {});
+}
+
 interface AllocationPassPolicy {
   allowLowEnergyHeavy?: boolean;
   allowLateNightDeepWork?: boolean;
@@ -831,13 +842,25 @@ export function generateStudyPlanForWeek(options: {
       scheduledBlocks.push(...preservedBlocks);
     }
 
+    const tasks = buildTaskCandidates({
+      topics: options.topics,
+      existingPlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
+      referenceDate,
+      subjectDeadlinesById,
+    });
     const assignedMinutesBySubject = sumAssignedMinutesBySubject([...lockedBlocks, ...scheduledBlocks]);
     const remainingRequiredHoursBySubject = getRemainingRequiredHoursBySubject(
       requiredHoursBySubject,
       assignedMinutesBySubject,
     );
-    const remainingRequiredMinutes = sum(
-      Object.values(remainingRequiredHoursBySubject).map((hours) => Math.round(hours * 60)),
+    const passRequiredHoursBySubject = shouldFillAvailableStudyDays
+      ? {
+          ...recordFromKeys(subjectIds, () => 0),
+          ...buildRequiredHoursFromTasks(tasks),
+        }
+      : remainingRequiredHoursBySubject;
+    const remainingRequiredMinutes = Math.round(
+      sum(Object.values(passRequiredHoursBySubject).map((hours) => hours * 60)),
     );
 
     if (remainingRequiredMinutes <= 0) {
@@ -857,13 +880,6 @@ export function generateStudyPlanForWeek(options: {
       continue;
     }
 
-    const tasks = buildTaskCandidates({
-      topics: options.topics,
-      existingPlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
-      referenceDate,
-      subjectDeadlinesById,
-    });
-
     const result = allocateTasksToSlots({
       weekStart,
       referenceDate,
@@ -875,7 +891,7 @@ export function generateStudyPlanForWeek(options: {
       preferences: options.preferences,
       lockedBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
       priorPlannedBlocks: existingPlannedBlocks,
-      requiredHoursBySubject: remainingRequiredHoursBySubject,
+      requiredHoursBySubject: passRequiredHoursBySubject,
       dailyCapBoostMinutes: passPolicy.dailyCapBoostMinutes,
       heavySessionBoost: passPolicy.heavySessionBoost,
       minBreakMinutes: passPolicy.minBreakMinutes,
