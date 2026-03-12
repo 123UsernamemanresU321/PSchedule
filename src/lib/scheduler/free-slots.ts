@@ -29,6 +29,14 @@ export interface RecoveryWindowOccurrence {
   movable: boolean;
 }
 
+export interface ReservedCommitmentOccurrence {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  label: string;
+}
+
 const MIN_ALLOCATABLE_MINUTES = 30;
 
 function mergeIntervals(intervals: TimeInterval[]) {
@@ -298,6 +306,66 @@ function resolveRecoveryWindowsForDay(options: {
   return resolvedIntervals;
 }
 
+function resolveReservedCommitmentStart(options: {
+  day: Date;
+  preferences: Preferences;
+  rule: Preferences["reservedCommitmentRules"][number];
+  inSchoolTerm: boolean;
+}) {
+  if (
+    options.rule.id === "term-homework" &&
+    options.inSchoolTerm &&
+    options.preferences.schoolSchedule.enabled &&
+    options.preferences.schoolSchedule.weekdays.includes(options.day.getDay())
+  ) {
+    return addMinutes(createDateAtTime(options.day, options.preferences.schoolSchedule.end), 30);
+  }
+
+  return createDateAtTime(options.day, options.rule.preferredStart);
+}
+
+export function expandReservedCommitmentWindowsForWeek(
+  weekStart: Date,
+  preferences: Preferences,
+): ReservedCommitmentOccurrence[] {
+  return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)).flatMap((day) => {
+    const inSchoolTerm = isDateInActiveSchoolTerm(day, preferences);
+
+    return preferences.reservedCommitmentRules.flatMap((rule) => {
+      if (!rule.days.includes(day.getDay())) {
+        return [];
+      }
+
+      const appliesToday =
+        rule.appliesDuring === "all" ||
+        (rule.appliesDuring === "school-term" && inSchoolTerm) ||
+        (rule.appliesDuring === "holiday" && !inSchoolTerm);
+
+      if (!appliesToday) {
+        return [];
+      }
+
+      const start = resolveReservedCommitmentStart({
+        day,
+        preferences,
+        rule,
+        inSchoolTerm,
+      });
+      const end = addMinutes(start, rule.durationMinutes);
+
+      return [
+        {
+          id: `${rule.id}:${toDateKey(day)}`,
+          title: rule.label,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          label: rule.label,
+        },
+      ];
+    });
+  });
+}
+
 export function expandLockedRecoveryWindowsForWeek(
   weekStart: Date,
   preferences: Preferences,
@@ -367,6 +435,7 @@ export function calculateFreeSlots(options: {
 }) {
   const { weekStart, preferences, planningStart } = options;
   const fixedEvents = expandPlannerFixedEventsForWeek(weekStart, options.fixedEvents, preferences);
+  const reservedCommitments = expandReservedCommitmentWindowsForWeek(weekStart, preferences);
   const blockedStudyBlocks = options.blockedStudyBlocks ?? [];
   const recoveryWindows = expandLockedRecoveryWindowsForWeek(
     weekStart,
@@ -398,6 +467,9 @@ export function calculateFreeSlots(options: {
 
     const busyIntervals = mergeIntervals([
       ...recoveryWindows
+        .filter((window) => toDateKey(new Date(window.start)) === toDateKey(day))
+        .map((window) => createInterval(new Date(window.start), new Date(window.end))),
+      ...reservedCommitments
         .filter((window) => toDateKey(new Date(window.start)) === toDateKey(day))
         .map((window) => createInterval(new Date(window.start), new Date(window.end))),
       ...buildEventIntervals(day, fixedEvents, preferences),

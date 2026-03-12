@@ -3,13 +3,14 @@
 import FullCalendar from "@fullcalendar/react";
 import interactionPlugin from "@fullcalendar/interaction";
 import timeGridPlugin from "@fullcalendar/timegrid";
-import { BedDouble, Coffee, Lock, Sparkles } from "lucide-react";
+import { BedDouble, BookOpen, Coffee, Lock, Music4, Sparkles } from "lucide-react";
 import { addDays, differenceInMinutes, format } from "date-fns";
 
 import { SubjectBadge, getSubjectAccentStyles } from "@/components/planner/subject-badge";
 import {
   expandPlannerFixedEventsForWeek,
   expandLockedRecoveryWindowsForWeek,
+  expandReservedCommitmentWindowsForWeek,
 } from "@/lib/scheduler/free-slots";
 import { fromDateKey } from "@/lib/dates/helpers";
 import type { FixedEvent, Preferences, StudyBlock, Subject } from "@/lib/types/planner";
@@ -99,8 +100,16 @@ export function PlannerCalendar({
     fixedEvents,
     studyBlocks.filter((block) => block.weekStart === weekStart),
   );
+  const reservedCommitments = expandReservedCommitmentWindowsForWeek(
+    visibleWeekStart,
+    preferences,
+  );
   const blockedIntervals = [
     ...recoveryWindows.map((window) => ({
+      start: new Date(window.start),
+      end: new Date(window.end),
+    })),
+    ...reservedCommitments.map((window) => ({
       start: new Date(window.start),
       end: new Date(window.end),
     })),
@@ -146,6 +155,17 @@ export function PlannerCalendar({
         },
       };
     }),
+    ...reservedCommitments.map((commitment) => ({
+      id: `reserved:${commitment.id}`,
+      title: commitment.title,
+      start: new Date(commitment.start),
+      end: new Date(commitment.end),
+      allDay: false,
+      extendedProps: {
+        kind: "reserved-commitment" as const,
+        commitment,
+      },
+    })),
     ...breakEvents,
     ...studyBlocks
       .filter((block) => block.weekStart === weekStart)
@@ -196,8 +216,13 @@ export function PlannerCalendar({
           })
         }
         eventClick={(clickInfo) => {
-          const kind = clickInfo.event.extendedProps.kind as "fixed" | "study" | "recovery-window" | "break";
-          if (kind === "recovery-window" || kind === "break") {
+          const kind = clickInfo.event.extendedProps.kind as
+            | "fixed"
+            | "study"
+            | "recovery-window"
+            | "reserved-commitment"
+            | "break";
+          if (kind === "recovery-window" || kind === "reserved-commitment" || kind === "break") {
             return;
           }
           if (kind === "fixed") {
@@ -228,7 +253,12 @@ export function PlannerCalendar({
           hour12: false,
         }}
         eventContent={(eventInfo) => {
-          const kind = eventInfo.event.extendedProps.kind as "fixed" | "study" | "recovery-window" | "break";
+          const kind = eventInfo.event.extendedProps.kind as
+            | "fixed"
+            | "study"
+            | "recovery-window"
+            | "reserved-commitment"
+            | "break";
           const eventStart = eventInfo.event.start ?? new Date();
           const eventEnd = eventInfo.event.end ?? eventStart;
           const durationMinutes = differenceInMinutes(eventEnd, eventStart);
@@ -258,6 +288,40 @@ export function PlannerCalendar({
                 </div>
                 <p className="mt-1 text-xs text-emerald-100/75">
                   {format(new Date(window.start), "HH:mm")} - {format(new Date(window.end), "HH:mm")}
+                </p>
+              </div>
+            );
+          }
+
+          if (kind === "reserved-commitment") {
+            const commitment = eventInfo.event.extendedProps.commitment as {
+              label: string;
+              start: string;
+              end: string;
+            };
+            const icon =
+              commitment.label.toLowerCase().includes("piano") ? (
+                <Music4 className="h-3.5 w-3.5" />
+              ) : (
+                <BookOpen className="h-3.5 w-3.5" />
+              );
+
+            if (showCompactTitleOnly) {
+              return (
+                <div className="h-full overflow-hidden rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-sm text-amber-50">
+                  <p className="truncate font-medium">{commitment.label}</p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="h-full overflow-hidden rounded-sm border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-sm text-amber-50">
+                <div className="flex items-center gap-2">
+                  {icon}
+                  <span className="truncate font-medium">{commitment.label}</span>
+                </div>
+                <p className="mt-1 text-xs text-amber-100/80">
+                  {format(new Date(commitment.start), "HH:mm")} - {format(new Date(commitment.end), "HH:mm")}
                 </p>
               </div>
             );

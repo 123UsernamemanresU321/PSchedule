@@ -177,6 +177,7 @@ export const reservedCommitmentRuleSchema = z.object({
   durationMinutes: z.number().min(0),
   days: z.array(z.number().min(0).max(6)),
   appliesDuring: z.enum(["all", "school-term", "holiday"]),
+  preferredStart: z.string(),
 });
 
 export const holidayScheduleSchema = z.object({
@@ -209,6 +210,7 @@ export const preferencesSchema = z.object({
       durationMinutes: 60,
       days: [0, 2, 3, 4, 5, 6],
       appliesDuring: "all",
+      preferredStart: "18:00",
     },
     {
       id: "term-homework",
@@ -216,6 +218,7 @@ export const preferencesSchema = z.object({
       durationMinutes: 90,
       days: [0, 1, 2, 3, 4, 5, 6],
       appliesDuring: "school-term",
+      preferredStart: "16:00",
     },
   ]),
   maxHeavySessionsPerDay: z.number(),

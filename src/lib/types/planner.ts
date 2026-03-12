@@ -197,6 +197,7 @@ export interface ReservedCommitmentRule {
   durationMinutes: number;
   days: number[];
   appliesDuring: "all" | "school-term" | "holiday";
+  preferredStart: string;
 }
 
 export interface HolidaySchedule {
