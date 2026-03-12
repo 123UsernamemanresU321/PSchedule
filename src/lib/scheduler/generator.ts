@@ -31,7 +31,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const MIN_ALLOCATABLE_MINUTES = 15;
+const MIN_ALLOCATABLE_MINUTES = 30;
 
 function buildRecoveryBlock(slot: CalendarSlot, weekStart: string): StudyBlock {
   return {
@@ -240,7 +240,7 @@ function buildRequiredHoursFromTracks(subjects: Subject[], tracks: Record<string
       return [
         subject.id,
         recommendedHours > 0
-          ? Math.max(0.25, Math.ceil(recommendedHours / 0.25) * 0.25)
+          ? Math.max(0.5, Math.ceil(recommendedHours / 0.5) * 0.5)
           : 0,
       ];
     }),
@@ -686,7 +686,7 @@ function buildAllocationPasses(baseDailyCapBoostMinutes: number, options?: { par
     },
     {
       protectRecovery: false,
-      skipMovableRecovery: true,
+      skipMovableRecovery: false,
       dailyCapBoostMinutes: baseDailyCapBoostMinutes + 240,
       heavySessionBoost: 1,
       minBreakMinutes: 10,
@@ -697,7 +697,7 @@ function buildAllocationPasses(baseDailyCapBoostMinutes: number, options?: { par
     },
     {
       protectRecovery: false,
-      skipMovableRecovery: true,
+      skipMovableRecovery: false,
       dailyCapBoostMinutes: baseDailyCapBoostMinutes + 600,
       heavySessionBoost: 2,
       minBreakMinutes: 5,

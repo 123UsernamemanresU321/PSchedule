@@ -29,7 +29,7 @@ export interface RecoveryWindowOccurrence {
   movable: boolean;
 }
 
-const MIN_ALLOCATABLE_MINUTES = 15;
+const MIN_ALLOCATABLE_MINUTES = 30;
 
 function mergeIntervals(intervals: TimeInterval[]) {
   if (!intervals.length) {

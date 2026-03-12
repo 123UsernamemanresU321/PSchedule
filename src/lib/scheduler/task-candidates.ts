@@ -3,7 +3,7 @@ import { addDays } from "date-fns";
 import { endOfPlannerWeek } from "@/lib/dates/helpers";
 import type { StudyBlock, TaskCandidate, Topic } from "@/lib/types/planner";
 
-const MIN_ALLOCATABLE_MINUTES = 15;
+const MIN_ALLOCATABLE_MINUTES = 30;
 
 function inferIntensity(topic: Topic): TaskCandidate["intensity"] {
   if (
@@ -110,7 +110,7 @@ export function buildTaskCandidates(options: {
 
     const candidates: TaskCandidate[] = [];
 
-    if (rawRemainingMinutes >= MIN_ALLOCATABLE_MINUTES && topic.status !== "strong") {
+    if (rawRemainingMinutes > 0 && topic.status !== "strong") {
       candidates.push({
         id: topic.id,
         subjectId: topic.subjectId,
@@ -118,7 +118,7 @@ export function buildTaskCandidates(options: {
         title: topic.title,
         unitTitle: topic.unitTitle,
         sourceMaterials: topic.sourceMaterials,
-        remainingMinutes: rawRemainingMinutes,
+        remainingMinutes: Math.max(rawRemainingMinutes, MIN_ALLOCATABLE_MINUTES),
         difficulty: topic.difficulty,
         mastery: topic.mastery,
         order: topic.order,

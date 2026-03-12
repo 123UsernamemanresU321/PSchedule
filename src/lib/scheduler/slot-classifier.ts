@@ -27,7 +27,7 @@ export interface BlockSelectionPolicy {
   preferLongerBlocks?: boolean;
 }
 
-const MIN_ALLOCATABLE_MINUTES = 15;
+const MIN_ALLOCATABLE_MINUTES = 30;
 
 function overlapsWindow(slot: CalendarSlot, window: TimeWindow) {
   if (!window.days.includes(slot.start.getDay())) {
@@ -120,22 +120,28 @@ export function selectBlockOption(
         slot.durationMinutes,
       );
       const minimumDuration =
-        task.remainingMinutes <= 30 || slot.durationMinutes <= 30
+        task.remainingMinutes <= preset.minMinutes || slot.durationMinutes <= preset.minMinutes
           ? MIN_ALLOCATABLE_MINUTES
           : preset.minMinutes;
 
-      if (maxDuration < minimumDuration) {
+      const adjustedDuration = Math.min(
+        preset.maxMinutes,
+        slot.durationMinutes,
+        Math.max(maxDuration, minimumDuration),
+      );
+
+      if (adjustedDuration < minimumDuration) {
         return null;
       }
 
       const fragmentationPenalty = Math.max(
         0,
-        Math.round((preset.targetMinutes - maxDuration) / 10),
+        Math.round((preset.targetMinutes - adjustedDuration) / 10),
       );
 
       return {
         blockType,
-        durationMinutes: maxDuration,
+        durationMinutes: adjustedDuration,
         intensity: preset.intensity,
         slotFitPenalty,
         fragmentationPenalty,

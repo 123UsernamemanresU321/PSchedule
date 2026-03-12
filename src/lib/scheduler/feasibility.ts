@@ -18,7 +18,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const MIN_ALLOCATABLE_HOURS = 0.25;
+const MIN_ALLOCATABLE_HOURS = 0.5;
 
 function computePlannedMinutesByTopic(studyBlocks: StudyBlock[] = []) {
   return studyBlocks.reduce<Record<string, number>>((accumulator, block) => {
