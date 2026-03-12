@@ -174,6 +174,11 @@ export const holidayScheduleSchema = z.object({
   maxStudyHoursPerDay: z.number().nullable(),
 });
 
+export const sundayStudySchema = z.object({
+  enabled: z.boolean(),
+  workloadIntensity: z.number().min(0).max(1.5),
+});
+
 export const preferencesSchema = z.object({
   id: z.string(),
   dailyStudyWindow: z.object({
@@ -225,6 +230,10 @@ export const preferencesSchema = z.object({
       },
     ],
     maxStudyHoursPerDay: 6,
+  }),
+  sundayStudy: sundayStudySchema.optional().default({
+    enabled: true,
+    workloadIntensity: 0.85,
   }),
 });
 

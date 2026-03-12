@@ -7,6 +7,7 @@ export type ScheduleRegime = "school-term" | "holiday" | "default";
 
 export interface DailyScheduleProfile {
   regime: ScheduleRegime;
+  isStudyEnabled: boolean;
   dailyStudyWindow: {
     start: string;
     end: string;
@@ -43,21 +44,47 @@ export function isDateInActiveSchoolTerm(day: Date, preferences: Preferences) {
 
 export function resolveDailyScheduleProfile(day: Date, preferences: Preferences): DailyScheduleProfile {
   const inSchoolTerm = isDateInActiveSchoolTerm(day, preferences);
+  const isSunday = day.getDay() === 0;
+  const defaultRegime: ScheduleRegime = inSchoolTerm ? "school-term" : "default";
 
-  if (!inSchoolTerm && preferences.holidaySchedule.enabled) {
+  const baseProfile =
+    !inSchoolTerm && preferences.holidaySchedule.enabled
+      ? {
+          regime: "holiday" as const,
+          dailyStudyWindow: preferences.holidaySchedule.dailyStudyWindow,
+          preferredDeepWorkWindows: preferences.holidaySchedule.preferredDeepWorkWindows,
+          maxStudyHoursPerDay:
+            preferences.holidaySchedule.maxStudyHoursPerDay ?? preferences.maxStudyHoursPerDay,
+        }
+      : {
+          regime: defaultRegime,
+          dailyStudyWindow: preferences.dailyStudyWindow,
+          preferredDeepWorkWindows: preferences.preferredDeepWorkWindows,
+          maxStudyHoursPerDay: preferences.maxStudyHoursPerDay,
+        };
+
+  if (isSunday && !preferences.sundayStudy.enabled) {
     return {
-      regime: "holiday",
-      dailyStudyWindow: preferences.holidaySchedule.dailyStudyWindow,
-      preferredDeepWorkWindows: preferences.holidaySchedule.preferredDeepWorkWindows,
-      maxStudyHoursPerDay:
-        preferences.holidaySchedule.maxStudyHoursPerDay ?? preferences.maxStudyHoursPerDay,
+      ...baseProfile,
+      isStudyEnabled: false,
+      maxStudyHoursPerDay: 0,
+    };
+  }
+
+  if (isSunday) {
+    return {
+      ...baseProfile,
+      isStudyEnabled: true,
+      maxStudyHoursPerDay: Math.max(
+        0.5,
+        Math.round(baseProfile.maxStudyHoursPerDay * preferences.sundayStudy.workloadIntensity * 10) /
+          10,
+      ),
     };
   }
 
   return {
-    regime: inSchoolTerm ? "school-term" : "default",
-    dailyStudyWindow: preferences.dailyStudyWindow,
-    preferredDeepWorkWindows: preferences.preferredDeepWorkWindows,
-    maxStudyHoursPerDay: preferences.maxStudyHoursPerDay,
+    ...baseProfile,
+    isStudyEnabled: true,
   };
 }

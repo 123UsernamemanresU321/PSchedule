@@ -194,6 +194,11 @@ export interface HolidaySchedule {
   maxStudyHoursPerDay: number | null;
 }
 
+export interface SundayStudySettings {
+  enabled: boolean;
+  workloadIntensity: number;
+}
+
 export interface Preferences {
   id: string;
   dailyStudyWindow: {
@@ -214,6 +219,7 @@ export interface Preferences {
   subjectWeightOverrides: Record<string, number>;
   schoolSchedule: SchoolSchedule;
   holidaySchedule: HolidaySchedule;
+  sundayStudy: SundayStudySettings;
 }
 
 export interface PlannerExportPayload {

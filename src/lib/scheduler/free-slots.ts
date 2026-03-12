@@ -257,6 +257,10 @@ function resolveRecoveryWindowsForDay(options: {
 
   options.preferences.lockedRecoveryWindows
     .filter((window) => window.days.includes(options.day.getDay()))
+    .filter(
+      (window) =>
+        !(window.label === "Sunday recovery" && options.day.getDay() === 0 && !options.preferences.reserveSundayEvening),
+    )
     .forEach((window) => {
       const baseInterval = createInterval(
         createDateAtTime(options.day, window.start),
@@ -362,6 +366,9 @@ export function calculateFreeSlots(options: {
 
   Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)).forEach((day) => {
     const scheduleProfile = resolveDailyScheduleProfile(day, preferences);
+    if (!scheduleProfile.isStudyEnabled) {
+      return;
+    }
     const plannerWindow = createInterval(
       createDateAtTime(day, scheduleProfile.dailyStudyWindow.start),
       createDateAtTime(day, scheduleProfile.dailyStudyWindow.end),

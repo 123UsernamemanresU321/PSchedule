@@ -69,6 +69,12 @@ function normalizePreferences(preferences: Preferences): Preferences {
           ? preferences.holidaySchedule.preferredDeepWorkWindows
           : seedPreferences.holidaySchedule.preferredDeepWorkWindows,
     },
+    sundayStudy: {
+      ...seedPreferences.sundayStudy,
+      ...preferences.sundayStudy,
+      workloadIntensity:
+        preferences.sundayStudy?.workloadIntensity ?? seedPreferences.sundayStudy.workloadIntensity,
+    },
   };
 }
 

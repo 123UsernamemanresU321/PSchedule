@@ -544,6 +544,76 @@ export function SettingsPage() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
+              <CardTitle>Sunday planning</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Decide whether the planner should use Sundays and how hard Sunday should run compared with a normal study day.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-sm border border-white/6 bg-white/4 p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-medium text-foreground">Plan study on Sundays</p>
+                    <p className="text-sm text-muted-foreground">
+                      When off, Sunday stays out of the study horizon. When on, Sunday becomes available subject to the intensity setting below.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={form.sundayStudy.enabled}
+                    onCheckedChange={(checked) =>
+                      setForm({
+                        ...form,
+                        sundayStudy: {
+                          ...form.sundayStudy,
+                          enabled: checked,
+                        },
+                      })
+                    }
+                  />
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Sunday workload intensity</label>
+                  <Input
+                    type="number"
+                    min={0.25}
+                    max={1.5}
+                    step={0.05}
+                    value={form.sundayStudy.workloadIntensity}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        sundayStudy: {
+                          ...form.sundayStudy,
+                          workloadIntensity: Number(event.target.value),
+                        },
+                      })
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    `1.00` = same cap as a normal day. Lower values make Sunday lighter; higher values let the planner push harder on Sunday.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Effective Sunday cap</label>
+                  <div className="rounded-sm border border-white/6 bg-white/4 px-3 py-2 text-sm text-foreground">
+                    {((
+                      (form.holidaySchedule.enabled
+                        ? form.holidaySchedule.maxStudyHoursPerDay ?? form.maxStudyHoursPerDay
+                        : form.maxStudyHoursPerDay) * form.sundayStudy.workloadIntensity
+                    )).toFixed(1)} hours
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    This is the maximum planned study load for Sunday before fixed events and recovery are subtracted.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>Buffer rules</CardTitle>
               <p className="text-sm text-muted-foreground">Weekly slack and recovery protection keep the plan resilient when blocks move.</p>
             </CardHeader>

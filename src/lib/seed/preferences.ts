@@ -88,5 +88,9 @@ export function buildSeedPreferences(): Preferences {
       ],
       maxStudyHoursPerDay: 6,
     },
+    sundayStudy: {
+      enabled: true,
+      workloadIntensity: 0.85,
+    },
   };
 }
