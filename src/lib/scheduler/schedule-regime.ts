@@ -62,6 +62,7 @@ export function resolveDailyScheduleProfile(day: Date, preferences: Preferences)
   const inSchoolTerm = isDateInActiveSchoolTerm(day, preferences);
   const isSunday = day.getDay() === 0;
   const isSaturday = day.getDay() === 6;
+  const isWeekend = isSaturday || isSunday;
   const defaultRegime: ScheduleRegime = inSchoolTerm ? "school-term" : "default";
   const holidayLikeProfile = {
     regime: "holiday" as const,
@@ -71,7 +72,8 @@ export function resolveDailyScheduleProfile(day: Date, preferences: Preferences)
   };
 
   const baseProfile =
-    isSaturday || (!inSchoolTerm && preferences.holidaySchedule.enabled)
+    (isWeekend && preferences.holidaySchedule.enabled) ||
+    (!inSchoolTerm && preferences.holidaySchedule.enabled)
       ? holidayLikeProfile
       : {
           regime: defaultRegime,

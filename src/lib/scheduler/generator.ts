@@ -235,7 +235,15 @@ function sumAssignedMinutesBySubject(blocks: StudyBlock[]) {
 
 function buildRequiredHoursFromTracks(subjects: Subject[], tracks: Record<string, { recommendedWeeklyHours: number }>) {
   return Object.fromEntries(
-    subjects.map((subject) => [subject.id, tracks[subject.id]?.recommendedWeeklyHours ?? 0]),
+    subjects.map((subject) => {
+      const recommendedHours = tracks[subject.id]?.recommendedWeeklyHours ?? 0;
+      return [
+        subject.id,
+        recommendedHours > 0
+          ? Math.max(0.25, Math.ceil(recommendedHours / 0.25) * 0.25)
+          : 0,
+      ];
+    }),
   );
 }
 

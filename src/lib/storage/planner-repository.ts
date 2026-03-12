@@ -19,7 +19,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-12-full-capacity-holiday-v1";
+const PLANNING_MODEL_VERSION = "2026-03-12-full-capacity-holiday-v2";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 
 function normalizeFixedEvent(event: PlannerExportPayload["fixedEvents"][number]) {

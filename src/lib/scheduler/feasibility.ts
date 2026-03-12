@@ -18,6 +18,8 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
+const MIN_ALLOCATABLE_HOURS = 0.25;
+
 function computePlannedMinutesByTopic(studyBlocks: StudyBlock[] = []) {
   return studyBlocks.reduce<Record<string, number>>((accumulator, block) => {
     if (!block.topicId || !["planned", "rescheduled"].includes(block.status)) {
@@ -176,7 +178,7 @@ export function computeSubjectDeadlineTracks(options: {
       targetRemainingHours > 0 && remainingPlanningDaysFromWeek > 0
         ? roundToTenth((targetRemainingHours * weekPlanningDays) / remainingPlanningDaysFromWeek)
         : 0;
-    const recommendedWeeklyHours =
+    const rawRecommendedWeeklyHours =
       totalRemainingTargetHours <= 0
         ? 0
         : Math.min(
@@ -189,6 +191,19 @@ export function computeSubjectDeadlineTracks(options: {
                 : 0,
             ),
           );
+    const recommendedWeeklyHours =
+      rawRecommendedWeeklyHours <= 0 && targetRemainingHours > 0 && weekPlanningDays > 0
+        ? Math.min(targetRemainingHours, MIN_ALLOCATABLE_HOURS)
+        : rawRecommendedWeeklyHours > 0
+          ? Math.min(
+              targetRemainingHours,
+              Math.max(
+                MIN_ALLOCATABLE_HOURS,
+                Math.ceil(rawRecommendedWeeklyHours / MIN_ALLOCATABLE_HOURS) *
+                  MIN_ALLOCATABLE_HOURS,
+              ),
+            )
+          : 0;
 
     accumulator[subject.id] = {
       remainingHours,
@@ -200,7 +215,7 @@ export function computeSubjectDeadlineTracks(options: {
       weeksRemaining,
       deadline: toDateKey(deadline),
       baselineWeeklyHours: roundToTenth(baselineWeeklyHours),
-      recommendedWeeklyHours: roundToTenth(recommendedWeeklyHours),
+      recommendedWeeklyHours: Number(recommendedWeeklyHours.toFixed(2)),
     };
     return accumulator;
   }, {});
