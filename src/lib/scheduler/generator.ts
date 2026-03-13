@@ -346,6 +346,11 @@ function allocateTasksToSlots(options: {
 }) {
   const weekStartKey = toDateKey(options.weekStart);
   const subjectMap = new Map(options.subjects.map((subject) => [subject.id, subject]));
+  const examTopicIds = new Set(
+    options.topics
+      .filter((topic) => (topic.sessionMode ?? "flexible") === "exam")
+      .map((topic) => topic.id),
+  );
   const requiredHoursBySubject =
     options.requiredHoursBySubject ??
     Object.fromEntries(
@@ -402,6 +407,13 @@ function allocateTasksToSlots(options: {
     }
 
     return usedToday <= dailyBudget - 30;
+  }
+
+  function getLastScheduledExamBlock(dateKey: string) {
+    return [...options.lockedBlocks, ...scheduledBlocks]
+      .filter((block) => block.date === dateKey)
+      .filter((block) => block.topicId && examTopicIds.has(block.topicId))
+      .sort((left, right) => new Date(right.end).getTime() - new Date(left.end).getTime())[0];
   }
 
   options.lockedBlocks.forEach((block) => {
@@ -549,6 +561,16 @@ function allocateTasksToSlots(options: {
             return null;
           }
 
+          if (task.sessionMode === "exam") {
+            const lastExamBlock = getLastScheduledExamBlock(slot.dateKey);
+            if (
+              lastExamBlock &&
+              new Date(lastExamBlock.end).getTime() > slotSlice.start.getTime() - 30 * 60 * 1000
+            ) {
+              return null;
+            }
+          }
+
           if (
             blockOption.intensity === "heavy" &&
             (heavyBlocksPerDay[slot.dateKey] ?? 0) >= maxHeavySessionsPerDay
@@ -682,15 +704,19 @@ function allocateTasksToSlots(options: {
         usedSundayMinutes += winner.blockOption.durationMinutes;
       }
       consumedStudyMinutes += winner.blockOption.durationMinutes;
+      const requiredBreakMinutes =
+        winner.task.sessionMode === "exam"
+          ? Math.max(minBreakMinutes, 30)
+          : minBreakMinutes;
       cursor = addMinutes(
         cursor,
-        winner.blockOption.durationMinutes + minBreakMinutes,
+        winner.blockOption.durationMinutes + requiredBreakMinutes,
       );
       remainingSlotMinutes = Math.max(
         0,
         remainingSlotMinutes -
           winner.blockOption.durationMinutes -
-          minBreakMinutes,
+          requiredBreakMinutes,
       );
     }
   });

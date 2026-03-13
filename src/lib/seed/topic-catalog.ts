@@ -49,6 +49,26 @@ function buildPostSyllabusPaperWeeks() {
 
 const postSyllabusPaperWeeks = buildPostSyllabusPaperWeeks();
 
+function buildOlympiadGoldPhaseWeeks() {
+  const weeks: Array<{ label: string; availableFrom: string }> = [];
+  let cursor = new Date("2026-07-06T00:00:00");
+  const end = new Date("2027-06-28T00:00:00");
+  let index = 1;
+
+  while (cursor.getTime() <= end.getTime()) {
+    weeks.push({
+      label: `Gold phase week ${index}`,
+      availableFrom: cursor.toISOString().slice(0, 10),
+    });
+    cursor = new Date(cursor.getTime() + 7 * 24 * 60 * 60 * 1000);
+    index += 1;
+  }
+
+  return weeks;
+}
+
+const olympiadGoldPhaseWeeks = buildOlympiadGoldPhaseWeeks();
+
 function buildPastPaperSessions(options: {
   subjectId: SubjectId;
   unitIdPrefix: string;
@@ -88,6 +108,101 @@ function buildPastPaperSessions(options: {
       ],
     })),
   );
+}
+
+function buildPastPaperReviewSessions(options: {
+  subjectId: SubjectId;
+  unitIdPrefix: string;
+  unitTitle: string;
+  titlePrefix: string;
+  durationMinutes: number;
+  sourceLabel: string;
+}): SeedTopicBlueprint[] {
+  return postSyllabusPaperWeeks.map((cycle, index) => ({
+    id: `${options.unitIdPrefix}-week-${index + 1}-review`,
+    subjectId: options.subjectId,
+    unitId: `${options.unitIdPrefix}-week-${index + 1}`,
+    unitTitle: `${options.unitTitle} - ${cycle.label}`,
+    title: `${options.titlePrefix} ${cycle.label} - Past paper review`,
+    subtopics: [
+      "Review the most recent paper attempt carefully.",
+      "Classify mistakes by concept, speed, and execution.",
+      "Rewrite one or two high-value corrections from scratch.",
+    ],
+    availableFrom: postSyllabusPaperWeeks[index + 1]?.availableFrom ?? cycle.availableFrom,
+    estHours: options.durationMinutes / 60,
+    difficulty: 3 as const,
+    preferredBlockTypes: ["review", "standard_focus"] as BlockType[],
+    sourceMaterials: [
+      notes("Paper-review protocol", "Re-mark the paper, annotate the error log, and write a short correction summary."),
+      pastPaper(options.sourceLabel, `${cycle.label} review and correction session.`),
+    ],
+  }));
+}
+
+function buildOlympiadGoldPhaseBlueprints(): SeedTopicBlueprint[] {
+  return olympiadGoldPhaseWeeks.flatMap((week, index) => [
+    {
+      id: `olympiad-gold-phase-week-${index + 1}-shortlist-dive`,
+      subjectId: "olympiad",
+      unitId: `olympiad-gold-phase-week-${index + 1}`,
+      unitTitle: `Olympiad - ${week.label}`,
+      title: `${week.label} - Shortlist deep dive`,
+      subtopics: [
+        "Attempt one high-ceiling shortlist problem cold.",
+        "Compare your structure against an official or model solution.",
+        "Extract one reusable solving pattern.",
+      ],
+      availableFrom: week.availableFrom,
+      estHours: 2.5,
+      difficulty: 5,
+      preferredBlockTypes: ["deep_work", "standard_focus"],
+      sourceMaterials: [
+        notes("IMO Gold plan PDF", "Gold phase should emphasize hard-problem pattern extraction from shortlist-grade material."),
+        worksheet("Shortlist deep dive", "One hard problem plus a full written debrief."),
+      ],
+    },
+    {
+      id: `olympiad-gold-phase-week-${index + 1}-proof-rewrite`,
+      subjectId: "olympiad",
+      unitId: `olympiad-gold-phase-week-${index + 1}`,
+      unitTitle: `Olympiad - ${week.label}`,
+      title: `${week.label} - Proof rewrite and error log`,
+      subtopics: [
+        "Rewrite one recent olympiad solution from memory.",
+        "Tighten lemmas and structure.",
+        "Update the persistent error log.",
+      ],
+      availableFrom: week.availableFrom,
+      estHours: 1.5,
+      difficulty: 4,
+      preferredBlockTypes: ["standard_focus", "review"],
+      sourceMaterials: [
+        notes("IMO Gold plan PDF", "A gold push needs explicit rewrite discipline and error-log maintenance."),
+        worksheet("Rewrite protocol", "Rewrite one solution cleanly, then defend each step."),
+      ],
+    },
+    {
+      id: `olympiad-gold-phase-week-${index + 1}-contest-lab`,
+      subjectId: "olympiad",
+      unitId: `olympiad-gold-phase-week-${index + 1}`,
+      unitTitle: `Olympiad - ${week.label}`,
+      title: `${week.label} - Contest lab and medium-to-hard set`,
+      subtopics: [
+        "Run a timed mixed-topic problem set.",
+        "Practice triage and partial-credit extraction.",
+        "Debrief the set immediately after.",
+      ],
+      availableFrom: week.availableFrom,
+      estHours: 2.5,
+      difficulty: 5,
+      preferredBlockTypes: ["deep_work", "standard_focus"],
+      sourceMaterials: [
+        notes("IMO Gold plan PDF", "Gold prep should increase contest-realistic mixed sets after the June readiness milestone."),
+        worksheet("Contest lab set", "Mixed medium/hard set with immediate post-mortem."),
+      ],
+    },
+  ]);
 }
 
 export const legacySeedTopicIds = [
@@ -1162,6 +1277,14 @@ const physicsPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperSessi
   ],
   sourceLabel: "Physics HL past paper set",
 });
+const physicsPaperReviewBlueprints: SeedTopicBlueprint[] = buildPastPaperReviewSessions({
+  subjectId: "physics-hl",
+  unitIdPrefix: "physics-past-papers",
+  unitTitle: "Physics HL - Past Paper Cycles",
+  titlePrefix: "Physics HL",
+  durationMinutes: 75,
+  sourceLabel: "Physics HL past paper review",
+});
 
 const mathsPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperSessions({
   subjectId: "maths-aa-hl",
@@ -1175,6 +1298,14 @@ const mathsPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperSession
   ],
   sourceLabel: "Maths AA HL past paper set",
 });
+const mathsPaperReviewBlueprints: SeedTopicBlueprint[] = buildPastPaperReviewSessions({
+  subjectId: "maths-aa-hl",
+  unitIdPrefix: "maths-aa-past-papers",
+  unitTitle: "Maths AA HL - Past Paper Cycles",
+  titlePrefix: "Maths AA HL",
+  durationMinutes: 90,
+  sourceLabel: "Maths AA HL past paper review",
+});
 
 const chemistryPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperSessions({
   subjectId: "chemistry-hl",
@@ -1186,6 +1317,14 @@ const chemistryPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperSes
     { idSuffix: "paper-2", label: "Paper 2", durationMinutes: 150 },
   ],
   sourceLabel: "Chemistry HL past paper set",
+});
+const chemistryPaperReviewBlueprints: SeedTopicBlueprint[] = buildPastPaperReviewSessions({
+  subjectId: "chemistry-hl",
+  unitIdPrefix: "chemistry-past-papers",
+  unitTitle: "Chemistry HL - Past Paper Cycles",
+  titlePrefix: "Chemistry HL",
+  durationMinutes: 75,
+  sourceLabel: "Chemistry HL past paper review",
 });
 
 const olympiadTopicBlueprints: SeedTopicBlueprint[] = [
@@ -1558,6 +1697,8 @@ const olympiadTopicBlueprints: SeedTopicBlueprint[] = [
     ],
   },
 ];
+
+const olympiadGoldPhaseBlueprints: SeedTopicBlueprint[] = buildOlympiadGoldPhaseBlueprints();
 
 const englishTopicBlueprints: SeedTopicBlueprint[] = [
   {
@@ -1979,11 +2120,15 @@ const programmingTopicBlueprints: SeedTopicBlueprint[] = [
 export const seedTopicBlueprints: SeedTopicBlueprint[] = [
   ...physicsTopicBlueprints,
   ...physicsPaperPracticeBlueprints,
+  ...physicsPaperReviewBlueprints,
   ...mathsTopicBlueprints,
   ...mathsPaperPracticeBlueprints,
+  ...mathsPaperReviewBlueprints,
   ...chemistryTopicBlueprints,
   ...chemistryPaperPracticeBlueprints,
+  ...chemistryPaperReviewBlueprints,
   ...olympiadTopicBlueprints,
+  ...olympiadGoldPhaseBlueprints,
   ...englishTopicBlueprints,
   ...frenchTopicBlueprints,
   ...geographyTopicBlueprints,
