@@ -298,22 +298,16 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       }
     }
 
-    const preservedStudyBlockIds =
-      status === "done" || status === "partial"
-        ? snapshot.studyBlocks
-            .filter((candidate) => {
-              if (candidate.id === block.id || candidate.status !== "planned") {
-                return false;
-              }
+    const now = new Date();
+    const preservedStudyBlockIds = snapshot.studyBlocks
+      .filter((candidate) => {
+        if (candidate.id === block.id || candidate.status !== "planned") {
+          return false;
+        }
 
-              if (candidate.date !== block.date) {
-                return false;
-              }
-
-              return new Date(candidate.start) >= new Date(updatedBlock.end);
-            })
-            .map((candidate) => candidate.id)
-        : [];
+        return new Date(candidate.end) > now;
+      })
+      .map((candidate) => candidate.id);
 
     const nextSnapshot = await recalculateCurrentWeek({
       preservedStudyBlockIds,
