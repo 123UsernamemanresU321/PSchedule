@@ -29,19 +29,25 @@ const pastPaper = (label: string, details: string) => resource("past_paper", lab
 const video = (label: string, details: string) => resource("video", label, details);
 const pppChapter = (details: string) =>
   textbook("Programming: Principles and Practice Using C++ (3e)", details);
-const postSyllabusPaperCycles = [
-  { label: "Aug 2026", availableFrom: "2026-08-01" },
-  { label: "Sep 2026", availableFrom: "2026-09-01" },
-  { label: "Oct 2026", availableFrom: "2026-10-01" },
-  { label: "Nov 2026", availableFrom: "2026-11-01" },
-  { label: "Dec 2026", availableFrom: "2026-12-01" },
-  { label: "Jan 2027", availableFrom: "2027-01-01" },
-  { label: "Feb 2027", availableFrom: "2027-02-01" },
-  { label: "Mar 2027", availableFrom: "2027-03-01" },
-  { label: "Apr 2027", availableFrom: "2027-04-01" },
-  { label: "May 2027", availableFrom: "2027-05-01" },
-  { label: "Jun 2027", availableFrom: "2027-06-01" },
-] as const;
+function buildPostSyllabusPaperWeeks() {
+  const weeks: Array<{ label: string; availableFrom: string }> = [];
+  let cursor = new Date("2026-08-03T00:00:00");
+  const end = new Date("2027-06-28T00:00:00");
+  let index = 1;
+
+  while (cursor.getTime() <= end.getTime()) {
+    weeks.push({
+      label: `Week ${index}`,
+      availableFrom: cursor.toISOString().slice(0, 10),
+    });
+    cursor = new Date(cursor.getTime() + 7 * 24 * 60 * 60 * 1000);
+    index += 1;
+  }
+
+  return weeks;
+}
+
+const postSyllabusPaperWeeks = buildPostSyllabusPaperWeeks();
 
 function buildPastPaperSessions(options: {
   subjectId: SubjectId;
@@ -55,11 +61,11 @@ function buildPastPaperSessions(options: {
   }>;
   sourceLabel: string;
 }): SeedTopicBlueprint[] {
-  return postSyllabusPaperCycles.flatMap((cycle, index) =>
+  return postSyllabusPaperWeeks.flatMap((cycle, index) =>
     options.papers.map((paper) => ({
-      id: `${options.unitIdPrefix}-${index + 1}-${paper.idSuffix}`,
+      id: `${options.unitIdPrefix}-week-${index + 1}-${paper.idSuffix}`,
       subjectId: options.subjectId,
-      unitId: `${options.unitIdPrefix}-${index + 1}`,
+      unitId: `${options.unitIdPrefix}-week-${index + 1}`,
       unitTitle: `${options.unitTitle} - ${cycle.label}`,
       title: `${options.titlePrefix} ${cycle.label} - ${paper.label}`,
       subtopics: [

@@ -357,6 +357,7 @@ function allocateTasksToSlots(options: {
   const assignedMinutesBySubject = recordFromKeys(subjectIds, () => 0);
   const dailyMinutes: Record<string, number> = {};
   const heavyBlocksPerDay: Record<string, number> = {};
+  const subjectMinutesByDate: Record<string, Record<string, number>> = {};
 
   function hasReachedWeeklyTarget(task: TaskCandidate) {
     if (options.fillAvailableStudyDays) {
@@ -412,6 +413,11 @@ function allocateTasksToSlots(options: {
 
     if (block.subjectId) {
       assignedMinutesBySubject[block.subjectId] += block.estimatedMinutes;
+      subjectMinutesByDate[dateKey] = {
+        ...(subjectMinutesByDate[dateKey] ?? {}),
+        [block.subjectId]:
+          (subjectMinutesByDate[dateKey]?.[block.subjectId] ?? 0) + block.estimatedMinutes,
+      };
     }
   });
 
@@ -459,6 +465,25 @@ function allocateTasksToSlots(options: {
   const workingTasks = cloneTasks(options.tasks);
   const scheduledBlocks: StudyBlock[] = [];
   let usedSundayMinutes = 0;
+
+  function getCadenceBonus(task: TaskCandidate, dateKey: string) {
+    if (!task.subjectId) {
+      return 0;
+    }
+
+    const alreadyScheduledMinutes = subjectMinutesByDate[dateKey]?.[task.subjectId] ?? 0;
+    if (alreadyScheduledMinutes > 0) {
+      return 0;
+    }
+
+    if (task.subjectId === "olympiad") {
+      return 16;
+    }
+
+    const requiredMinutes = requiredMinutesBySubject[task.subjectId] ?? 0;
+    const assignedMinutes = assignedMinutesBySubject[task.subjectId] ?? 0;
+    return requiredMinutes > assignedMinutes ? 3 : 0;
+  }
 
   function shouldHoldCapacityForLaterDays(dateKey: string) {
     const targetForToday = dailyTargetMinutes[dateKey] ?? 0;
@@ -538,11 +563,16 @@ function allocateTasksToSlots(options: {
             assignedMinutesBySubject,
             referenceDate: options.referenceDate,
           });
+          const cadenceBonus = getCadenceBonus(task, slot.dateKey);
+          const adjustedScoreBreakdown = {
+            ...scoreBreakdown,
+            total: Math.round((scoreBreakdown.total + cadenceBonus) * 10) / 10,
+          };
 
           return {
             task,
             blockOption,
-            scoreBreakdown,
+            scoreBreakdown: adjustedScoreBreakdown,
           };
         })
         .filter(Boolean)
@@ -641,6 +671,12 @@ function allocateTasksToSlots(options: {
       }
       if (winner.task.subjectId) {
         assignedMinutesBySubject[winner.task.subjectId] += winner.blockOption.durationMinutes;
+        subjectMinutesByDate[slot.dateKey] = {
+          ...(subjectMinutesByDate[slot.dateKey] ?? {}),
+          [winner.task.subjectId]:
+            (subjectMinutesByDate[slot.dateKey]?.[winner.task.subjectId] ?? 0) +
+            winner.blockOption.durationMinutes,
+        };
       }
       if (slot.dayIndex === 0) {
         usedSundayMinutes += winner.blockOption.durationMinutes;

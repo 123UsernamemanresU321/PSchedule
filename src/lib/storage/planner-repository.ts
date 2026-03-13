@@ -20,11 +20,11 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-13-horizon-goals-papers-v10";
+const PLANNING_MODEL_VERSION = "2026-03-13-horizon-goals-papers-v11";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-12-april-camp-roadmap-v1";
-const EXTENDED_GOALS_VERSION = "2026-03-13-post-syllabus-papers-v2";
+const EXTENDED_GOALS_VERSION = "2026-03-13-post-syllabus-papers-v3";
 
 function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreferences: Preferences) {
   const fallbackWindows = seedPreferences.lockedRecoveryWindows;
@@ -427,12 +427,13 @@ async function syncExtendedGoalSubjects(snapshot: PlannerSnapshot, referenceDate
     OLYMPIAD_SUBJECT_ID,
   ];
   const existingTopicsById = new Map(snapshot.topics.map((topic) => [topic.id, topic]));
-  const obsoletePastPaperTopicIds = snapshot.topics
-    .filter((topic) => syncedSubjectIds.includes(topic.subjectId as SubjectId))
-    .filter((topic) => /-past-papers-cycle-\d+$/.test(topic.id))
-    .map((topic) => topic.id);
   const seededSubjects = seedDataset.subjects.filter((subject) => syncedSubjectIds.includes(subject.id));
   const seededGoals = seedDataset.goals.filter((goal) => syncedSubjectIds.includes(goal.subjectId as SubjectId));
+  const seededTopicIds = new Set(
+    seedDataset.topics
+      .filter((topic) => syncedSubjectIds.includes(topic.subjectId as SubjectId))
+      .map((topic) => topic.id),
+  );
   const mergedTopics = seedDataset.topics
     .filter((topic) => syncedSubjectIds.includes(topic.subjectId as SubjectId))
     .map((seededTopic) =>
@@ -441,6 +442,11 @@ async function syncExtendedGoalSubjects(snapshot: PlannerSnapshot, referenceDate
         existingTopicsById.get(seededTopic.id),
       ),
     );
+  const obsoletePastPaperTopicIds = snapshot.topics
+    .filter((topic) => syncedSubjectIds.includes(topic.subjectId as SubjectId))
+    .filter((topic) => topic.unitId.includes("past-papers"))
+    .filter((topic) => !seededTopicIds.has(topic.id))
+    .map((topic) => topic.id);
 
   await db.transaction("rw", [db.subjects, db.goals, db.topics, db.meta], async () => {
     if (seededSubjects.length) {
