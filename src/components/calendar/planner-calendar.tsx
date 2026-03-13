@@ -100,6 +100,24 @@ export function PlannerCalendar({
     fixedEvents,
     studyBlocks.filter((block) => block.weekStart === weekStart),
   );
+  const visibleRecoveryWindows = recoveryWindows.filter((window) => {
+    if (window.label !== "Lunch break") {
+      return true;
+    }
+
+    const lunchStart = new Date(window.start);
+    const lunchEnd = new Date(window.end);
+
+    return !expandedFixedEvents.some((event) => {
+      if (event.category !== "school") {
+        return false;
+      }
+
+      const eventStart = new Date(event.start);
+      const eventEnd = new Date(event.end);
+      return lunchStart < eventEnd && lunchEnd > eventStart;
+    });
+  });
   const reservedCommitments = expandReservedCommitmentWindowsForWeek(
     visibleWeekStart,
     preferences,
@@ -126,7 +144,7 @@ export function PlannerCalendar({
     blockedIntervals,
   });
   const calendarEvents = [
-    ...recoveryWindows.map((window) => ({
+    ...visibleRecoveryWindows.map((window) => ({
       id: `recovery:${window.id}`,
       title: window.title,
       start: new Date(window.start),
