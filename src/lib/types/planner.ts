@@ -70,6 +70,8 @@ export interface Topic {
   title: string;
   subtopics: string[];
   availableFrom?: string | null;
+  sessionMode?: "flexible" | "exam";
+  exactSessionMinutes?: number | null;
   estHours: number;
   completedHours: number;
   difficulty: 1 | 2 | 3 | 4 | 5;
@@ -278,6 +280,8 @@ export interface TaskCandidate {
   unitTitle: string | null;
   sourceMaterials: TopicResource[];
   remainingMinutes: number;
+  sessionMode: "flexible" | "exam";
+  exactSessionMinutes: number | null;
   difficulty: 1 | 2 | 3 | 4 | 5;
   mastery: number;
   order: number;

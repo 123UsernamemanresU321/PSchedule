@@ -25,6 +25,8 @@ function createReviewCandidate(topic: Topic): TaskCandidate {
     unitTitle: topic.unitTitle,
     sourceMaterials: topic.sourceMaterials,
     remainingMinutes: 45,
+    sessionMode: "flexible",
+    exactSessionMinutes: null,
     difficulty: Math.max(1, topic.difficulty - 1) as Topic["difficulty"],
     mastery: topic.mastery,
     order: topic.order,
@@ -120,6 +122,8 @@ export function buildTaskCandidates(options: {
     const candidates: TaskCandidate[] = [];
 
     if (rawRemainingMinutes > 0 && topic.status !== "strong") {
+      const sessionMode = topic.sessionMode ?? "flexible";
+      const exactSessionMinutes = topic.exactSessionMinutes ?? null;
       candidates.push({
         id: topic.id,
         subjectId: topic.subjectId,
@@ -127,7 +131,12 @@ export function buildTaskCandidates(options: {
         title: topic.title,
         unitTitle: topic.unitTitle,
         sourceMaterials: topic.sourceMaterials,
-        remainingMinutes: Math.max(rawRemainingMinutes, MIN_ALLOCATABLE_MINUTES),
+        remainingMinutes:
+          sessionMode === "exam"
+            ? exactSessionMinutes ?? rawRemainingMinutes
+            : Math.max(rawRemainingMinutes, MIN_ALLOCATABLE_MINUTES),
+        sessionMode,
+        exactSessionMinutes,
         difficulty: topic.difficulty,
         mastery: topic.mastery,
         order: topic.order,

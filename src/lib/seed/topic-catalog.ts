@@ -8,6 +8,8 @@ export interface SeedTopicBlueprint {
   title: string;
   subtopics: string[];
   availableFrom?: string | null;
+  sessionMode?: "flexible" | "exam";
+  exactSessionMinutes?: number | null;
   estHours: number;
   difficulty: 1 | 2 | 3 | 4 | 5;
   preferredBlockTypes: BlockType[];
@@ -41,34 +43,45 @@ const postSyllabusPaperCycles = [
   { label: "Jun 2027", availableFrom: "2027-06-01" },
 ] as const;
 
-function buildPastPaperCycles(options: {
+function buildPastPaperSessions(options: {
   subjectId: SubjectId;
   unitIdPrefix: string;
   unitTitle: string;
   titlePrefix: string;
-  cycleHours: number;
-  subtopics: string[];
+  papers: Array<{
+    idSuffix: string;
+    label: string;
+    durationMinutes: number;
+  }>;
   sourceLabel: string;
 }): SeedTopicBlueprint[] {
-  return postSyllabusPaperCycles.map((cycle, index) => ({
-    id: `${options.unitIdPrefix}-cycle-${index + 1}`,
-    subjectId: options.subjectId,
-    unitId: options.unitIdPrefix,
-    unitTitle: options.unitTitle,
-    title: `${options.titlePrefix} - ${cycle.label} paper cycle`,
-    subtopics: options.subtopics,
-    availableFrom: cycle.availableFrom,
-    estHours: options.cycleHours,
-    difficulty: 4 as const,
-    preferredBlockTypes: ["deep_work", "standard_focus"] as BlockType[],
-    sourceMaterials: [
-      pastPaper(options.sourceLabel, `${cycle.label} full exam-condition paper cycle.`),
-      notes(
-        "Paper-review protocol",
-        "Run the paper under timed conditions, mark it, and log the error pattern before the next cycle.",
-      ),
-    ],
-  }));
+  return postSyllabusPaperCycles.flatMap((cycle, index) =>
+    options.papers.map((paper) => ({
+      id: `${options.unitIdPrefix}-${index + 1}-${paper.idSuffix}`,
+      subjectId: options.subjectId,
+      unitId: `${options.unitIdPrefix}-${index + 1}`,
+      unitTitle: `${options.unitTitle} - ${cycle.label}`,
+      title: `${options.titlePrefix} ${cycle.label} - ${paper.label}`,
+      subtopics: [
+        "Run this paper in one continuous exam-condition sitting.",
+        "Mark it immediately after completion.",
+        "Log all recurring errors before the next paper session.",
+      ],
+      availableFrom: cycle.availableFrom,
+      sessionMode: "exam" as const,
+      exactSessionMinutes: paper.durationMinutes,
+      estHours: paper.durationMinutes / 60,
+      difficulty: 4 as const,
+      preferredBlockTypes: ["deep_work"] as BlockType[],
+      sourceMaterials: [
+        pastPaper(options.sourceLabel, `${cycle.label} ${paper.label} under full timed conditions.`),
+        notes(
+          "Paper-review protocol",
+          "Complete the paper in one sitting, then mark it and summarize the three highest-value corrections.",
+        ),
+      ],
+    })),
+  );
 }
 
 export const legacySeedTopicIds = [
@@ -1132,33 +1145,40 @@ const chemistryTopicBlueprints: SeedTopicBlueprint[] = [
   },
 ];
 
-const physicsPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperCycles({
+const physicsPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperSessions({
   subjectId: "physics-hl",
   unitIdPrefix: "physics-past-papers",
   unitTitle: "Physics HL - Past Paper Cycles",
   titlePrefix: "Physics HL",
-  cycleHours: 4.5,
-  subtopics: ["Paper 1A + 1B (2h)", "Paper 2 (2h 30m)"],
+  papers: [
+    { idSuffix: "paper-1ab", label: "Paper 1A + 1B", durationMinutes: 120 },
+    { idSuffix: "paper-2", label: "Paper 2", durationMinutes: 150 },
+  ],
   sourceLabel: "Physics HL past paper set",
 });
 
-const mathsPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperCycles({
+const mathsPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperSessions({
   subjectId: "maths-aa-hl",
   unitIdPrefix: "maths-aa-past-papers",
   unitTitle: "Maths AA HL - Past Paper Cycles",
   titlePrefix: "Maths AA HL",
-  cycleHours: 5.25,
-  subtopics: ["Paper 1 (2h)", "Paper 2 (2h)", "Paper 3 (1h 15m)"],
+  papers: [
+    { idSuffix: "paper-1", label: "Paper 1", durationMinutes: 120 },
+    { idSuffix: "paper-2", label: "Paper 2", durationMinutes: 120 },
+    { idSuffix: "paper-3", label: "Paper 3", durationMinutes: 75 },
+  ],
   sourceLabel: "Maths AA HL past paper set",
 });
 
-const chemistryPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperCycles({
+const chemistryPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperSessions({
   subjectId: "chemistry-hl",
   unitIdPrefix: "chemistry-past-papers",
   unitTitle: "Chemistry HL - Past Paper Cycles",
   titlePrefix: "Chemistry HL",
-  cycleHours: 4.5,
-  subtopics: ["Paper 1A + 1B (2h)", "Paper 2 (2h 30m)"],
+  papers: [
+    { idSuffix: "paper-1ab", label: "Paper 1A + 1B", durationMinutes: 120 },
+    { idSuffix: "paper-2", label: "Paper 2", durationMinutes: 150 },
+  ],
   sourceLabel: "Chemistry HL past paper set",
 });
 
@@ -1322,6 +1342,7 @@ const olympiadTopicBlueprints: SeedTopicBlueprint[] = [
     unitTitle: "Olympiad - Geometry Advanced Tools",
     title: "Coordinates, vectors, and complex numbers when synthetic geometry stalls",
     subtopics: ["Coordinate method triage", "Vector proofs on the plane", "Complex-number geometry as a tool", "Choosing the lowest-complexity model"],
+    availableFrom: "2026-07-01",
     estHours: 5.5,
     difficulty: 5,
     preferredBlockTypes: ["deep_work", "standard_focus"],
@@ -1341,6 +1362,7 @@ const olympiadTopicBlueprints: SeedTopicBlueprint[] = [
     unitTitle: "Olympiad - Geometry Advanced Tools",
     title: "Inversion and geometry ceiling tools",
     subtopics: ["Inversion", "Radical-axis reinterpretation under inversion", "Projective / barycentric awareness as ceiling tools"],
+    availableFrom: "2026-09-01",
     estHours: 5,
     difficulty: 5,
     preferredBlockTypes: ["deep_work", "standard_focus"],
@@ -1379,6 +1401,7 @@ const olympiadTopicBlueprints: SeedTopicBlueprint[] = [
     unitTitle: "Olympiad - Functional Equations",
     title: "Functional equations core patterns and forcing moves",
     subtopics: ["Special values and swaps", "Injective / surjective forcing", "Iteration and fixed points", "Branch consistency in disjunctive FE"],
+    availableFrom: "2026-07-15",
     estHours: 5.5,
     difficulty: 5,
     preferredBlockTypes: ["deep_work", "standard_focus"],
@@ -1398,6 +1421,7 @@ const olympiadTopicBlueprints: SeedTopicBlueprint[] = [
     unitTitle: "Olympiad - Algebra Structures",
     title: "Polynomials, Vieta, identities, and auxiliary construction",
     subtopics: ["Vieta relations", "Root / degree arguments", "Polynomial identity by enough roots", "Auxiliary polynomial construction"],
+    availableFrom: "2026-10-01",
     estHours: 6.5,
     difficulty: 5,
     preferredBlockTypes: ["deep_work", "standard_focus"],
@@ -1436,6 +1460,7 @@ const olympiadTopicBlueprints: SeedTopicBlueprint[] = [
     unitTitle: "Olympiad - Inequalities Advanced",
     title: "Advanced inequalities and structure forcing",
     subtopics: ["Convexity and Jensen", "Holder as a ceiling tool", "Chebyshev / rearrangement", "Smoothing and mixing", "Inequalities inside FE or integer structure"],
+    availableFrom: "2026-12-01",
     estHours: 6,
     difficulty: 5,
     preferredBlockTypes: ["deep_work", "standard_focus"],
@@ -1493,6 +1518,7 @@ const olympiadTopicBlueprints: SeedTopicBlueprint[] = [
     unitTitle: "Olympiad - Combinatorics Graph Tools",
     title: "Graph basics, Hall / Turan ceiling tools, and combinatorial optimization",
     subtopics: ["Degree and connectedness", "Coloring and reachability", "Hall / Turan as ceiling tools", "Graph recasting of process problems"],
+    availableFrom: "2027-02-01",
     estHours: 5.5,
     difficulty: 4,
     preferredBlockTypes: ["standard_focus", "drill"],
@@ -1512,6 +1538,7 @@ const olympiadTopicBlueprints: SeedTopicBlueprint[] = [
     unitTitle: "Olympiad - Contest Systems",
     title: "Contest execution, proof scripts, and monthly mock cycles",
     subtopics: ["Write-up standard and lemma design", "Time triage and partial-credit engineering", "Monthly two-day mocks", "Error taxonomy and spaced re-solves"],
+    availableFrom: "2027-04-01",
     estHours: 9,
     difficulty: 5,
     preferredBlockTypes: ["deep_work", "standard_focus"],

@@ -103,6 +103,24 @@ export function selectBlockOption(
   preferences: Preferences,
   policy?: BlockSelectionPolicy,
 ): BlockOption | null {
+  if (task.sessionMode === "exam") {
+    const exactDuration = task.exactSessionMinutes ?? task.remainingMinutes;
+    const blockType = task.preferredBlockTypes[0] ?? "deep_work";
+    const slotFitPenalty = getEnergyPenalty(blockType, slot, preferences, policy);
+
+    if (slotFitPenalty === Number.POSITIVE_INFINITY || slot.durationMinutes < exactDuration) {
+      return null;
+    }
+
+    return {
+      blockType,
+      durationMinutes: exactDuration,
+      intensity: "heavy",
+      slotFitPenalty,
+      fragmentationPenalty: 0,
+    };
+  }
+
   const candidates = expandCandidateBlockTypes(task);
   const viableOptions = candidates
     .map((blockType) => {

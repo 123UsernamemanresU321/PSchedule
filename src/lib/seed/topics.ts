@@ -12,6 +12,8 @@ function topicFactory() {
     title: string;
     subtopics: string[];
     availableFrom?: string | null;
+    sessionMode?: Topic["sessionMode"];
+    exactSessionMinutes?: number | null;
     estHours: number;
     difficulty: Topic["difficulty"];
     preferredBlockTypes: Topic["preferredBlockTypes"];
@@ -27,6 +29,8 @@ function topicFactory() {
       title: blueprint.title,
       subtopics: blueprint.subtopics,
       availableFrom: blueprint.availableFrom ?? null,
+      sessionMode: blueprint.sessionMode ?? "flexible",
+      exactSessionMinutes: blueprint.exactSessionMinutes ?? null,
       estHours: blueprint.estHours,
       completedHours: 0,
       difficulty: blueprint.difficulty,

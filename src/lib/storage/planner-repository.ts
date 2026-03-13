@@ -20,11 +20,11 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-13-horizon-goals-papers-v9";
+const PLANNING_MODEL_VERSION = "2026-03-13-horizon-goals-papers-v10";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-12-april-camp-roadmap-v1";
-const EXTENDED_GOALS_VERSION = "2026-03-13-post-syllabus-papers-v1";
+const EXTENDED_GOALS_VERSION = "2026-03-13-post-syllabus-papers-v2";
 
 function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreferences: Preferences) {
   const fallbackWindows = seedPreferences.lockedRecoveryWindows;
@@ -427,6 +427,10 @@ async function syncExtendedGoalSubjects(snapshot: PlannerSnapshot, referenceDate
     OLYMPIAD_SUBJECT_ID,
   ];
   const existingTopicsById = new Map(snapshot.topics.map((topic) => [topic.id, topic]));
+  const obsoletePastPaperTopicIds = snapshot.topics
+    .filter((topic) => syncedSubjectIds.includes(topic.subjectId as SubjectId))
+    .filter((topic) => /-past-papers-cycle-\d+$/.test(topic.id))
+    .map((topic) => topic.id);
   const seededSubjects = seedDataset.subjects.filter((subject) => syncedSubjectIds.includes(subject.id));
   const seededGoals = seedDataset.goals.filter((goal) => syncedSubjectIds.includes(goal.subjectId as SubjectId));
   const mergedTopics = seedDataset.topics
@@ -449,6 +453,10 @@ async function syncExtendedGoalSubjects(snapshot: PlannerSnapshot, referenceDate
 
     if (mergedTopics.length) {
       await db.topics.bulkPut(mergedTopics);
+    }
+
+    if (obsoletePastPaperTopicIds.length) {
+      await db.topics.bulkDelete(obsoletePastPaperTopicIds);
     }
 
     await db.meta.put({ key: "extended-goals-version", value: EXTENDED_GOALS_VERSION });
