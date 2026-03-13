@@ -40,6 +40,8 @@ export function WeeklyReviewPage() {
   const setCurrentWeekStart = usePlannerStore((state) => state.setCurrentWeekStart);
 
   const visibleWeekStart = startOfPlannerWeek(fromDateKey(currentWeekStart));
+  const todayWeekStart = toDateKey(startOfPlannerWeek(new Date()));
+  const isViewingCurrentWeek = currentWeekStart === todayWeekStart;
   const weeklyPlan = getWeeklyPlan(weeklyPlans, currentWeekStart);
   const weeklyCoverageState = getWeeklyCoverageState(weeklyPlan);
   const weekBlocks = getWeekBlocks(studyBlocks, currentWeekStart);
@@ -96,6 +98,13 @@ export function WeeklyReviewPage() {
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
+            <Button
+              variant="outline"
+              disabled={isViewingCurrentWeek}
+              onClick={() => setCurrentWeekStart(todayWeekStart)}
+            >
+              Today
+            </Button>
             <Button onClick={() => void regenerateHorizon()}>
               <RefreshCw className="h-4 w-4" />
               Auto-adjust

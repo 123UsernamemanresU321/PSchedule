@@ -37,6 +37,8 @@ export function CalendarPage() {
   const roadmapSummary = getHorizonRoadmapSummary(weeklyPlans, topics, currentWeekStart);
 
   const visibleWeekStart = startOfPlannerWeek(fromDateKey(currentWeekStart));
+  const todayWeekStart = toDateKey(startOfPlannerWeek(new Date()));
+  const isViewingCurrentWeek = currentWeekStart === todayWeekStart;
   const defaultCreateStart = new Date(addDays(visibleWeekStart, 1));
   defaultCreateStart.setHours(16, 0, 0, 0);
   const defaultCreateEnd = new Date(addDays(visibleWeekStart, 1));
@@ -72,6 +74,14 @@ export function CalendarPage() {
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
+            <Button
+              variant="outline"
+              data-testid="calendar-jump-today"
+              disabled={isViewingCurrentWeek}
+              onClick={() => setCurrentWeekStart(todayWeekStart)}
+            >
+              Today
+            </Button>
             <Button
               data-testid="calendar-add-event"
               variant="outline"
