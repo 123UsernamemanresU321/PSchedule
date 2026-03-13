@@ -20,11 +20,11 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-13-paper-codes-v15";
+const PLANNING_MODEL_VERSION = "2026-03-13-paper-review-window-v16";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-12-april-camp-roadmap-v1";
-const EXTENDED_GOALS_VERSION = "2026-03-13-post-syllabus-papers-v5";
+const EXTENDED_GOALS_VERSION = "2026-03-13-post-syllabus-papers-v6";
 
 function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreferences: Preferences) {
   const mergedWindows = new Map(

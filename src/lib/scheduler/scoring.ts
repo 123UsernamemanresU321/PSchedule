@@ -57,14 +57,23 @@ export function scoreTaskCandidate(
     clamp((requiredMinutes - assignedMinutes) / 60, 0, 5) * 4 +
     clamp(task.remainingMinutes / 60, 0, 4) * 1.5;
   const lowMasteryBonus = (5 - task.mastery) * 2.6;
+  const isPairedPaperReview = !!task.paperCode && !!task.topicId && task.topicId.endsWith("-review");
   const reviewDueBonus =
     !task.reviewDue
       ? 0
       : new Date(task.reviewDue) <= slot.start
-        ? 11
+        ? isPairedPaperReview
+          ? 18
+          : 11
         : differenceInCalendarDays(new Date(task.reviewDue), slot.start) <= 2
-          ? 7
-          : 3;
+          ? isPairedPaperReview
+            ? 14
+            : 7
+          : differenceInCalendarDays(new Date(task.reviewDue), slot.start) <= 7
+            ? isPairedPaperReview
+              ? 10
+              : 4
+            : 3;
   const neglectedSubjectBonus = clamp(daysSinceStudy, 0, 8) * 1.1;
   const olympiadSlotBonus =
     task.subjectId === "olympiad"

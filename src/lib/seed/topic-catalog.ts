@@ -140,7 +140,7 @@ function buildPastPaperReviewSessions(options: {
       availableFrom: cycle.availableFrom,
       dependsOnTopicId: `${options.unitIdPrefix}-week-${index + 1}-${paper.idSuffix}`,
       minDaysAfterDependency: 1,
-      maxDaysAfterDependency: 2,
+      maxDaysAfterDependency: 7,
       estHours: paper.reviewDurationMinutes / 60,
       difficulty: 3 as const,
       preferredBlockTypes: ["review", "standard_focus"] as BlockType[],
