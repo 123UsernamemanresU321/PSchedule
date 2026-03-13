@@ -78,14 +78,14 @@ function StudyBlockDrawerPanel({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/55 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex justify-end overflow-hidden bg-black/55 backdrop-blur-sm">
       <button
         type="button"
         className="h-full flex-1 cursor-default"
         onClick={onClose}
         aria-label="Close study block drawer"
       />
-      <aside className="relative flex h-full w-full max-w-xl flex-col border-l border-white/8 bg-[#121725] shadow-panel">
+      <aside className="relative flex h-full min-h-0 w-full max-w-xl flex-col border-l border-white/8 bg-[#121725] shadow-panel">
         <div className="flex items-center justify-between border-b border-white/8 px-6 py-5">
           <div className="space-y-2">
             {subject ? (
@@ -110,7 +110,7 @@ function StudyBlockDrawerPanel({
           </Button>
         </div>
 
-        <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-y-contain px-6 py-6">
           <Card>
             <CardContent className="grid grid-cols-1 gap-4 pt-5 sm:grid-cols-2">
               <div className="space-y-1">

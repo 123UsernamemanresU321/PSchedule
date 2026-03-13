@@ -212,8 +212,13 @@ export function WeeklyReviewPage() {
                     : "Calendar impossible"}
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Goal by {forecast.deadline}
+                  Final goal by {forecast.deadline}
                 </p>
+                {forecast.milestoneDeadline !== forecast.deadline ? (
+                  <p className="mt-1 text-xs text-muted-foreground/85">
+                    Current milestone by {forecast.milestoneDeadline}
+                  </p>
+                ) : null}
                 <p className="mt-3 text-sm text-muted-foreground">
                   {forecast.isFullyScheduled
                     ? `${forecast.remainingTargetHours.toFixed(1)}h remaining is already covered on the calendar.`

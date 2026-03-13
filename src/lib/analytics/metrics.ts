@@ -215,6 +215,14 @@ function getActiveGoalForSubject(subject: Subject, topics: Topic[], goals: Goal[
   );
 }
 
+function getFinalGoalForSubject(subject: Subject, goals: Goal[]) {
+  const subjectGoals = goals
+    .filter((goal) => goal.subjectId === subject.id)
+    .sort((left, right) => left.deadline.localeCompare(right.deadline));
+
+  return subjectGoals[subjectGoals.length - 1] ?? null;
+}
+
 export function getCalendarCompletionForecast(options: {
   subject: Subject;
   topics: Topic[];
@@ -232,6 +240,7 @@ export function getCalendarCompletionForecast(options: {
     0,
   );
   const activeGoal = getActiveGoalForSubject(options.subject, options.topics, options.goals);
+  const finalGoal = getFinalGoalForSubject(options.subject, options.goals);
   const targetHours = totalHours * (activeGoal?.targetCompletion ?? 1);
   const assumedCompletedHoursBeforeReference = options.studyBlocks
     .filter((block) => block.subjectId === options.subject.id)
@@ -268,12 +277,16 @@ export function getCalendarCompletionForecast(options: {
 
   const scheduledHoursToHorizon = Number(Math.min(scheduledHours, remainingTargetHours).toFixed(1));
   const missingHours = Number(Math.max(remainingTargetHours - scheduledHours, 0).toFixed(1));
-  const deadline = activeGoal?.deadline ?? options.subject.deadline;
+  const deadline = finalGoal?.deadline ?? options.subject.deadline;
+  const milestoneDeadline = activeGoal?.deadline ?? deadline;
   const isCalendarImpossible = missingHours > 0;
 
   return {
     subject: options.subject,
     deadline,
+    milestoneDeadline,
+    activeGoalTitle: activeGoal?.title ?? null,
+    finalGoalTitle: finalGoal?.title ?? activeGoal?.title ?? null,
     targetHours: Number(targetHours.toFixed(1)),
     completedHours: Number(effectiveCompletedHours.toFixed(1)),
     remainingTargetHours: Number(remainingTargetHours.toFixed(1)),
