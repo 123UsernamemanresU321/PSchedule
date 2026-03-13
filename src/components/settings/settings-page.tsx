@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Download, Upload } from "lucide-react";
+import { Download, Plus, Trash2, Upload } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { SubjectBadge } from "@/components/planner/subject-badge";
@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { createExportFilename } from "@/lib/storage/json-transfer";
 import { usePlannerStore } from "@/lib/store/planner-store";
 import type { Preferences } from "@/lib/types/planner";
+import { createId } from "@/lib/utils";
 
 const weekdayOptions = [
   { value: 1, label: "Mon" },
@@ -44,6 +45,39 @@ export function SettingsPage() {
   if (!form) {
     return null;
   }
+
+  const appendSchoolTerm = (label: string) => {
+    setForm({
+      ...form,
+      schoolSchedule: {
+        ...form.schoolSchedule,
+        terms: [
+          ...form.schoolSchedule.terms,
+          { id: createId("term"), label, startDate: "", endDate: "" },
+        ],
+      },
+    });
+  };
+
+  const appendNextYearTerms = () => {
+    const existing2027Terms = form.schoolSchedule.terms.filter((term) =>
+      term.label.includes("2027"),
+    ).length;
+    const nextTerms = [1, 2, 3, 4].map((termNumber) => ({
+      id: createId("term"),
+      label: `2027 Term ${existing2027Terms + termNumber}`,
+      startDate: "",
+      endDate: "",
+    }));
+
+    setForm({
+      ...form,
+      schoolSchedule: {
+        ...form.schoolSchedule,
+        terms: [...form.schoolSchedule.terms, ...nextTerms],
+      },
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -209,9 +243,55 @@ export function SettingsPage() {
                 </div>
               </div>
               <div className="space-y-3">
-                <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Term dates</label>
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Term dates</label>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="rounded-full border border-white/8 px-3"
+                      onClick={() => appendSchoolTerm(`Term ${form.schoolSchedule.terms.length + 1}`)}
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add term
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="rounded-full border border-white/8 px-3"
+                      onClick={appendNextYearTerms}
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add 2027 terms
+                    </Button>
+                  </div>
+                </div>
                 {form.schoolSchedule.terms.map((term, index) => (
                   <div key={term.id} className="rounded-sm border border-white/6 bg-white/4 p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-foreground">{term.label}</p>
+                      {form.schoolSchedule.terms.length > 1 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 rounded-full border border-white/8"
+                          onClick={() =>
+                            setForm({
+                              ...form,
+                              schoolSchedule: {
+                                ...form.schoolSchedule,
+                                terms: form.schoolSchedule.terms.filter((candidate) => candidate.id !== term.id),
+                              },
+                            })
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      ) : null}
+                    </div>
                     <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
                       <div className="space-y-2">
                         <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Label</label>

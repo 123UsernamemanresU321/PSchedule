@@ -52,7 +52,7 @@ const postSyllabusPaperWeeks = buildPostSyllabusPaperWeeks();
 function buildOlympiadGoldPhaseWeeks() {
   const weeks: Array<{ label: string; availableFrom: string }> = [];
   let cursor = new Date("2026-07-06T00:00:00");
-  const end = new Date("2027-06-28T00:00:00");
+  const end = new Date("2027-03-15T00:00:00");
   let index = 1;
 
   while (cursor.getTime() <= end.getTime()) {
@@ -141,68 +141,160 @@ function buildPastPaperReviewSessions(options: {
 }
 
 function buildOlympiadGoldPhaseBlueprints(): SeedTopicBlueprint[] {
-  return olympiadGoldPhaseWeeks.flatMap((week, index) => [
-    {
-      id: `olympiad-gold-phase-week-${index + 1}-shortlist-dive`,
-      subjectId: "olympiad",
-      unitId: `olympiad-gold-phase-week-${index + 1}`,
-      unitTitle: `Olympiad - ${week.label}`,
-      title: `${week.label} - Shortlist deep dive`,
-      subtopics: [
-        "Attempt one high-ceiling shortlist problem cold.",
-        "Compare your structure against an official or model solution.",
-        "Extract one reusable solving pattern.",
-      ],
-      availableFrom: week.availableFrom,
-      estHours: 2.5,
-      difficulty: 5,
-      preferredBlockTypes: ["deep_work", "standard_focus"],
-      sourceMaterials: [
-        notes("IMO Gold plan PDF", "Gold phase should emphasize hard-problem pattern extraction from shortlist-grade material."),
-        worksheet("Shortlist deep dive", "One hard problem plus a full written debrief."),
-      ],
-    },
-    {
-      id: `olympiad-gold-phase-week-${index + 1}-proof-rewrite`,
-      subjectId: "olympiad",
-      unitId: `olympiad-gold-phase-week-${index + 1}`,
-      unitTitle: `Olympiad - ${week.label}`,
-      title: `${week.label} - Proof rewrite and error log`,
-      subtopics: [
-        "Rewrite one recent olympiad solution from memory.",
-        "Tighten lemmas and structure.",
-        "Update the persistent error log.",
-      ],
-      availableFrom: week.availableFrom,
-      estHours: 1.5,
-      difficulty: 4,
-      preferredBlockTypes: ["standard_focus", "review"],
-      sourceMaterials: [
-        notes("IMO Gold plan PDF", "A gold push needs explicit rewrite discipline and error-log maintenance."),
-        worksheet("Rewrite protocol", "Rewrite one solution cleanly, then defend each step."),
-      ],
-    },
-    {
-      id: `olympiad-gold-phase-week-${index + 1}-contest-lab`,
-      subjectId: "olympiad",
-      unitId: `olympiad-gold-phase-week-${index + 1}`,
-      unitTitle: `Olympiad - ${week.label}`,
-      title: `${week.label} - Contest lab and medium-to-hard set`,
-      subtopics: [
-        "Run a timed mixed-topic problem set.",
-        "Practice triage and partial-credit extraction.",
-        "Debrief the set immediately after.",
-      ],
-      availableFrom: week.availableFrom,
-      estHours: 2.5,
-      difficulty: 5,
-      preferredBlockTypes: ["deep_work", "standard_focus"],
-      sourceMaterials: [
-        notes("IMO Gold plan PDF", "Gold prep should increase contest-realistic mixed sets after the June readiness milestone."),
-        worksheet("Contest lab set", "Mixed medium/hard set with immediate post-mortem."),
-      ],
-    },
-  ]);
+  return olympiadGoldPhaseWeeks.flatMap((week, index) => {
+    const weekNumber = index + 1;
+    const stage =
+      weekNumber <= 18
+        ? "Advanced"
+        : weekNumber <= 28
+          ? "Pre-IMO"
+          : "Elite peak";
+    const baseUnitId = `olympiad-gold-phase-week-${weekNumber}`;
+    const unitTitle = `Olympiad ${stage} - ${week.label}`;
+
+    return [
+      {
+        id: `${baseUnitId}-mon`,
+        subjectId: "olympiad",
+        unitId: baseUnitId,
+        unitTitle,
+        title: `${week.label} - Number theory / algebra problem lab`,
+        subtopics: [
+          "Attempt one hard number theory or algebra problem cold.",
+          "Write the solution in full proof format.",
+          "Identify the key forcing step.",
+        ],
+        availableFrom: week.availableFrom,
+        estHours: 1.5,
+        difficulty: 5,
+        preferredBlockTypes: ["deep_work", "standard_focus"],
+        sourceMaterials: [
+          notes("IMO Gold plan PDF", "Post-readiness work should keep hard algebra and number theory in constant rotation."),
+          worksheet("Hard problem lab", "One serious algebra/number-theory attempt plus write-up repair."),
+        ],
+      },
+      {
+        id: `${baseUnitId}-tue`,
+        subjectId: "olympiad",
+        unitId: baseUnitId,
+        unitTitle,
+        title: `${week.label} - Geometry / combinatorics deep solve`,
+        subtopics: [
+          "Attempt one geometry or combinatorics problem cold.",
+          "Map the method family before reading any hint.",
+          "Write the cleanest version of the proof.",
+        ],
+        availableFrom: week.availableFrom,
+        estHours: 1.5,
+        difficulty: 5,
+        preferredBlockTypes: ["deep_work", "standard_focus"],
+        sourceMaterials: [
+          notes("IMO Gold plan PDF", "Geometry and combinatorics should stay on a steady weekly loop in the advanced and pre-IMO phases."),
+          worksheet("Geometry/combinatorics deep solve", "One hard problem with full post-mortem."),
+        ],
+      },
+      {
+        id: `${baseUnitId}-wed`,
+        subjectId: "olympiad",
+        unitId: baseUnitId,
+        unitTitle,
+        title: `${week.label} - Timed shortlist set`,
+        subtopics: [
+          "Run a timed medium-to-hard shortlist set.",
+          "Practice triage under clock pressure.",
+          "Log where full conversions failed.",
+        ],
+        availableFrom: week.availableFrom,
+        estHours: 2,
+        difficulty: 5,
+        preferredBlockTypes: ["deep_work", "standard_focus"],
+        sourceMaterials: [
+          notes("IMO Gold plan PDF", "Practice testing and timed work should dominate the advanced portion."),
+          worksheet("Timed shortlist set", "Timed mixed shortlist set with immediate reflection."),
+        ],
+      },
+      {
+        id: `${baseUnitId}-thu`,
+        subjectId: "olympiad",
+        unitId: baseUnitId,
+        unitTitle,
+        title: `${week.label} - Proof rewrite and correction`,
+        subtopics: [
+          "Rewrite one recent solution from memory.",
+          "Tighten lemma order and exposition.",
+          "Correct presentation losses aggressively.",
+        ],
+        availableFrom: week.availableFrom,
+        estHours: 1.5,
+        difficulty: 4,
+        preferredBlockTypes: ["standard_focus", "review"],
+        sourceMaterials: [
+          notes("IMO Gold plan PDF", "Proof-script quality and low-variance execution matter throughout the gold push."),
+          worksheet("Proof rewrite protocol", "Rewrite one solution and annotate the proof architecture."),
+        ],
+      },
+      {
+        id: `${baseUnitId}-fri`,
+        subjectId: "olympiad",
+        unitId: baseUnitId,
+        unitTitle,
+        title: `${week.label} - Advanced toolkit session`,
+        subtopics: [
+          "Target the week's highest-value advanced method.",
+          "Practice when to use the tool and when not to.",
+          "Connect the tool to one official anchor problem.",
+        ],
+        availableFrom: week.availableFrom,
+        estHours: 1.5,
+        difficulty: 5,
+        preferredBlockTypes: ["deep_work", "standard_focus"],
+        sourceMaterials: [
+          notes("IMO Gold plan PDF", `${stage} work should keep advanced methods active instead of fading after the June milestone.`),
+          worksheet("Advanced toolkit session", "One focused advanced-method drill plus one transfer problem."),
+        ],
+      },
+      {
+        id: `${baseUnitId}-sat`,
+        subjectId: "olympiad",
+        unitId: baseUnitId,
+        unitTitle,
+        title: `${week.label} - Long contest simulation`,
+        subtopics: [
+          "Run a long timed olympiad session.",
+          "Aim for full conversion on bankable problems and clean partials on harder ones.",
+          "Score the script honestly afterward.",
+        ],
+        availableFrom: week.availableFrom,
+        estHours: stage === "Elite peak" ? 4.5 : stage === "Pre-IMO" ? 3.5 : 3,
+        difficulty: 5,
+        preferredBlockTypes: ["deep_work"],
+        sourceMaterials: [
+          notes("IMO Gold plan PDF", "Timed long-session realism should increase as the gold phase progresses."),
+          worksheet("Long contest simulation", "One extended timed olympiad sitting."),
+        ],
+      },
+      {
+        id: `${baseUnitId}-sun`,
+        subjectId: "olympiad",
+        unitId: baseUnitId,
+        unitTitle,
+        title: `${week.label} - Mock review and error log`,
+        subtopics: [
+          "Review the week's timed work carefully.",
+          "Classify unforced errors, theorem gaps, and time-loss patterns.",
+          "Write one correction or re-solve from scratch.",
+        ],
+        availableFrom: week.availableFrom,
+        estHours: stage === "Elite peak" ? 2 : 1.5,
+        difficulty: 4,
+        preferredBlockTypes: ["review", "standard_focus"],
+        sourceMaterials: [
+          notes("IMO Gold plan PDF", "Error-taxonomy maintenance and script review remain essential right through the elite phase."),
+          worksheet("Mock review and corrections", "Re-solve and annotate the week's highest-value miss."),
+        ],
+      },
+    ];
+  });
 }
 
 export const legacySeedTopicIds = [

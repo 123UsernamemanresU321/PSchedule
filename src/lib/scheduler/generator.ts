@@ -478,6 +478,10 @@ function allocateTasksToSlots(options: {
   const scheduledBlocks: StudyBlock[] = [];
   let usedSundayMinutes = 0;
 
+  function isOlympiadGoldPushDate(dateKey: string) {
+    return dateKey >= "2026-07-01" && dateKey <= "2027-03-16";
+  }
+
   function getCadenceBonus(task: TaskCandidate, dateKey: string) {
     if (!task.subjectId) {
       return 0;
@@ -489,12 +493,29 @@ function allocateTasksToSlots(options: {
     }
 
     if (task.subjectId === "olympiad") {
-      return 16;
+      return isOlympiadGoldPushDate(dateKey) ? 42 : 16;
     }
 
     const requiredMinutes = requiredMinutesBySubject[task.subjectId] ?? 0;
     const assignedMinutes = assignedMinutesBySubject[task.subjectId] ?? 0;
     return requiredMinutes > assignedMinutes ? 3 : 0;
+  }
+
+  function getCadencePenalty(task: TaskCandidate, dateKey: string) {
+    if (
+      isOlympiadGoldPushDate(dateKey) &&
+      task.subjectId !== "olympiad" &&
+      (subjectMinutesByDate[dateKey]?.olympiad ?? 0) === 0 &&
+      workingTasks.some(
+        (candidate) =>
+          candidate.subjectId === "olympiad" &&
+          candidate.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
+      )
+    ) {
+      return 14;
+    }
+
+    return 0;
   }
 
   function shouldHoldCapacityForLaterDays(dateKey: string) {
@@ -586,9 +607,10 @@ function allocateTasksToSlots(options: {
             referenceDate: options.referenceDate,
           });
           const cadenceBonus = getCadenceBonus(task, slot.dateKey);
+          const cadencePenalty = getCadencePenalty(task, slot.dateKey);
           const adjustedScoreBreakdown = {
             ...scoreBreakdown,
-            total: Math.round((scoreBreakdown.total + cadenceBonus) * 10) / 10,
+            total: Math.round((scoreBreakdown.total + cadenceBonus - cadencePenalty) * 10) / 10,
           };
 
           return {
