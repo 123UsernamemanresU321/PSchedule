@@ -85,6 +85,7 @@ export interface Topic {
   sourceMaterials: TopicResource[];
   preferredBlockTypes: BlockType[];
   order: number;
+  paperCode?: string | null;
   notes?: string;
 }
 
@@ -126,6 +127,7 @@ export interface StudyBlock {
   topicId: string | null;
   title: string;
   sessionSummary: string | null;
+  paperCode: string | null;
   unitTitle: string | null;
   blockType: BlockType;
   intensity: BlockIntensity;
@@ -282,6 +284,7 @@ export interface TaskCandidate {
   topicId: string | null;
   title: string;
   sessionSummary: string | null;
+  paperCode: string | null;
   unitTitle: string | null;
   sourceMaterials: TopicResource[];
   remainingMinutes: number;

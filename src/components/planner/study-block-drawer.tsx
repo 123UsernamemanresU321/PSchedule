@@ -131,6 +131,14 @@ function StudyBlockDrawerPanel({
                 <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Status</p>
                 <p className="text-sm font-medium text-foreground">{studyBlockStatusLabels[block.status]}</p>
               </div>
+              {block.paperCode ? (
+                <div className="space-y-1 sm:col-span-2">
+                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Paper code</p>
+                  <p className="font-mono text-sm font-medium uppercase tracking-[0.18em] text-foreground">
+                    {block.paperCode}
+                  </p>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 

@@ -5,6 +5,49 @@ import type { StudyBlock, TaskCandidate, Topic } from "@/lib/types/planner";
 
 const MIN_ALLOCATABLE_MINUTES = 30;
 
+const PAPER_CODE_SUBJECT_PREFIXES: Record<string, string> = {
+  "physics-hl": "PHY",
+  "maths-aa-hl": "MAA",
+  "chemistry-hl": "CHE",
+};
+
+function derivePaperCode(topic: Topic) {
+  const sourceId = topic.dependsOnTopicId ?? topic.id;
+  const subjectPrefix = PAPER_CODE_SUBJECT_PREFIXES[topic.subjectId];
+
+  if (!subjectPrefix) {
+    return null;
+  }
+
+  const match = sourceId.match(/-week-(\d+)-(paper-(?:1ab|1|2|3))(?:-review)?$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const [, weekNumber, paperId] = match;
+  const paperSuffix = (() => {
+    switch (paperId) {
+      case "paper-1ab":
+        return "P1AB";
+      case "paper-1":
+        return "P1";
+      case "paper-2":
+        return "P2";
+      case "paper-3":
+        return "P3";
+      default:
+        return null;
+    }
+  })();
+
+  if (!paperSuffix) {
+    return null;
+  }
+
+  return `${subjectPrefix}-W${weekNumber.padStart(2, "0")}-${paperSuffix}`;
+}
+
 function buildSessionSummary(topic: Topic) {
   if (topic.subtopics.length >= 2) {
     return `${topic.subtopics[0]} • ${topic.subtopics[1]}`;
@@ -39,6 +82,7 @@ function createReviewCandidate(topic: Topic): TaskCandidate {
       topic.subtopics.length > 0
         ? `Review ${topic.subtopics.slice(0, 2).join(" • ")}`
         : "Review the last attempt, error log, and weakest solution steps.",
+    paperCode: derivePaperCode(topic),
     unitTitle: topic.unitTitle,
     sourceMaterials: topic.sourceMaterials,
     remainingMinutes: 45,
@@ -212,6 +256,7 @@ export function buildTaskCandidates(options: {
         topicId: topic.id,
         title: topic.title,
         sessionSummary: buildSessionSummary(topic),
+        paperCode: topic.paperCode ?? derivePaperCode(topic),
         unitTitle: topic.unitTitle,
         sourceMaterials: topic.sourceMaterials,
         remainingMinutes:

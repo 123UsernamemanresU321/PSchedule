@@ -384,7 +384,7 @@ export function PlannerCalendar({
           if (showCompactTitleOnly) {
             return (
               <div
-                className="flex h-full min-h-0 items-center overflow-hidden rounded-lg border px-3 py-2 text-sm shadow-panel"
+                className="flex h-full min-h-0 flex-col justify-center gap-1 overflow-hidden rounded-lg border px-3 py-2 text-sm shadow-panel"
                 style={{
                   ...getSubjectAccentStyles(block.subjectId),
                   backgroundColor: subject
@@ -392,6 +392,11 @@ export function PlannerCalendar({
                     : "rgba(255,255,255,0.06)",
                 }}
               >
+                {block.paperCode ? (
+                  <p className="truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                    {block.paperCode}
+                  </p>
+                ) : null}
                 <p className="truncate font-medium text-foreground">{block.title}</p>
               </div>
             );
@@ -408,11 +413,18 @@ export function PlannerCalendar({
               }}
             >
               <div className="flex items-center justify-between gap-2">
-                {subject ? (
-                  <SubjectBadge subjectId={subject.id} label={subject.shortName} className="border-none px-0 py-0 text-[11px]" />
-                ) : (
-                  <SubjectBadge subjectId={null} label="Recovery" className="border-none px-0 py-0 text-[11px]" />
-                )}
+                <div className="flex min-w-0 items-center gap-2">
+                  {subject ? (
+                    <SubjectBadge subjectId={subject.id} label={subject.shortName} className="border-none px-0 py-0 text-[11px]" />
+                  ) : (
+                    <SubjectBadge subjectId={null} label="Recovery" className="border-none px-0 py-0 text-[11px]" />
+                  )}
+                  {block.paperCode ? (
+                    <span className="truncate rounded-full border border-white/10 bg-white/6 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-foreground/85">
+                      {block.paperCode}
+                    </span>
+                  ) : null}
+                </div>
                 <div className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
                   <Sparkles className="h-3 w-3" />
                   Auto

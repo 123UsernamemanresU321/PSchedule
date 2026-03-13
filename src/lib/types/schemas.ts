@@ -65,6 +65,7 @@ export const topicSchema = z.object({
   sourceMaterials: z.array(topicResourceSchema),
   preferredBlockTypes: z.array(z.enum(blockTypeValues)),
   order: z.number(),
+  paperCode: z.string().nullable().optional().default(null),
   notes: z.string().optional(),
 });
 
@@ -106,6 +107,7 @@ export const studyBlockSchema = z.object({
   topicId: z.string().nullable(),
   title: z.string(),
   sessionSummary: z.string().nullable().optional().default(null),
+  paperCode: z.string().nullable().optional().default(null),
   unitTitle: z.string().nullable(),
   blockType: z.enum(blockTypeValues),
   intensity: z.enum(blockIntensityValues),
