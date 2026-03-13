@@ -20,6 +20,23 @@ import type {
 
 const MIN_ALLOCATABLE_HOURS = 0.5;
 
+function getSortedSubjectGoals(subject: Subject, goals: Goal[]) {
+  return goals
+    .filter((candidate) => candidate.subjectId === subject.id)
+    .sort((left, right) => new Date(left.deadline).getTime() - new Date(right.deadline).getTime());
+}
+
+function getLatestPlanningDeadline(goals: Goal[], subjects: Subject[], referenceDate: Date) {
+  const academicDeadline = getAcademicDeadline(referenceDate);
+  return [...goals.map((goal) => goal.deadline), ...subjects.map((subject) => subject.deadline)]
+    .map((value) => new Date(value))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .reduce(
+      (latest, candidate) => (candidate.getTime() > latest.getTime() ? candidate : latest),
+      academicDeadline,
+    );
+}
+
 function computePlannedMinutesByTopic(studyBlocks: StudyBlock[] = []) {
   return studyBlocks.reduce<Record<string, number>>((accumulator, block) => {
     if (!block.topicId || !["planned", "rescheduled"].includes(block.status)) {
@@ -50,9 +67,7 @@ function computeTopicHoursBySubject(topics: Topic[]) {
 }
 
 function getSubjectGoal(subject: Subject, goals: Goal[], completionRatio: number) {
-  const subjectGoals = goals
-    .filter((candidate) => candidate.subjectId === subject.id)
-    .sort((left, right) => new Date(left.deadline).getTime() - new Date(right.deadline).getTime());
+  const subjectGoals = getSortedSubjectGoals(subject, goals);
 
   return (
     subjectGoals.find((goal) => goal.targetCompletion > completionRatio + 0.001) ??
@@ -71,9 +86,8 @@ function computeScheduledHoursBySubjectToGoal(options: {
   return options.subjects.reduce<Record<string, number>>((accumulator, subject) => {
     const subjectTopics = options.topics.filter((topic) => topic.subjectId === subject.id);
     const progress = topicHoursBySubject[subject.id] ?? { total: 0, completed: 0 };
-    const completionRatio = progress.total > 0 ? progress.completed / progress.total : 1;
-    const activeGoal = getSubjectGoal(subject, options.goals, completionRatio);
-    const targetHours = progress.total * (activeGoal?.targetCompletion ?? 1);
+    const finalGoal = getSortedSubjectGoals(subject, options.goals).at(-1);
+    const targetHours = progress.total * (finalGoal?.targetCompletion ?? 1);
     const plannedTowardTargetHours = subjectTopics.reduce((total, topic) => {
       const plannedHours = (options.plannedMinutesByTopic[topic.id] ?? 0) / 60;
       const cappedPlannedHours = Math.min(
@@ -129,10 +143,13 @@ export function computeSubjectDeadlineTracks(options: {
     const progress = topicHoursBySubject[subject.id] ?? { total: 0, completed: 0 };
     const completionRatio = progress.total > 0 ? progress.completed / progress.total : 1;
     const activeGoal = getSubjectGoal(subject, options.goals, completionRatio);
+    const subjectGoals = getSortedSubjectGoals(subject, options.goals);
+    const finalGoal = subjectGoals[subjectGoals.length - 1] ?? activeGoal;
     const deadline = new Date(activeGoal?.deadline ?? subject.deadline);
-    const daysRemaining = Math.max(differenceInCalendarDays(deadline, options.referenceDate), 7);
+    const finalDeadline = new Date(finalGoal?.deadline ?? deadline);
+    const daysRemaining = Math.max(differenceInCalendarDays(finalDeadline, options.referenceDate), 7);
     const weeksRemaining = Math.max(Math.ceil(daysRemaining / 7), 1);
-    const targetHours = progress.total * (activeGoal?.targetCompletion ?? 1);
+    const targetHours = progress.total * (finalGoal?.targetCompletion ?? 1);
     const plannedTowardTargetHours = subjectTopics.reduce((total, topic) => {
       const plannedHours = (plannedMinutesByTopic[topic.id] ?? 0) / 60;
       const cappedPlannedHours = Math.min(
@@ -144,36 +161,45 @@ export function computeSubjectDeadlineTracks(options: {
     const totalRemainingTargetHours = Math.max(targetHours - progress.completed, 0);
     const scheduledToGoalHours = Math.min(targetHours, progress.completed + plannedTowardTargetHours);
     const targetRemainingHours = roundToTenth(Math.max(targetHours - scheduledToGoalHours, 0));
-    const totalPlanningDays = Math.max(differenceInCalendarDays(deadline, horizonStartDate) + 1, 1);
-    const cumulativeWindowEnd = minDate([deadline, weekEndDate]);
+    const cumulativeWindowEnd = minDate([finalDeadline, weekEndDate]);
     const effectiveWeekStart =
       weekStartDate > horizonStartDate ? weekStartDate : horizonStartDate;
-    const coveredPlanningDays =
-      cumulativeWindowEnd < horizonStartDate
-        ? 0
-        : clamp(
-            differenceInCalendarDays(cumulativeWindowEnd, horizonStartDate) + 1,
-            0,
-            totalPlanningDays,
-          );
     const remainingPlanningDaysFromWeek =
-      deadline < effectiveWeekStart
+      finalDeadline < effectiveWeekStart
         ? 0
-        : Math.max(differenceInCalendarDays(deadline, effectiveWeekStart) + 1, 1);
+        : Math.max(differenceInCalendarDays(finalDeadline, effectiveWeekStart) + 1, 1);
     const weekPlanningDays =
       cumulativeWindowEnd < effectiveWeekStart
         ? 0
         : Math.max(differenceInCalendarDays(cumulativeWindowEnd, effectiveWeekStart) + 1, 0);
-    const cumulativeTargetHoursByWeekEnd =
-      totalRemainingTargetHours > 0
-        ? roundToTenth((totalRemainingTargetHours * coveredPlanningDays) / totalPlanningDays)
-        : 0;
+    const cumulativeTargetHoursByWeekEnd = roundToTenth(
+      subjectGoals.reduce((requiredHoursByWeekEnd, goal) => {
+        const goalDeadline = new Date(goal.deadline);
+        const goalTargetHours = progress.total * goal.targetCompletion;
+        const goalPlanningDays = Math.max(
+          differenceInCalendarDays(goalDeadline, horizonStartDate) + 1,
+          1,
+        );
+        const goalCoveredPlanningDays =
+          minDate([goalDeadline, weekEndDate]) < horizonStartDate
+            ? 0
+            : clamp(
+                differenceInCalendarDays(minDate([goalDeadline, weekEndDate]), horizonStartDate) + 1,
+                0,
+                goalPlanningDays,
+              );
+        const goalRequiredHours =
+          goalTargetHours > 0 ? (goalTargetHours * goalCoveredPlanningDays) / goalPlanningDays : 0;
+
+        return Math.max(requiredHoursByWeekEnd, goalRequiredHours);
+      }, 0),
+    );
     const baselineWeeklyHours =
       totalRemainingTargetHours > 0 ? totalRemainingTargetHours / weeksRemaining : 0;
     const hasExplicitGoal = Boolean(activeGoal);
     const minimumGuidanceHours =
       hasExplicitGoal && subject.examMode !== "maintenance" ? 0 : subject.weeklyMinimumHours;
-    const cumulativeGapHours = Math.max(cumulativeTargetHoursByWeekEnd - plannedTowardTargetHours, 0);
+    const cumulativeGapHours = Math.max(cumulativeTargetHoursByWeekEnd - scheduledToGoalHours, 0);
     const evenWeekShareHours =
       targetRemainingHours > 0 && remainingPlanningDaysFromWeek > 0
         ? roundToTenth((targetRemainingHours * weekPlanningDays) / remainingPlanningDaysFromWeek)
@@ -213,7 +239,7 @@ export function computeSubjectDeadlineTracks(options: {
       uncoveredGoalHours: roundToTenth(Math.max(targetHours - scheduledToGoalHours, 0)),
       cumulativeTargetHoursByWeekEnd,
       weeksRemaining,
-      deadline: toDateKey(deadline),
+      deadline: toDateKey(finalDeadline),
       baselineWeeklyHours: roundToTenth(baselineWeeklyHours),
       recommendedWeeklyHours: Number(recommendedWeeklyHours.toFixed(2)),
     };
@@ -306,9 +332,14 @@ export function buildWeeklyPlan(options: {
       ]),
     ),
   };
-  const horizonEndDate = toDateKey(getAcademicDeadline(options.referenceDate));
+  const overallPlanningDeadline = getLatestPlanningDeadline(
+    options.goals,
+    options.subjects,
+    options.referenceDate,
+  );
+  const horizonEndDate = toDateKey(overallPlanningDeadline);
   const weeksRemainingToDeadline = Math.max(
-    Math.ceil(differenceInCalendarDays(getAcademicDeadline(options.referenceDate), options.referenceDate) / 7),
+    Math.ceil(differenceInCalendarDays(overallPlanningDeadline, options.referenceDate) / 7),
     1,
   );
 
@@ -550,10 +581,17 @@ export function buildUnconfiguredWeeklyPlan(options: {
     overloadMinutes: 0,
     coverageComplete: false,
     weeksRemainingToDeadline: Math.max(
-      Math.ceil(differenceInCalendarDays(getAcademicDeadline(options.referenceDate), options.referenceDate) / 7),
+      Math.ceil(
+        differenceInCalendarDays(
+          getLatestPlanningDeadline(options.goals, options.subjects, options.referenceDate),
+          options.referenceDate,
+        ) / 7,
+      ),
       1,
     ),
-    horizonEndDate: toDateKey(getAcademicDeadline(options.referenceDate)),
+    horizonEndDate: toDateKey(
+      getLatestPlanningDeadline(options.goals, options.subjects, options.referenceDate),
+    ),
     generatedAt: new Date().toISOString(),
   } satisfies WeeklyPlan;
 }

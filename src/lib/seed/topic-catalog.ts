@@ -7,6 +7,7 @@ export interface SeedTopicBlueprint {
   unitTitle: string;
   title: string;
   subtopics: string[];
+  availableFrom?: string | null;
   estHours: number;
   difficulty: 1 | 2 | 3 | 4 | 5;
   preferredBlockTypes: BlockType[];
@@ -26,6 +27,49 @@ const pastPaper = (label: string, details: string) => resource("past_paper", lab
 const video = (label: string, details: string) => resource("video", label, details);
 const pppChapter = (details: string) =>
   textbook("Programming: Principles and Practice Using C++ (3e)", details);
+const postSyllabusPaperCycles = [
+  { label: "Aug 2026", availableFrom: "2026-08-01" },
+  { label: "Sep 2026", availableFrom: "2026-09-01" },
+  { label: "Oct 2026", availableFrom: "2026-10-01" },
+  { label: "Nov 2026", availableFrom: "2026-11-01" },
+  { label: "Dec 2026", availableFrom: "2026-12-01" },
+  { label: "Jan 2027", availableFrom: "2027-01-01" },
+  { label: "Feb 2027", availableFrom: "2027-02-01" },
+  { label: "Mar 2027", availableFrom: "2027-03-01" },
+  { label: "Apr 2027", availableFrom: "2027-04-01" },
+  { label: "May 2027", availableFrom: "2027-05-01" },
+  { label: "Jun 2027", availableFrom: "2027-06-01" },
+] as const;
+
+function buildPastPaperCycles(options: {
+  subjectId: SubjectId;
+  unitIdPrefix: string;
+  unitTitle: string;
+  titlePrefix: string;
+  cycleHours: number;
+  subtopics: string[];
+  sourceLabel: string;
+}): SeedTopicBlueprint[] {
+  return postSyllabusPaperCycles.map((cycle, index) => ({
+    id: `${options.unitIdPrefix}-cycle-${index + 1}`,
+    subjectId: options.subjectId,
+    unitId: options.unitIdPrefix,
+    unitTitle: options.unitTitle,
+    title: `${options.titlePrefix} - ${cycle.label} paper cycle`,
+    subtopics: options.subtopics,
+    availableFrom: cycle.availableFrom,
+    estHours: options.cycleHours,
+    difficulty: 4 as const,
+    preferredBlockTypes: ["deep_work", "standard_focus"] as BlockType[],
+    sourceMaterials: [
+      pastPaper(options.sourceLabel, `${cycle.label} full exam-condition paper cycle.`),
+      notes(
+        "Paper-review protocol",
+        "Run the paper under timed conditions, mark it, and log the error pattern before the next cycle.",
+      ),
+    ],
+  }));
+}
 
 export const legacySeedTopicIds = [
   "phys-measurements",
@@ -1088,6 +1132,36 @@ const chemistryTopicBlueprints: SeedTopicBlueprint[] = [
   },
 ];
 
+const physicsPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperCycles({
+  subjectId: "physics-hl",
+  unitIdPrefix: "physics-past-papers",
+  unitTitle: "Physics HL - Past Paper Cycles",
+  titlePrefix: "Physics HL",
+  cycleHours: 4.5,
+  subtopics: ["Paper 1A + 1B (2h)", "Paper 2 (2h 30m)"],
+  sourceLabel: "Physics HL past paper set",
+});
+
+const mathsPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperCycles({
+  subjectId: "maths-aa-hl",
+  unitIdPrefix: "maths-aa-past-papers",
+  unitTitle: "Maths AA HL - Past Paper Cycles",
+  titlePrefix: "Maths AA HL",
+  cycleHours: 5.25,
+  subtopics: ["Paper 1 (2h)", "Paper 2 (2h)", "Paper 3 (1h 15m)"],
+  sourceLabel: "Maths AA HL past paper set",
+});
+
+const chemistryPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperCycles({
+  subjectId: "chemistry-hl",
+  unitIdPrefix: "chemistry-past-papers",
+  unitTitle: "Chemistry HL - Past Paper Cycles",
+  titlePrefix: "Chemistry HL",
+  cycleHours: 4.5,
+  subtopics: ["Paper 1A + 1B (2h)", "Paper 2 (2h 30m)"],
+  sourceLabel: "Chemistry HL past paper set",
+});
+
 const olympiadTopicBlueprints: SeedTopicBlueprint[] = [
   {
     id: "olympiad-number-theory-divisibility",
@@ -1871,8 +1945,11 @@ const programmingTopicBlueprints: SeedTopicBlueprint[] = [
 
 export const seedTopicBlueprints: SeedTopicBlueprint[] = [
   ...physicsTopicBlueprints,
+  ...physicsPaperPracticeBlueprints,
   ...mathsTopicBlueprints,
+  ...mathsPaperPracticeBlueprints,
   ...chemistryTopicBlueprints,
+  ...chemistryPaperPracticeBlueprints,
   ...olympiadTopicBlueprints,
   ...englishTopicBlueprints,
   ...frenchTopicBlueprints,

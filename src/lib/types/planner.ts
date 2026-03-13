@@ -69,6 +69,7 @@ export interface Topic {
   unitTitle: string;
   title: string;
   subtopics: string[];
+  availableFrom?: string | null;
   estHours: number;
   completedHours: number;
   difficulty: 1 | 2 | 3 | 4 | 5;

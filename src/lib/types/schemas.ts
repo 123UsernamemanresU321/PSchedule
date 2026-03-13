@@ -49,6 +49,7 @@ export const topicSchema = z.object({
   unitTitle: z.string(),
   title: z.string(),
   subtopics: z.array(z.string()),
+  availableFrom: z.string().nullable().optional(),
   estHours: z.number(),
   completedHours: z.number(),
   difficulty: z.number().min(1).max(5),

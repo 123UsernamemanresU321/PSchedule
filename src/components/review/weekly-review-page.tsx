@@ -73,7 +73,7 @@ export function WeeklyReviewPage() {
     <div className="space-y-6">
       <PageHeader
         title="Weekly Review"
-        description="Compare plan versus execution, surface carry-over, and see whether the July 31 target remains realistic."
+        description="Compare plan versus execution, surface carry-over, and see whether the full goal horizon remains realistic."
         actions={
           <>
             <div className="flex items-center gap-1 rounded-full border border-white/8 bg-white/4 p-1">

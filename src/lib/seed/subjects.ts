@@ -1,11 +1,34 @@
 import { format } from "date-fns";
 
 import { getAcademicDeadline } from "@/lib/dates/helpers";
+import { seedTopicBlueprints } from "@/lib/seed/topic-catalog";
 import type { Goal, Subject } from "@/lib/types/planner";
+
+const FINAL_PAPER_PRACTICE_DEADLINE_SUFFIX = "-06-30";
+
+function sumSeedTopicHours(subjectId: Subject["id"], options?: { practiceOnly?: boolean }) {
+  return seedTopicBlueprints
+    .filter((topic) => topic.subjectId === subjectId)
+    .filter((topic) =>
+      options?.practiceOnly
+        ? topic.unitId.includes("past-papers")
+        : true,
+    )
+    .reduce((total, topic) => total + topic.estHours, 0);
+}
+
+function buildSyllabusTargetCompletion(subjectId: Subject["id"]) {
+  const totalHours = sumSeedTopicHours(subjectId);
+  const practiceHours = sumSeedTopicHours(subjectId, { practiceOnly: true });
+  const syllabusHours = Math.max(totalHours - practiceHours, 0);
+
+  return totalHours > 0 ? Number((syllabusHours / totalHours).toFixed(4)) : 1;
+}
 
 export function buildSeedSubjects(referenceDate = new Date()): Subject[] {
   const deadline = format(getAcademicDeadline(referenceDate), "yyyy-MM-dd");
   const olympiadGoldDeadline = `${referenceDate.getFullYear() + 1}-06-30`;
+  const paperPracticeDeadline = `${referenceDate.getFullYear() + 1}${FINAL_PAPER_PRACTICE_DEADLINE_SUFFIX}`;
 
   return [
     {
@@ -19,7 +42,7 @@ export function buildSeedSubjects(referenceDate = new Date()): Subject[] {
       examMode: "syllabus",
       colorToken: "subject-physics",
       gradientClassName: "from-subject-physics/25 via-subject-physics/10 to-transparent",
-      deadline,
+      deadline: paperPracticeDeadline,
     },
     {
       id: "maths-aa-hl",
@@ -32,7 +55,7 @@ export function buildSeedSubjects(referenceDate = new Date()): Subject[] {
       examMode: "syllabus",
       colorToken: "subject-maths",
       gradientClassName: "from-subject-maths/25 via-subject-maths/10 to-transparent",
-      deadline,
+      deadline: paperPracticeDeadline,
     },
     {
       id: "chemistry-hl",
@@ -45,7 +68,7 @@ export function buildSeedSubjects(referenceDate = new Date()): Subject[] {
       examMode: "syllabus",
       colorToken: "subject-chemistry",
       gradientClassName: "from-subject-chemistry/25 via-subject-chemistry/10 to-transparent",
-      deadline,
+      deadline: paperPracticeDeadline,
     },
     {
       id: "olympiad",
@@ -121,6 +144,10 @@ export function buildSeedGoals(referenceDate = new Date()): Goal[] {
   const deadline = format(getAcademicDeadline(referenceDate), "yyyy-MM-dd");
   const olympiadReadyDeadline = `${referenceDate.getFullYear()}-06-30`;
   const olympiadGoldDeadline = `${referenceDate.getFullYear() + 1}-06-30`;
+  const paperPracticeDeadline = `${referenceDate.getFullYear() + 1}${FINAL_PAPER_PRACTICE_DEADLINE_SUFFIX}`;
+  const physicsSyllabusTargetCompletion = buildSyllabusTargetCompletion("physics-hl");
+  const mathsSyllabusTargetCompletion = buildSyllabusTargetCompletion("maths-aa-hl");
+  const chemistrySyllabusTargetCompletion = buildSyllabusTargetCompletion("chemistry-hl");
 
   return [
     {
@@ -128,24 +155,48 @@ export function buildSeedGoals(referenceDate = new Date()): Goal[] {
       title: "Finish all Physics HL guide topics A.1-E.5 by July 31",
       subjectId: "physics-hl",
       deadline,
-      targetCompletion: 1,
+      targetCompletion: physicsSyllabusTargetCompletion,
       priorityWeight: 1,
+    },
+    {
+      id: "goal-physics-hl-past-papers",
+      title: `Complete the Physics HL post-syllabus past paper cycle by ${paperPracticeDeadline}`,
+      subjectId: "physics-hl",
+      deadline: paperPracticeDeadline,
+      targetCompletion: 1,
+      priorityWeight: 0.85,
     },
     {
       id: "goal-maths-aa-hl",
       title: "Finish the full Maths AA HL syllabus, including HL extension, by July 31",
       subjectId: "maths-aa-hl",
       deadline,
-      targetCompletion: 1,
+      targetCompletion: mathsSyllabusTargetCompletion,
       priorityWeight: 1,
+    },
+    {
+      id: "goal-maths-aa-hl-past-papers",
+      title: `Complete the Maths AA HL post-syllabus past paper cycle by ${paperPracticeDeadline}`,
+      subjectId: "maths-aa-hl",
+      deadline: paperPracticeDeadline,
+      targetCompletion: 1,
+      priorityWeight: 0.85,
     },
     {
       id: "goal-chemistry-hl",
       title: "Finish all Chemistry HL structure and reactivity topics by July 31",
       subjectId: "chemistry-hl",
       deadline,
-      targetCompletion: 1,
+      targetCompletion: chemistrySyllabusTargetCompletion,
       priorityWeight: 0.9,
+    },
+    {
+      id: "goal-chemistry-hl-past-papers",
+      title: `Complete the Chemistry HL post-syllabus past paper cycle by ${paperPracticeDeadline}`,
+      subjectId: "chemistry-hl",
+      deadline: paperPracticeDeadline,
+      targetCompletion: 1,
+      priorityWeight: 0.8,
     },
     {
       id: "goal-olympiad-imo-ready",

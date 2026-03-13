@@ -1,6 +1,6 @@
 import { addDays } from "date-fns";
 
-import { endOfPlannerWeek } from "@/lib/dates/helpers";
+import { endOfPlannerWeek, fromDateKey } from "@/lib/dates/helpers";
 import type { StudyBlock, TaskCandidate, Topic } from "@/lib/types/planner";
 
 const MIN_ALLOCATABLE_MINUTES = 30;
@@ -50,8 +50,13 @@ export function buildTaskCandidates(options: {
     referenceDate = new Date(),
     subjectDeadlinesById = {},
   } = options;
+  const planningWeekEnd = endOfPlannerWeek(referenceDate);
   const weekEnd = addDays(endOfPlannerWeek(referenceDate), 3);
   const activeTopicsBySubject = topics.reduce<Record<string, Topic[]>>((accumulator, topic) => {
+    if (topic.availableFrom && fromDateKey(topic.availableFrom) > planningWeekEnd) {
+      return accumulator;
+    }
+
     const remainingMinutes = Math.max(
       Math.round((topic.estHours - topic.completedHours) * 60),
       0,
@@ -98,6 +103,10 @@ export function buildTaskCandidates(options: {
   );
 
   return topics.flatMap<TaskCandidate>((topic) => {
+    if (topic.availableFrom && fromDateKey(topic.availableFrom) > planningWeekEnd) {
+      return [];
+    }
+
     const plannedMinutes = plannedMinutesByTopic[topic.id] ?? 0;
     const rawRemainingMinutes = Math.max(
       Math.round((topic.estHours - topic.completedHours) * 60) - plannedMinutes,

@@ -241,7 +241,7 @@ export function getCalendarCompletionForecast(options: {
   );
   const activeGoal = getActiveGoalForSubject(options.subject, options.topics, options.goals);
   const finalGoal = getFinalGoalForSubject(options.subject, options.goals);
-  const targetHours = totalHours * (activeGoal?.targetCompletion ?? 1);
+  const targetHours = totalHours * (finalGoal?.targetCompletion ?? activeGoal?.targetCompletion ?? 1);
   const assumedCompletedHoursBeforeReference = options.studyBlocks
     .filter((block) => block.subjectId === options.subject.id)
     .filter((block) => ["planned", "rescheduled"].includes(block.status))

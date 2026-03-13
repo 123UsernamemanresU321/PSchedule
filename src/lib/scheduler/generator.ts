@@ -966,18 +966,15 @@ export function generateStudyPlanForWeek(options: {
 }
 
 export function getPlanningHorizonEndWeek(goals: Goal[], subjects: Subject[], referenceDate: Date) {
-  const academicDeadline = getAcademicDeadline(referenceDate);
   const latestConfiguredDeadline = [...goals.map((goal) => goal.deadline), ...subjects.map((subject) => subject.deadline)]
     .map((value) => new Date(value))
     .filter((date) => !Number.isNaN(date.getTime()))
     .reduce(
       (latest, candidate) => (isAfter(candidate, latest) ? candidate : latest),
-      academicDeadline,
+      getAcademicDeadline(referenceDate),
     );
 
-  return startOfPlannerWeek(
-    latestConfiguredDeadline < academicDeadline ? latestConfiguredDeadline : academicDeadline,
-  );
+  return startOfPlannerWeek(latestConfiguredDeadline);
 }
 
 export function generateStudyPlanHorizon(options: {

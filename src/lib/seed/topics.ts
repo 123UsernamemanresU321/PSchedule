@@ -11,6 +11,7 @@ function topicFactory() {
     unitTitle: string;
     title: string;
     subtopics: string[];
+    availableFrom?: string | null;
     estHours: number;
     difficulty: Topic["difficulty"];
     preferredBlockTypes: Topic["preferredBlockTypes"];
@@ -25,6 +26,7 @@ function topicFactory() {
       unitTitle: blueprint.unitTitle,
       title: blueprint.title,
       subtopics: blueprint.subtopics,
+      availableFrom: blueprint.availableFrom ?? null,
       estHours: blueprint.estHours,
       completedHours: 0,
       difficulty: blueprint.difficulty,

@@ -78,7 +78,7 @@ export function DashboardPage() {
     <div className="space-y-6">
       <PageHeader
         title="Dashboard"
-        description={`Today is ${format(new Date(), "EEEE, d MMMM yyyy")}. The planner is balancing deadline pace, syllabus order, and recovery protection from now through July 31, 2026.`}
+        description={`Today is ${format(new Date(), "EEEE, d MMMM yyyy")}. The planner is balancing deadline pace, syllabus order, and recovery protection across your full configured goal horizon.`}
       />
 
       <div className="grid gap-4 xl:grid-cols-4 md:grid-cols-2">
@@ -133,7 +133,7 @@ export function DashboardPage() {
         summary={roadmapSummary}
         subjects={subjects}
         compact
-        description="This is the forward allocation from the selected week to July 31. If assigned pace slips below required pace, the roadmap flags it immediately."
+        description="This is the forward allocation from the selected week through the latest configured goal. If assigned pace slips below required pace, the roadmap flags it immediately."
       />
 
       <Card>

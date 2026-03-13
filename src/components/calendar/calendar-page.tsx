@@ -46,7 +46,7 @@ export function CalendarPage() {
     <div className="space-y-6">
       <PageHeader
         title="Calendar"
-        description="Fixed events define the constraints. The planner then fills the remaining horizon from now to July 31 with ordered study blocks, breaks, and recovery."
+        description="Fixed events define the constraints. The planner then fills the remaining goal horizon with ordered study blocks, breaks, and recovery."
         actions={
           <>
             <div className="flex items-center gap-1 rounded-full border border-white/8 bg-white/4 p-1">

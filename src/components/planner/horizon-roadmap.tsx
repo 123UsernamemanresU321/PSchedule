@@ -10,7 +10,7 @@ import type { HorizonRoadmapSummary, Subject } from "@/lib/types/planner";
 export function HorizonRoadmap({
   summary,
   subjects,
-  title = "Roadmap to July 31",
+  title = "Goal Horizon",
   description = "Required pace versus assigned work across the remaining horizon.",
   compact = false,
 }: {
