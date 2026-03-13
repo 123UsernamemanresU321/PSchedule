@@ -3,10 +3,12 @@
 import FullCalendar from "@fullcalendar/react";
 import interactionPlugin from "@fullcalendar/interaction";
 import timeGridPlugin from "@fullcalendar/timegrid";
-import { BedDouble, BookOpen, Coffee, Lock, Music4, Sparkles } from "lucide-react";
+import { BedDouble, BookOpen, CheckCircle2, Coffee, Lock, Music4, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 import { addDays, differenceInMinutes, format } from "date-fns";
 
 import { SubjectBadge, getSubjectAccentStyles } from "@/components/planner/subject-badge";
+import { Badge } from "@/components/ui/badge";
+import { studyBlockStatusLabels } from "@/lib/constants/planner";
 import {
   expandPlannerFixedEventsForWeek,
   expandLockedRecoveryWindowsForWeek,
@@ -63,6 +65,35 @@ function buildVisibleBreakEvents(options: {
       },
     ];
   });
+}
+
+function getStudyBlockStatusVariant(status: StudyBlock["status"]) {
+  switch (status) {
+    case "done":
+      return "success" as const;
+    case "partial":
+      return "warning" as const;
+    case "missed":
+      return "danger" as const;
+    case "rescheduled":
+      return "default" as const;
+    default:
+      return "muted" as const;
+  }
+}
+
+function getStudyBlockStatusIcon(status: StudyBlock["status"]) {
+  switch (status) {
+    case "done":
+      return <CheckCircle2 className="h-3 w-3" />;
+    case "partial":
+    case "missed":
+      return <TriangleAlert className="h-3 w-3" />;
+    case "rescheduled":
+      return <RefreshCw className="h-3 w-3" />;
+    default:
+      return <Sparkles className="h-3 w-3" />;
+  }
 }
 
 interface PlannerCalendarProps {
@@ -435,6 +466,27 @@ export function PlannerCalendar({
 
           const block = eventInfo.event.extendedProps.block as StudyBlock;
           const subject = block.subjectId ? subjectMap.get(block.subjectId) : null;
+          const statusBadge = (
+            <Badge
+              variant={getStudyBlockStatusVariant(block.status)}
+              className="gap-1 border-white/10 px-2 py-0.5 text-[10px] leading-none"
+            >
+              {getStudyBlockStatusIcon(block.status)}
+              {studyBlockStatusLabels[block.status]}
+            </Badge>
+          );
+          const studyBlockCardStyle = {
+            ...getSubjectAccentStyles(block.subjectId),
+            backgroundColor:
+              block.status === "done"
+                ? subject
+                  ? `hsl(var(--${subject.colorToken}) / 0.16)`
+                  : "rgba(34,197,94,0.12)"
+                : subject
+                  ? `hsl(var(--${subject.colorToken}) / 0.08)`
+                  : "rgba(255,255,255,0.06)",
+            opacity: block.status === "missed" ? 0.72 : 1,
+          };
 
           if (showCompactTitleOnly) {
             return (
@@ -443,19 +495,25 @@ export function PlannerCalendar({
                 data-testid="calendar-study-block"
                 data-event-title={block.title}
                 data-paper-code={block.paperCode ?? ""}
-                style={{
-                  ...getSubjectAccentStyles(block.subjectId),
-                  backgroundColor: subject
-                    ? `hsl(var(--${subject.colorToken}) / 0.08)`
-                    : "rgba(255,255,255,0.06)",
-                }}
+                data-block-status={block.status}
+                style={studyBlockCardStyle}
               >
+                <div className="flex items-start justify-between gap-2">
+                  {block.paperCode ? (
+                    <p className="truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                      {block.paperCode}
+                    </p>
+                  ) : (
+                    <span />
+                  )}
+                  {block.status !== "planned" ? statusBadge : null}
+                </div>
                 {block.paperCode ? (
-                  <p className="truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                    {block.paperCode}
-                  </p>
+                  null
                 ) : null}
-                <p className="truncate font-medium text-foreground">{block.title}</p>
+                <p className="truncate font-medium text-foreground">
+                  {block.title}
+                </p>
               </div>
             );
           }
@@ -466,12 +524,8 @@ export function PlannerCalendar({
               data-testid="calendar-study-block"
               data-event-title={block.title}
               data-paper-code={block.paperCode ?? ""}
-              style={{
-                ...getSubjectAccentStyles(block.subjectId),
-                backgroundColor: subject
-                  ? `hsl(var(--${subject.colorToken}) / 0.08)`
-                  : "rgba(255,255,255,0.06)",
-              }}
+              data-block-status={block.status}
+              style={studyBlockCardStyle}
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2">
@@ -486,10 +540,7 @@ export function PlannerCalendar({
                     </span>
                   ) : null}
                 </div>
-                <div className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
-                  <Sparkles className="h-3 w-3" />
-                  Auto
-                </div>
+                {statusBadge}
               </div>
               <div className="min-h-0 space-y-1 overflow-hidden">
                 <p className="calendar-event-title font-medium text-foreground">{block.title}</p>
