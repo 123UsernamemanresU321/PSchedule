@@ -88,7 +88,7 @@ function deriveTopicStatus(topic: Topic) {
   return "not_started";
 }
 
-async function recalculateCurrentWeek() {
+async function recalculateCurrentWeek(options?: { preservedStudyBlockIds?: string[] }) {
   const snapshot = await loadPlannerSnapshot();
   const planningStartWeek = startOfPlannerWeek(new Date());
   const replanned = generateStudyPlanHorizon({
@@ -99,6 +99,7 @@ async function recalculateCurrentWeek() {
     fixedEvents: snapshot.fixedEvents,
     preferences: snapshot.preferences,
     existingStudyBlocks: snapshot.studyBlocks,
+    preservedStudyBlockIds: options?.preservedStudyBlockIds,
   });
 
   await replacePlanningHorizon(
@@ -297,7 +298,31 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       }
     }
 
-    await get().regenerateHorizon();
+    const preservedStudyBlockIds =
+      status === "done" || status === "partial"
+        ? snapshot.studyBlocks
+            .filter((candidate) => {
+              if (candidate.id === block.id || candidate.status !== "planned") {
+                return false;
+              }
+
+              if (candidate.date !== block.date) {
+                return false;
+              }
+
+              return new Date(candidate.start) >= new Date(updatedBlock.end);
+            })
+            .map((candidate) => candidate.id)
+        : [];
+
+    const nextSnapshot = await recalculateCurrentWeek({
+      preservedStudyBlockIds,
+    });
+    set({
+      ...nextSnapshot,
+      loading: false,
+      error: null,
+    });
     get().setCurrentWeekStart(block.weekStart);
   },
   exportToJson: async () => {

@@ -1092,6 +1092,7 @@ export function generateStudyPlanHorizon(options: {
   fixedEvents: import("@/lib/types/planner").FixedEvent[];
   preferences: Preferences;
   existingStudyBlocks?: StudyBlock[];
+  preservedStudyBlockIds?: string[];
 }) {
   const startWeek = startOfPlannerWeek(options.startWeek ?? new Date());
   const horizonStartDate = getPlannerReferenceDate(startWeek);
@@ -1099,7 +1100,10 @@ export function generateStudyPlanHorizon(options: {
     ? startOfPlannerWeek(options.endWeek)
     : getPlanningHorizonEndWeek(options.goals, options.subjects, startWeek);
   const existingStudyBlocks = options.existingStudyBlocks ?? [];
-  const preservedLockedBlocks = existingStudyBlocks.filter(shouldPreserveStudyBlockOnRegeneration);
+  const extraPreservedIds = new Set(options.preservedStudyBlockIds ?? []);
+  const preservedLockedBlocks = existingStudyBlocks.filter(
+    (block) => shouldPreserveStudyBlockOnRegeneration(block) || extraPreservedIds.has(block.id),
+  );
   const horizonStudyBlocks: StudyBlock[] = [];
   const weeklyPlans: WeeklyPlan[] = [];
   const accumulatedBlocks: StudyBlock[] = [];
