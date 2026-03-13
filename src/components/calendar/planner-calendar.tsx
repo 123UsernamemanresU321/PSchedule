@@ -197,6 +197,7 @@ export function PlannerCalendar({
         selectable
         editable={false}
         nowIndicator
+        slotEventOverlap={false}
         timeZone="local"
         height="auto"
         dayMaxEvents={3}
