@@ -65,6 +65,7 @@ export function WeeklyReviewPage() {
         topics,
         goals,
         studyBlocks,
+        weeklyPlans,
         referenceDate: new Date(),
       }),
     );
@@ -202,14 +203,18 @@ export function WeeklyReviewPage() {
                       ? "Impossible"
                       : forecast.isOnTrack
                         ? "On calendar"
-                        : "Past deadline"}
+                        : forecast.needsMoreBlocks
+                          ? "Needs more blocks"
+                          : "Past deadline"}
                   </Badge>
                 </div>
                 <p className="mt-4 text-sm text-muted-foreground">Projected completion</p>
                 <p className="mt-2 text-2xl font-semibold text-foreground">
                   {forecast.completionDate
                     ? forecast.completionDate.toLocaleDateString()
-                    : "Calendar impossible"}
+                    : forecast.isCalendarImpossible
+                      ? "Calendar impossible"
+                      : "Still extending"}
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Final goal by {forecast.deadline}
@@ -223,8 +228,12 @@ export function WeeklyReviewPage() {
                   {forecast.isFullyScheduled
                     ? `${forecast.remainingTargetHours.toFixed(1)}h remaining is already covered on the calendar.`
                     : forecast.lastScheduledDate
-                      ? `${forecast.missingHours.toFixed(1)}h still missing after ${forecast.lastScheduledDate.toLocaleDateString()}.`
-                      : `${forecast.missingHours.toFixed(1)}h still missing because there are no future blocks yet.`}
+                      ? forecast.isCalendarImpossible
+                        ? `${forecast.missingHours.toFixed(1)}h still missing after ${forecast.lastScheduledDate.toLocaleDateString()}.`
+                        : `${forecast.missingHours.toFixed(1)}h still needs scheduling after ${forecast.lastScheduledDate.toLocaleDateString()}.`
+                      : forecast.isCalendarImpossible
+                        ? `${forecast.missingHours.toFixed(1)}h still missing because there are no future blocks yet.`
+                        : `${forecast.missingHours.toFixed(1)}h still needs more blocks before the deadline.`}
                 </p>
               </div>
             ))}

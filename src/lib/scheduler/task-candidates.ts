@@ -72,7 +72,14 @@ function inferIntensity(topic: Topic): TaskCandidate["intensity"] {
   return topic.preferredBlockTypes.includes("drill") ? "moderate" : "light";
 }
 
-function createReviewCandidate(topic: Topic): TaskCandidate {
+function createReviewCandidate(
+  topic: Topic,
+  timingWindow: {
+    availableAt: Date | null;
+    latestAt: string | null;
+    reviewDue: string | null;
+  },
+): TaskCandidate {
   return {
     id: `${topic.id}-review`,
     subjectId: topic.subjectId,
@@ -88,14 +95,18 @@ function createReviewCandidate(topic: Topic): TaskCandidate {
     remainingMinutes: 45,
     sessionMode: "flexible",
     exactSessionMinutes: null,
-    availableAt: null,
-    latestAt: null,
+    availableAt: timingWindow.availableAt ? timingWindow.availableAt.toISOString() : null,
+    latestAt: timingWindow.latestAt,
     difficulty: Math.max(1, topic.difficulty - 1) as Topic["difficulty"],
     mastery: topic.mastery,
     order: topic.order,
     blockedByEarlierTopics: 0,
-    reviewDue: topic.reviewDue,
-    deadline: topic.reviewDue ?? topic.lastStudiedAt ?? new Date().toISOString(),
+    reviewDue: timingWindow.reviewDue,
+    deadline:
+      timingWindow.reviewDue ??
+      (timingWindow.availableAt ? timingWindow.availableAt.toISOString() : null) ??
+      topic.lastStudiedAt ??
+      new Date().toISOString(),
     lastStudiedAt: topic.lastStudiedAt,
     preferredBlockTypes: ["review", "recovery"],
     intensity: "light",
@@ -284,7 +295,7 @@ export function buildTaskCandidates(options: {
     }
 
     if (shouldSpawnReview) {
-      candidates.push(createReviewCandidate(topic));
+      candidates.push(createReviewCandidate(topic, timingWindow));
     }
 
     return candidates;

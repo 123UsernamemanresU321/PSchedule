@@ -1,5 +1,9 @@
 import { getAcademicDeadline, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
-import { generateStudyPlanHorizon, getPlanningHorizonEndWeek } from "@/lib/scheduler/generator";
+import {
+  generateStudyPlanHorizon,
+  getPlanningHorizonEndWeek,
+  shouldPreserveStudyBlockOnRegeneration,
+} from "@/lib/scheduler/generator";
 import { buildSeedDataset } from "@/lib/seed";
 import { buildSeedPreferences } from "@/lib/seed/preferences";
 import {
@@ -20,7 +24,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-13-paper-review-window-v16";
+const PLANNING_MODEL_VERSION = "2026-03-13-trust-fixes-v17";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-12-april-camp-roadmap-v1";
@@ -598,7 +602,11 @@ export async function replacePlanningHorizon(
     db.weeklyPlans,
     async () => {
       await db.studyBlocks
-        .filter((block) => block.weekStart >= horizonStartWeek && block.status !== "done")
+        .filter(
+          (block) =>
+            block.weekStart >= horizonStartWeek &&
+            !shouldPreserveStudyBlockOnRegeneration(block),
+        )
         .delete();
       await db.weeklyPlans
         .where("weekStart")

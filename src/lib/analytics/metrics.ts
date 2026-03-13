@@ -228,6 +228,7 @@ export function getCalendarCompletionForecast(options: {
   topics: Topic[];
   goals: Goal[];
   studyBlocks: StudyBlock[];
+  weeklyPlans?: WeeklyPlan[];
   referenceDate?: Date;
   currentDate?: Date;
 }) {
@@ -279,7 +280,21 @@ export function getCalendarCompletionForecast(options: {
   const missingHours = Number(Math.max(remainingTargetHours - scheduledHours, 0).toFixed(1));
   const deadline = finalGoal?.deadline ?? options.subject.deadline;
   const milestoneDeadline = activeGoal?.deadline ?? deadline;
-  const isCalendarImpossible = missingHours > 0;
+  const deadlineWeekStart = toDateKey(startOfPlannerWeek(new Date(deadline)));
+  const currentWeekStart = toDateKey(startOfPlannerWeek(referenceDate));
+  const relevantWeeklyPlans = (options.weeklyPlans ?? [])
+    .filter((plan) => plan.weekStart >= currentWeekStart && plan.weekStart <= deadlineWeekStart)
+    .sort((left, right) => left.weekStart.localeCompare(right.weekStart));
+  const subjectStillUndercovered = relevantWeeklyPlans.some(
+    (plan) => (plan.coverageGapHoursBySubject[options.subject.id] ?? 0) > 0.1,
+  );
+  const hasUnusedCapacityBeforeDeadline = relevantWeeklyPlans.some((plan) => plan.slackMinutes > 0);
+  const isCalendarImpossible =
+    missingHours > 0 &&
+    relevantWeeklyPlans.length > 0 &&
+    subjectStillUndercovered &&
+    !hasUnusedCapacityBeforeDeadline;
+  const needsMoreBlocks = missingHours > 0 && !isCalendarImpossible;
 
   return {
     subject: options.subject,
@@ -295,6 +310,8 @@ export function getCalendarCompletionForecast(options: {
     lastScheduledDate,
     completionDate,
     isCalendarImpossible,
+    needsMoreBlocks,
+    hasUnusedCapacityBeforeDeadline,
     isFullyScheduled: !!completionDate,
     isOnTrack:
       !!completionDate && completionDate.getTime() <= new Date(deadline).getTime(),

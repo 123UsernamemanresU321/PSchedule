@@ -63,6 +63,7 @@ export function DashboardPage() {
         topics,
         goals,
         studyBlocks,
+        weeklyPlans,
         referenceDate: new Date(),
       }),
     );
@@ -165,14 +166,18 @@ export function DashboardPage() {
                       ? "Impossible"
                       : forecast.isOnTrack
                         ? "On calendar"
-                        : "Past deadline"}
+                        : forecast.needsMoreBlocks
+                          ? "Needs more blocks"
+                          : "Past deadline"}
                   </Badge>
                 </div>
                 <p className="mt-4 text-sm text-muted-foreground">Projected finish</p>
                 <p className="mt-2 text-2xl font-semibold text-foreground">
                   {forecast.completionDate
                     ? format(forecast.completionDate, "d MMM yyyy")
-                    : "Calendar impossible"}
+                    : forecast.isCalendarImpossible
+                      ? "Calendar impossible"
+                      : "Still extending"}
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Final goal by {forecast.deadline}
@@ -186,8 +191,12 @@ export function DashboardPage() {
                   {forecast.isFullyScheduled
                     ? `${forecast.remainingTargetHours.toFixed(1)}h remaining is already covered on the horizon.`
                     : forecast.lastScheduledDate
-                      ? `${forecast.missingHours.toFixed(1)}h still missing after ${format(forecast.lastScheduledDate, "d MMM")}.`
-                      : `${forecast.missingHours.toFixed(1)}h still missing because the horizon has no future coverage.`}
+                      ? forecast.isCalendarImpossible
+                        ? `${forecast.missingHours.toFixed(1)}h still missing after ${format(forecast.lastScheduledDate, "d MMM")}.`
+                        : `${forecast.missingHours.toFixed(1)}h still needs scheduling after ${format(forecast.lastScheduledDate, "d MMM")}.`
+                      : forecast.isCalendarImpossible
+                        ? `${forecast.missingHours.toFixed(1)}h still missing because the horizon has no usable coverage left.`
+                        : `${forecast.missingHours.toFixed(1)}h still needs more blocks before the deadline.`}
                 </p>
               </div>
             ))}
