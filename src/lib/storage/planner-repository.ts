@@ -20,20 +20,37 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-13-horizon-goals-papers-v13";
+const PLANNING_MODEL_VERSION = "2026-03-13-horizon-goals-papers-v14";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-12-april-camp-roadmap-v1";
 const EXTENDED_GOALS_VERSION = "2026-03-13-post-syllabus-papers-v5";
 
 function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreferences: Preferences) {
-  const fallbackWindows = seedPreferences.lockedRecoveryWindows;
-  const inputWindows =
-    preferences.lockedRecoveryWindows?.length
-      ? preferences.lockedRecoveryWindows
-      : fallbackWindows;
+  const mergedWindows = new Map(
+    seedPreferences.lockedRecoveryWindows.map((window) => [window.label, window]),
+  );
 
-  return inputWindows.map((window) => {
+  (preferences.lockedRecoveryWindows ?? []).forEach((window) => {
+    mergedWindows.set(window.label, {
+      ...(mergedWindows.get(window.label) ?? {}),
+      ...window,
+    });
+  });
+
+  return Array.from(mergedWindows.values()).map((window) => {
+    if (
+      window.label === "Lunch break" &&
+      window.start === "12:00" &&
+      window.end === "13:30"
+    ) {
+      return {
+        ...window,
+        days: [0, 1, 2, 3, 4, 5, 6],
+        movable: false,
+      };
+    }
+
     if (
       window.label === "Dinner reset" &&
       window.start === "19:15" &&

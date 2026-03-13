@@ -30,6 +30,13 @@ export function buildSeedPreferences(): Preferences {
     ],
     lockedRecoveryWindows: [
       {
+        label: "Lunch break",
+        start: "12:00",
+        end: "13:30",
+        days: [0, 1, 2, 3, 4, 5, 6],
+        movable: false,
+      },
+      {
         label: "Dinner reset",
         start: "19:15",
         end: "20:00",
