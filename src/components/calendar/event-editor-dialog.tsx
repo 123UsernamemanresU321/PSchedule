@@ -212,8 +212,8 @@ function EventEditorDialogPanel({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-2xl">
-        <Card>
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto overscroll-contain">
+        <Card data-testid="event-editor-dialog">
           <CardHeader className="flex-row items-start justify-between">
             <div>
               <CardTitle>{draft.mode === "edit" ? "Edit fixed event" : "Add fixed event"}</CardTitle>
@@ -230,6 +230,8 @@ function EventEditorDialogPanel({
               <div className="space-y-2 md:col-span-2">
                 <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Title</label>
                 <Input
+                  data-testid="event-title-input"
+                  aria-label="Event title"
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
                   placeholder="School, gym, lesson..."
@@ -244,6 +246,8 @@ function EventEditorDialogPanel({
                     </p>
                   </div>
                   <Switch
+                    data-testid="event-all-day-switch"
+                    aria-label="All-day event"
                     checked={isAllDay}
                     onCheckedChange={(checked) => {
                       setIsAllDay(checked);
@@ -265,6 +269,8 @@ function EventEditorDialogPanel({
               <div className="space-y-2">
                 <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Start</label>
                 <Input
+                  data-testid="event-start-input"
+                  aria-label="Event start"
                   type={isAllDay ? "date" : "datetime-local"}
                   value={start}
                   onChange={(event) => setStart(event.target.value)}
@@ -273,6 +279,8 @@ function EventEditorDialogPanel({
               <div className="space-y-2">
                 <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">End</label>
                 <Input
+                  data-testid="event-end-input"
+                  aria-label="Event end"
                   type={isAllDay ? "date" : "datetime-local"}
                   value={end}
                   onChange={(event) => setEnd(event.target.value)}
@@ -281,6 +289,8 @@ function EventEditorDialogPanel({
               <div className="space-y-2">
                 <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Category</label>
                 <Select
+                  data-testid="event-category-select"
+                  aria-label="Event category"
                   value={category}
                   onChange={(event) => setCategory(event.target.value as FixedEvent["category"])}
                 >
@@ -296,6 +306,8 @@ function EventEditorDialogPanel({
               <div className="space-y-2">
                 <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Flexibility</label>
                 <Select
+                  data-testid="event-flexibility-select"
+                  aria-label="Event flexibility"
                   value={flexibility}
                   onChange={(event) => setFlexibility(event.target.value as FixedEvent["flexibility"])}
                 >
@@ -307,6 +319,8 @@ function EventEditorDialogPanel({
               <div className="space-y-2">
                 <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Recurrence</label>
                 <Select
+                  data-testid="event-recurrence-select"
+                  aria-label="Event recurrence"
                   value={recurrence}
                   onChange={(event) => {
                     const nextValue = event.target.value as FixedEvent["recurrence"];
@@ -333,6 +347,7 @@ function EventEditorDialogPanel({
                         variant="ghost"
                         size="sm"
                         className="rounded-full border border-white/8 px-3"
+                        data-testid="event-weekdays-button"
                         onClick={() => setDaysOfWeek([1, 2, 3, 4, 5])}
                       >
                         Weekdays
@@ -342,6 +357,7 @@ function EventEditorDialogPanel({
                         variant="ghost"
                         size="sm"
                         className="rounded-full border border-white/8 px-3"
+                        data-testid="event-every-day-button"
                         onClick={() => setDaysOfWeek([1, 2, 3, 4, 5, 6, 0])}
                       >
                         Every day
@@ -351,6 +367,7 @@ function EventEditorDialogPanel({
                         variant="ghost"
                         size="sm"
                         className="rounded-full border border-white/8 px-3"
+                        data-testid="event-clear-days-button"
                         onClick={() => setDaysOfWeek([])}
                       >
                         Clear
@@ -368,6 +385,7 @@ function EventEditorDialogPanel({
                           variant={active ? "default" : "ghost"}
                           size="sm"
                           className="min-w-12 rounded-full"
+                          data-testid={`event-weekday-${option.label.toLowerCase()}`}
                           onClick={() =>
                             setDaysOfWeek((current) =>
                               current.includes(option.value)
@@ -390,6 +408,8 @@ function EventEditorDialogPanel({
                       Repeat until
                     </label>
                     <Input
+                      data-testid="event-repeat-until-input"
+                      aria-label="Repeat until"
                       type="date"
                       value={repeatUntil}
                       min={start.slice(0, 10)}
@@ -404,6 +424,8 @@ function EventEditorDialogPanel({
               <div className="space-y-2 md:col-span-2">
                 <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Notes</label>
                 <Textarea
+                  data-testid="event-notes-input"
+                  aria-label="Event notes"
                   value={notes}
                   onChange={(event) => setNotes(event.target.value)}
                   placeholder="Context, travel time, or why this is protected..."
@@ -416,6 +438,7 @@ function EventEditorDialogPanel({
                 {draft.mode === "edit" && onDelete ? (
                   <>
                     <Button
+                      data-testid="event-delete-button"
                       variant="danger"
                       onClick={() => {
                         if (canChooseDeleteScope) {
@@ -440,6 +463,7 @@ function EventEditorDialogPanel({
                         </p>
                         <div className="mt-3 flex flex-wrap gap-2">
                           <Button
+                            data-testid="event-delete-occurrence"
                             variant="outline"
                             size="sm"
                             onClick={() =>
@@ -453,6 +477,7 @@ function EventEditorDialogPanel({
                             Delete this day
                           </Button>
                           <Button
+                            data-testid="event-delete-series"
                             variant="danger"
                             size="sm"
                             onClick={() =>
@@ -483,6 +508,7 @@ function EventEditorDialogPanel({
                   Cancel
                 </Button>
                 <Button
+                  data-testid="event-save-button"
                   onClick={() => {
                     const normalizedRange = isAllDay
                       ? normalizeAllDayRange(start, end)

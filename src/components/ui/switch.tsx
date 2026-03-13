@@ -1,14 +1,19 @@
 "use client";
 
+import type { ButtonHTMLAttributes } from "react";
+
 import { cn } from "@/lib/utils";
+
+interface SwitchProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onChange"> {
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}
 
 export function Switch({
   checked,
   onCheckedChange,
-}: {
-  checked: boolean;
-  onCheckedChange: (checked: boolean) => void;
-}) {
+  ...props
+}: SwitchProps) {
   return (
     <button
       type="button"
@@ -17,6 +22,8 @@ export function Switch({
         "relative inline-flex h-6 w-11 rounded-full border border-white/8 transition",
         checked ? "bg-primary" : "bg-white/8",
       )}
+      aria-pressed={checked}
+      {...props}
     >
       <span
         className={cn(

@@ -184,7 +184,10 @@ export function PlannerCalendar({
   ];
 
   return (
-    <div className="overflow-hidden rounded-md border border-white/6 bg-[#0d1324]/90 p-4 shadow-panel">
+    <div
+      className="overflow-hidden rounded-md border border-white/6 bg-[#0d1324]/90 p-4 shadow-panel"
+      data-testid="planner-calendar"
+    >
       <FullCalendar
         key={weekStart}
         plugins={[timeGridPlugin, interactionPlugin]}
@@ -275,7 +278,11 @@ export function PlannerCalendar({
 
             if (showCompactTitleOnly) {
               return (
-                <div className="h-full overflow-hidden rounded-lg border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100">
+                <div
+                  className="h-full overflow-hidden rounded-lg border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100"
+                  data-testid="calendar-recovery-window"
+                  data-event-title={window.label}
+                >
                   <p className="truncate font-medium">{window.label}</p>
                 </div>
               );
@@ -283,6 +290,11 @@ export function PlannerCalendar({
 
             return (
               <div className="h-full overflow-hidden rounded-sm border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100">
+                <div
+                  data-testid="calendar-recovery-window"
+                  data-event-title={window.label}
+                  className="contents"
+                />
                 <div className="flex items-center gap-2">
                   <BedDouble className="h-3.5 w-3.5" />
                   <span className="truncate font-medium">{window.label}</span>
@@ -309,14 +321,22 @@ export function PlannerCalendar({
 
             if (showCompactTitleOnly) {
               return (
-                <div className="h-full overflow-hidden rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-sm text-amber-50">
+                <div
+                  className="h-full overflow-hidden rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-sm text-amber-50"
+                  data-testid="calendar-reserved-commitment"
+                  data-event-title={commitment.label}
+                >
                   <p className="truncate font-medium">{commitment.label}</p>
                 </div>
               );
             }
 
             return (
-              <div className="h-full overflow-hidden rounded-sm border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-sm text-amber-50">
+              <div
+                className="h-full overflow-hidden rounded-sm border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-sm text-amber-50"
+                data-testid="calendar-reserved-commitment"
+                data-event-title={commitment.label}
+              >
                 <div className="flex items-center gap-2">
                   {icon}
                   <span className="truncate font-medium">{commitment.label}</span>
@@ -333,14 +353,22 @@ export function PlannerCalendar({
 
             if (showCompactTitleOnly) {
               return (
-                <div className="h-full overflow-hidden rounded-lg border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-sm text-amber-100">
+                <div
+                  className="h-full overflow-hidden rounded-lg border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-sm text-amber-100"
+                  data-testid="calendar-break"
+                  data-event-title="Break"
+                >
                   <p className="truncate font-medium">Break</p>
                 </div>
               );
             }
 
             return (
-              <div className="h-full overflow-hidden rounded-sm border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-sm text-amber-100">
+              <div
+                className="h-full overflow-hidden rounded-sm border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-sm text-amber-100"
+                data-testid="calendar-break"
+                data-event-title="Break"
+              >
                 <div className="flex items-center gap-2">
                   <Coffee className="h-3.5 w-3.5" />
                   <span className="truncate font-medium">Break</span>
@@ -357,14 +385,22 @@ export function PlannerCalendar({
 
             if (showCompactTitleOnly) {
               return (
-                <div className="h-full overflow-hidden rounded-lg border border-white/8 bg-white/[0.08] px-3 py-2 text-sm text-foreground shadow-panel">
+                <div
+                  className="h-full overflow-hidden rounded-lg border border-white/8 bg-white/[0.08] px-3 py-2 text-sm text-foreground shadow-panel"
+                  data-testid="calendar-fixed-event"
+                  data-event-title={event.title}
+                >
                   <p className="truncate font-medium">{event.title}</p>
                 </div>
               );
             }
 
             return (
-              <div className="h-full overflow-hidden rounded-lg border border-white/8 bg-white/[0.08] px-3 py-2 text-sm text-foreground shadow-panel">
+              <div
+                className="h-full overflow-hidden rounded-lg border border-white/8 bg-white/[0.08] px-3 py-2 text-sm text-foreground shadow-panel"
+                data-testid="calendar-fixed-event"
+                data-event-title={event.title}
+              >
                 <div className="flex items-center gap-2">
                   <Lock className="h-3.5 w-3.5 text-muted-foreground" />
                   <span className="truncate font-medium">{event.title}</span>
@@ -385,6 +421,9 @@ export function PlannerCalendar({
             return (
               <div
                 className="flex h-full min-h-0 flex-col justify-center gap-1 overflow-hidden rounded-lg border px-3 py-2 text-sm shadow-panel"
+                data-testid="calendar-study-block"
+                data-event-title={block.title}
+                data-paper-code={block.paperCode ?? ""}
                 style={{
                   ...getSubjectAccentStyles(block.subjectId),
                   backgroundColor: subject
@@ -405,6 +444,9 @@ export function PlannerCalendar({
           return (
             <div
               className="flex h-full min-h-0 flex-col gap-2 overflow-hidden rounded-lg border px-3 py-2 text-sm shadow-panel"
+              data-testid="calendar-study-block"
+              data-event-title={block.title}
+              data-paper-code={block.paperCode ?? ""}
               style={{
                 ...getSubjectAccentStyles(block.subjectId),
                 backgroundColor: subject

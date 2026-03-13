@@ -54,21 +54,26 @@ export function CalendarPage() {
                 variant="ghost"
                 size="sm"
                 className="rounded-full"
+                data-testid="calendar-prev-week"
                 onClick={() => setCurrentWeekStart(toDateKey(subDays(visibleWeekStart, 7)))}
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <span className="px-3 text-sm text-muted-foreground">{formatWeekRangeLabel(visibleWeekStart)}</span>
+              <span className="px-3 text-sm text-muted-foreground" data-testid="calendar-week-range">
+                {formatWeekRangeLabel(visibleWeekStart)}
+              </span>
               <Button
                 variant="ghost"
                 size="sm"
                 className="rounded-full"
+                data-testid="calendar-next-week"
                 onClick={() => setCurrentWeekStart(toDateKey(addDays(visibleWeekStart, 7)))}
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
             <Button
+              data-testid="calendar-add-event"
               variant="outline"
               onClick={() =>
                 setEditorDraft({
@@ -82,7 +87,7 @@ export function CalendarPage() {
               <Plus className="h-4 w-4" />
               Add event
             </Button>
-            <Button onClick={() => void regenerateHorizon()}>
+            <Button data-testid="calendar-regenerate-horizon" onClick={() => void regenerateHorizon()}>
               <RefreshCw className="h-4 w-4" />
               Regenerate horizon
             </Button>
