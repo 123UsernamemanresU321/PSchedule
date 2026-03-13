@@ -198,6 +198,15 @@ select {
   -webkit-line-clamp: 2;
 }
 
+.calendar-event-description {
+  display: -webkit-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .calendar-event-time {
   overflow: hidden;
   text-overflow: ellipsis;

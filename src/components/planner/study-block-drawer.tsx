@@ -134,6 +134,17 @@ function StudyBlockDrawerPanel({
             </CardContent>
           </Card>
 
+          {block.sessionSummary ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Session focus</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm leading-6 text-foreground">{block.sessionSummary}</p>
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Card className="border-primary/20 bg-primary/8">
             <CardHeader>
               <CardTitle className="text-base">Why this was scheduled</CardTitle>

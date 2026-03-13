@@ -12,6 +12,9 @@ function topicFactory() {
     title: string;
     subtopics: string[];
     availableFrom?: string | null;
+    dependsOnTopicId?: string | null;
+    minDaysAfterDependency?: number | null;
+    maxDaysAfterDependency?: number | null;
     sessionMode?: Topic["sessionMode"];
     exactSessionMinutes?: number | null;
     estHours: number;
@@ -29,6 +32,9 @@ function topicFactory() {
       title: blueprint.title,
       subtopics: blueprint.subtopics,
       availableFrom: blueprint.availableFrom ?? null,
+      dependsOnTopicId: blueprint.dependsOnTopicId ?? null,
+      minDaysAfterDependency: blueprint.minDaysAfterDependency ?? null,
+      maxDaysAfterDependency: blueprint.maxDaysAfterDependency ?? null,
       sessionMode: blueprint.sessionMode ?? "flexible",
       exactSessionMinutes: blueprint.exactSessionMinutes ?? null,
       estHours: blueprint.estHours,

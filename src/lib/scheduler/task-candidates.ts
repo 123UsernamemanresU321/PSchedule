@@ -5,6 +5,19 @@ import type { StudyBlock, TaskCandidate, Topic } from "@/lib/types/planner";
 
 const MIN_ALLOCATABLE_MINUTES = 30;
 
+function buildSessionSummary(topic: Topic) {
+  if (topic.subtopics.length >= 2) {
+    return `${topic.subtopics[0]} • ${topic.subtopics[1]}`;
+  }
+
+  if (topic.subtopics.length === 1) {
+    return topic.subtopics[0];
+  }
+
+  const sourceDetails = topic.sourceMaterials[0]?.details?.trim();
+  return sourceDetails ? sourceDetails : null;
+}
+
 function inferIntensity(topic: Topic): TaskCandidate["intensity"] {
   if (
     topic.preferredBlockTypes.includes("deep_work") ||
@@ -22,11 +35,17 @@ function createReviewCandidate(topic: Topic): TaskCandidate {
     subjectId: topic.subjectId,
     topicId: topic.id,
     title: `${topic.title} review`,
+    sessionSummary:
+      topic.subtopics.length > 0
+        ? `Review ${topic.subtopics.slice(0, 2).join(" • ")}`
+        : "Review the last attempt, error log, and weakest solution steps.",
     unitTitle: topic.unitTitle,
     sourceMaterials: topic.sourceMaterials,
     remainingMinutes: 45,
     sessionMode: "flexible",
     exactSessionMinutes: null,
+    availableAt: null,
+    latestAt: null,
     difficulty: Math.max(1, topic.difficulty - 1) as Topic["difficulty"],
     mastery: topic.mastery,
     order: topic.order,
@@ -37,6 +56,64 @@ function createReviewCandidate(topic: Topic): TaskCandidate {
     preferredBlockTypes: ["review", "recovery"],
     intensity: "light",
     kind: "review",
+  };
+}
+
+function getLatestScheduledBlockByTopic(existingPlannedBlocks: StudyBlock[]) {
+  return existingPlannedBlocks.reduce<Record<string, StudyBlock>>((accumulator, block) => {
+    if (!block.topicId || block.status === "missed") {
+      return accumulator;
+    }
+
+    const current = accumulator[block.topicId];
+    if (!current || new Date(block.end).getTime() > new Date(current.end).getTime()) {
+      accumulator[block.topicId] = block;
+    }
+
+    return accumulator;
+  }, {});
+}
+
+function resolveTopicTimingWindow(
+  topic: Topic,
+  latestScheduledBlockByTopic: Record<string, StudyBlock>,
+) {
+  let availableAt = topic.availableFrom ? fromDateKey(topic.availableFrom) : null;
+  let reviewDue = topic.reviewDue;
+
+  if (topic.dependsOnTopicId) {
+    const dependencyBlock = latestScheduledBlockByTopic[topic.dependsOnTopicId];
+
+    if (!dependencyBlock) {
+      return {
+        blocked: true,
+        availableAt: null,
+        latestAt: null,
+        reviewDue,
+      };
+    }
+
+    const dependencyEnd = new Date(dependencyBlock.end);
+    const earliestAllowed = addDays(dependencyEnd, topic.minDaysAfterDependency ?? 0);
+    const latestAllowed =
+      topic.maxDaysAfterDependency != null
+        ? addDays(dependencyEnd, topic.maxDaysAfterDependency)
+        : null;
+
+    if (!availableAt || earliestAllowed.getTime() > availableAt.getTime()) {
+      availableAt = earliestAllowed;
+    }
+
+    if (latestAllowed) {
+      reviewDue = latestAllowed.toISOString();
+    }
+  }
+
+  return {
+    blocked: false,
+    availableAt,
+    latestAt: reviewDue ? reviewDue : null,
+    reviewDue,
   };
 }
 
@@ -54,8 +131,11 @@ export function buildTaskCandidates(options: {
   } = options;
   const planningWeekEnd = endOfPlannerWeek(referenceDate);
   const weekEnd = addDays(endOfPlannerWeek(referenceDate), 3);
+  const latestScheduledBlockByTopic = getLatestScheduledBlockByTopic(existingPlannedBlocks);
   const activeTopicsBySubject = topics.reduce<Record<string, Topic[]>>((accumulator, topic) => {
-    if (topic.availableFrom && fromDateKey(topic.availableFrom) > planningWeekEnd) {
+    const timingWindow = resolveTopicTimingWindow(topic, latestScheduledBlockByTopic);
+
+    if (timingWindow.blocked || (timingWindow.availableAt && timingWindow.availableAt > planningWeekEnd)) {
       return accumulator;
     }
 
@@ -105,7 +185,9 @@ export function buildTaskCandidates(options: {
   );
 
   return topics.flatMap<TaskCandidate>((topic) => {
-    if (topic.availableFrom && fromDateKey(topic.availableFrom) > planningWeekEnd) {
+    const timingWindow = resolveTopicTimingWindow(topic, latestScheduledBlockByTopic);
+
+    if (timingWindow.blocked || (timingWindow.availableAt && timingWindow.availableAt > planningWeekEnd)) {
       return [];
     }
 
@@ -115,8 +197,8 @@ export function buildTaskCandidates(options: {
       0,
     );
     const shouldSpawnReview =
-      !!topic.reviewDue &&
-      new Date(topic.reviewDue) <= weekEnd &&
+      !!timingWindow.reviewDue &&
+      new Date(timingWindow.reviewDue) <= weekEnd &&
       (topic.status === "reviewed" || topic.status === "strong" || rawRemainingMinutes < 30);
 
     const candidates: TaskCandidate[] = [];
@@ -129,6 +211,7 @@ export function buildTaskCandidates(options: {
         subjectId: topic.subjectId,
         topicId: topic.id,
         title: topic.title,
+        sessionSummary: buildSessionSummary(topic),
         unitTitle: topic.unitTitle,
         sourceMaterials: topic.sourceMaterials,
         remainingMinutes:
@@ -137,13 +220,15 @@ export function buildTaskCandidates(options: {
             : Math.max(rawRemainingMinutes, MIN_ALLOCATABLE_MINUTES),
         sessionMode,
         exactSessionMinutes,
+        availableAt: timingWindow.availableAt ? timingWindow.availableAt.toISOString() : null,
+        latestAt: timingWindow.latestAt,
         difficulty: topic.difficulty,
         mastery: topic.mastery,
         order: topic.order,
         blockedByEarlierTopics: blockedByEarlierTopicsById[topic.id] ?? 0,
-        reviewDue: topic.reviewDue,
+        reviewDue: timingWindow.reviewDue,
         deadline:
-          topic.reviewDue ??
+          timingWindow.reviewDue ??
           subjectDeadlinesById[topic.subjectId] ??
           new Date(referenceDate).toISOString().slice(0, 10),
         lastStudiedAt: topic.lastStudiedAt,

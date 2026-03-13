@@ -70,6 +70,9 @@ export interface Topic {
   title: string;
   subtopics: string[];
   availableFrom?: string | null;
+  dependsOnTopicId?: string | null;
+  minDaysAfterDependency?: number | null;
+  maxDaysAfterDependency?: number | null;
   sessionMode?: "flexible" | "exam";
   exactSessionMinutes?: number | null;
   estHours: number;
@@ -122,6 +125,7 @@ export interface StudyBlock {
   subjectId: SubjectId | null;
   topicId: string | null;
   title: string;
+  sessionSummary: string | null;
   unitTitle: string | null;
   blockType: BlockType;
   intensity: BlockIntensity;
@@ -277,11 +281,14 @@ export interface TaskCandidate {
   subjectId: SubjectId | null;
   topicId: string | null;
   title: string;
+  sessionSummary: string | null;
   unitTitle: string | null;
   sourceMaterials: TopicResource[];
   remainingMinutes: number;
   sessionMode: "flexible" | "exam";
   exactSessionMinutes: number | null;
+  availableAt: string | null;
+  latestAt: string | null;
   difficulty: 1 | 2 | 3 | 4 | 5;
   mastery: number;
   order: number;

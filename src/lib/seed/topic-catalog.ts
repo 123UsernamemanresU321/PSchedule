@@ -8,6 +8,9 @@ export interface SeedTopicBlueprint {
   title: string;
   subtopics: string[];
   availableFrom?: string | null;
+  dependsOnTopicId?: string | null;
+  minDaysAfterDependency?: number | null;
+  maxDaysAfterDependency?: number | null;
   sessionMode?: "flexible" | "exam";
   exactSessionMinutes?: number | null;
   estHours: number;
@@ -115,29 +118,38 @@ function buildPastPaperReviewSessions(options: {
   unitIdPrefix: string;
   unitTitle: string;
   titlePrefix: string;
-  durationMinutes: number;
+  papers: Array<{
+    idSuffix: string;
+    label: string;
+    reviewDurationMinutes: number;
+  }>;
   sourceLabel: string;
 }): SeedTopicBlueprint[] {
-  return postSyllabusPaperWeeks.map((cycle, index) => ({
-    id: `${options.unitIdPrefix}-week-${index + 1}-review`,
-    subjectId: options.subjectId,
-    unitId: `${options.unitIdPrefix}-week-${index + 1}`,
-    unitTitle: `${options.unitTitle} - ${cycle.label}`,
-    title: `${options.titlePrefix} ${cycle.label} - Past paper review`,
-    subtopics: [
-      "Review the most recent paper attempt carefully.",
-      "Classify mistakes by concept, speed, and execution.",
-      "Rewrite one or two high-value corrections from scratch.",
-    ],
-    availableFrom: postSyllabusPaperWeeks[index + 1]?.availableFrom ?? cycle.availableFrom,
-    estHours: options.durationMinutes / 60,
-    difficulty: 3 as const,
-    preferredBlockTypes: ["review", "standard_focus"] as BlockType[],
-    sourceMaterials: [
-      notes("Paper-review protocol", "Re-mark the paper, annotate the error log, and write a short correction summary."),
-      pastPaper(options.sourceLabel, `${cycle.label} review and correction session.`),
-    ],
-  }));
+  return postSyllabusPaperWeeks.flatMap((cycle, index) =>
+    options.papers.map((paper) => ({
+      id: `${options.unitIdPrefix}-week-${index + 1}-${paper.idSuffix}-review`,
+      subjectId: options.subjectId,
+      unitId: `${options.unitIdPrefix}-week-${index + 1}`,
+      unitTitle: `${options.unitTitle} - ${cycle.label}`,
+      title: `${options.titlePrefix} ${cycle.label} - ${paper.label} review`,
+      subtopics: [
+        `Review the ${paper.label} attempt carefully.`,
+        "Classify mistakes by concept, speed, and execution.",
+        "Rewrite one or two high-value corrections from scratch.",
+      ],
+      availableFrom: cycle.availableFrom,
+      dependsOnTopicId: `${options.unitIdPrefix}-week-${index + 1}-${paper.idSuffix}`,
+      minDaysAfterDependency: 1,
+      maxDaysAfterDependency: 2,
+      estHours: paper.reviewDurationMinutes / 60,
+      difficulty: 3 as const,
+      preferredBlockTypes: ["review", "standard_focus"] as BlockType[],
+      sourceMaterials: [
+        notes("Paper-review protocol", "Re-mark the paper, annotate the error log, and write a short correction summary."),
+        pastPaper(options.sourceLabel, `${cycle.label} ${paper.label} review and correction session.`),
+      ],
+    })),
+  );
 }
 
 function buildOlympiadGoldPhaseBlueprints(): SeedTopicBlueprint[] {
@@ -1374,7 +1386,10 @@ const physicsPaperReviewBlueprints: SeedTopicBlueprint[] = buildPastPaperReviewS
   unitIdPrefix: "physics-past-papers",
   unitTitle: "Physics HL - Past Paper Cycles",
   titlePrefix: "Physics HL",
-  durationMinutes: 75,
+  papers: [
+    { idSuffix: "paper-1ab", label: "Paper 1A + 1B", reviewDurationMinutes: 60 },
+    { idSuffix: "paper-2", label: "Paper 2", reviewDurationMinutes: 75 },
+  ],
   sourceLabel: "Physics HL past paper review",
 });
 
@@ -1395,7 +1410,11 @@ const mathsPaperReviewBlueprints: SeedTopicBlueprint[] = buildPastPaperReviewSes
   unitIdPrefix: "maths-aa-past-papers",
   unitTitle: "Maths AA HL - Past Paper Cycles",
   titlePrefix: "Maths AA HL",
-  durationMinutes: 90,
+  papers: [
+    { idSuffix: "paper-1", label: "Paper 1", reviewDurationMinutes: 60 },
+    { idSuffix: "paper-2", label: "Paper 2", reviewDurationMinutes: 60 },
+    { idSuffix: "paper-3", label: "Paper 3", reviewDurationMinutes: 45 },
+  ],
   sourceLabel: "Maths AA HL past paper review",
 });
 
@@ -1415,7 +1434,10 @@ const chemistryPaperReviewBlueprints: SeedTopicBlueprint[] = buildPastPaperRevie
   unitIdPrefix: "chemistry-past-papers",
   unitTitle: "Chemistry HL - Past Paper Cycles",
   titlePrefix: "Chemistry HL",
-  durationMinutes: 75,
+  papers: [
+    { idSuffix: "paper-1ab", label: "Paper 1A + 1B", reviewDurationMinutes: 60 },
+    { idSuffix: "paper-2", label: "Paper 2", reviewDurationMinutes: 75 },
+  ],
   sourceLabel: "Chemistry HL past paper review",
 });
 

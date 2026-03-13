@@ -420,6 +420,11 @@ export function PlannerCalendar({
               </div>
               <div className="min-h-0 space-y-1 overflow-hidden">
                 <p className="calendar-event-title font-medium text-foreground">{block.title}</p>
+                {block.sessionSummary ? (
+                  <p className="calendar-event-description text-[11px] text-foreground/78">
+                    {block.sessionSummary}
+                  </p>
+                ) : null}
                 <p className="calendar-event-time text-xs text-muted-foreground">
                   {format(new Date(block.start), "HH:mm")} - {format(new Date(block.end), "HH:mm")}
                 </p>

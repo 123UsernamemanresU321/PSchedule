@@ -43,6 +43,7 @@ function buildRecoveryBlock(slot: CalendarSlot, weekStart: string): StudyBlock {
     subjectId: null,
     topicId: null,
     title: "Recovery / buffer",
+    sessionSummary: "Step away, reset mentally, and come back fresh for the next serious session.",
     unitTitle: null,
     blockType: "recovery",
     intensity: "light",
@@ -309,6 +310,7 @@ function createStudyBlockFromTask(options: {
     subjectId: options.task.subjectId,
     topicId: options.task.topicId,
     title: options.task.title,
+    sessionSummary: options.task.sessionSummary,
     unitTitle: options.task.unitTitle,
     blockType: options.blockType,
     intensity: options.intensity,
@@ -570,6 +572,8 @@ function allocateTasksToSlots(options: {
 
       const scoredOptions = workingTasks
         .filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES)
+        .filter((task) => !task.availableAt || new Date(task.availableAt) <= slotSlice.start)
+        .filter((task) => !task.latestAt || new Date(task.latestAt) >= slotSlice.start)
         .filter((task) => !hasReachedWeeklyTarget(task))
         .map((task) => {
           const blockOption = selectBlockOption(
