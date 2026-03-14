@@ -1,7 +1,14 @@
 import { isWithinInterval } from "date-fns";
 
 import { fromDateKey } from "@/lib/dates/helpers";
-import type { Preferences, TimeWindow } from "@/lib/types/planner";
+import type {
+  BlockType,
+  Preferences,
+  SickDay,
+  SickDayEffectProfile,
+  SickDaySeverity,
+  TimeWindow,
+} from "@/lib/types/planner";
 
 export type ScheduleRegime = "school-term" | "holiday" | "default";
 
@@ -14,7 +21,11 @@ export interface DailyScheduleProfile {
   };
   preferredDeepWorkWindows: TimeWindow[];
   maxStudyHoursPerDay: number;
+  maxHeavySessionsPerDay: number;
+  allowedBlockTypes: BlockType[] | null;
   reservedCommitmentMinutes: number;
+  sickDaySeverity: SickDaySeverity | null;
+  sickDayDescription: string | null;
 }
 
 function timeStringToMinutes(value: string) {
@@ -59,7 +70,12 @@ export function isDateInActiveSchoolTerm(day: Date, preferences: Preferences) {
   });
 }
 
-function getReservedCommitmentMinutes(day: Date, preferences: Preferences, inSchoolTerm: boolean) {
+function getReservedCommitmentMinutes(
+  day: Date,
+  preferences: Preferences,
+  inSchoolTerm: boolean,
+  sickDayEffect: SickDayEffectProfile | null,
+) {
   return preferences.reservedCommitmentRules.reduce((total, rule) => {
     if (!rule.days.includes(day.getDay())) {
       return total;
@@ -74,23 +90,105 @@ function getReservedCommitmentMinutes(day: Date, preferences: Preferences, inSch
       return total;
     }
 
+    if (rule.id === "piano-practice" && sickDayEffect) {
+      return total + (sickDayEffect.pianoMinutesOverride ?? 0);
+    }
+
     return total + rule.durationMinutes;
   }, 0);
 }
 
-export function resolveDailyScheduleProfile(day: Date, preferences: Preferences): DailyScheduleProfile {
+const SICK_DAY_SEVERITY_ORDER: SickDaySeverity[] = ["light", "moderate", "severe"];
+
+export function getSickDayEffectProfile(severity: SickDaySeverity): SickDayEffectProfile {
+  switch (severity) {
+    case "light":
+      return {
+        severity,
+        studyCapacityMultiplier: 0.7,
+        maxHeavySessionsPerDay: 1,
+        pianoMinutesOverride: 30,
+        label: "Light sick day",
+        description: "Mild cold. Keep work lighter than normal and avoid stacking intense sessions.",
+      };
+    case "moderate":
+      return {
+        severity,
+        studyCapacityMultiplier: 0.45,
+        maxHeavySessionsPerDay: 0,
+        allowedBlockTypes: ["standard_focus", "drill", "review", "recovery"],
+        pianoMinutesOverride: 0,
+        label: "Moderate sick day",
+        description: "Tired or foggy. Only essential work, no deep work, and no piano practice.",
+      };
+    case "severe":
+      return {
+        severity,
+        studyCapacityMultiplier: 0.2,
+        maxHeavySessionsPerDay: 0,
+        allowedBlockTypes: ["drill", "review", "recovery"],
+        pianoMinutesOverride: 0,
+        label: "Severe sick day",
+        description: "Recovery-first day. Only minimal light maintenance if unavoidable.",
+      };
+    default:
+      return {
+        severity: "light",
+        studyCapacityMultiplier: 0.7,
+        maxHeavySessionsPerDay: 1,
+        pianoMinutesOverride: 30,
+        label: "Light sick day",
+        description: "Mild cold. Keep work lighter than normal and avoid stacking intense sessions.",
+      };
+  }
+}
+
+export function getActiveSickDaySeverity(day: Date, sickDays: SickDay[]) {
+  const dayKey = [
+    day.getFullYear(),
+    String(day.getMonth() + 1).padStart(2, "0"),
+    String(day.getDate()).padStart(2, "0"),
+  ].join("-");
+
+  const activeSeverities = sickDays
+    .filter((sickDay) => dayKey >= sickDay.startDate && dayKey <= sickDay.endDate)
+    .map((sickDay) => sickDay.severity)
+    .sort(
+      (left, right) =>
+        SICK_DAY_SEVERITY_ORDER.indexOf(right) - SICK_DAY_SEVERITY_ORDER.indexOf(left),
+    );
+
+  return activeSeverities[0] ?? null;
+}
+
+export function resolveDailyScheduleProfile(
+  day: Date,
+  preferences: Preferences,
+  sickDays: SickDay[] = [],
+): DailyScheduleProfile {
   const inSchoolTerm = isDateInActiveSchoolTerm(day, preferences);
   const isSunday = day.getDay() === 0;
   const isSaturday = day.getDay() === 6;
   const isWeekend = isSaturday || isSunday;
   const defaultRegime: ScheduleRegime = inSchoolTerm ? "school-term" : "default";
-  const reservedCommitmentMinutes = getReservedCommitmentMinutes(day, preferences, inSchoolTerm);
+  const sickDaySeverity = getActiveSickDaySeverity(day, sickDays);
+  const sickDayEffect = sickDaySeverity ? getSickDayEffectProfile(sickDaySeverity) : null;
+  const reservedCommitmentMinutes = getReservedCommitmentMinutes(
+    day,
+    preferences,
+    inSchoolTerm,
+    sickDayEffect,
+  );
   const holidayLikeProfile = {
     regime: "holiday" as const,
     dailyStudyWindow: preferences.holidaySchedule.dailyStudyWindow,
     preferredDeepWorkWindows: preferences.holidaySchedule.preferredDeepWorkWindows,
     maxStudyHoursPerDay: getWindowDurationHours(preferences.holidaySchedule.dailyStudyWindow),
+    maxHeavySessionsPerDay: preferences.maxHeavySessionsPerDay,
+    allowedBlockTypes: null,
     reservedCommitmentMinutes,
+    sickDaySeverity,
+    sickDayDescription: sickDayEffect?.description ?? null,
   };
 
   const baseProfile =
@@ -102,12 +200,30 @@ export function resolveDailyScheduleProfile(day: Date, preferences: Preferences)
           dailyStudyWindow: preferences.dailyStudyWindow,
           preferredDeepWorkWindows: preferences.preferredDeepWorkWindows,
           maxStudyHoursPerDay: preferences.maxStudyHoursPerDay,
+          maxHeavySessionsPerDay: preferences.maxHeavySessionsPerDay,
+          allowedBlockTypes: null,
           reservedCommitmentMinutes,
+          sickDaySeverity,
+          sickDayDescription: sickDayEffect?.description ?? null,
         };
+
+  const sickAdjustedProfile = sickDayEffect
+    ? {
+        ...baseProfile,
+        maxStudyHoursPerDay: Math.round(
+          baseProfile.maxStudyHoursPerDay * sickDayEffect.studyCapacityMultiplier * 10,
+        ) / 10,
+        maxHeavySessionsPerDay: Math.min(
+          baseProfile.maxHeavySessionsPerDay,
+          sickDayEffect.maxHeavySessionsPerDay,
+        ),
+        allowedBlockTypes: sickDayEffect.allowedBlockTypes ?? null,
+      }
+    : baseProfile;
 
   if (isSunday && !preferences.sundayStudy.enabled) {
     return {
-      ...baseProfile,
+      ...sickAdjustedProfile,
       isStudyEnabled: false,
       maxStudyHoursPerDay: 0,
     };
@@ -115,18 +231,18 @@ export function resolveDailyScheduleProfile(day: Date, preferences: Preferences)
 
   if (isSunday) {
     return {
-      ...baseProfile,
+      ...sickAdjustedProfile,
       isStudyEnabled: true,
       maxStudyHoursPerDay: Math.max(
         0,
-        Math.round(baseProfile.maxStudyHoursPerDay * preferences.sundayStudy.workloadIntensity * 10) /
+        Math.round(sickAdjustedProfile.maxStudyHoursPerDay * preferences.sundayStudy.workloadIntensity * 10) /
           10,
       ),
     };
   }
 
   return {
-    ...baseProfile,
+    ...sickAdjustedProfile,
     isStudyEnabled: true,
   };
 }

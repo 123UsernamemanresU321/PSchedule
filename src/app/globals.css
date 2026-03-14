@@ -161,6 +161,18 @@ select {
   padding: 0.45rem 0.25rem 0.25rem;
 }
 
+.fc .planner-sick-day-light {
+  background: linear-gradient(180deg, rgba(125, 211, 252, 0.07), rgba(125, 211, 252, 0.02));
+}
+
+.fc .planner-sick-day-moderate {
+  background: linear-gradient(180deg, rgba(251, 191, 36, 0.08), rgba(251, 191, 36, 0.025));
+}
+
+.fc .planner-sick-day-severe {
+  background: linear-gradient(180deg, rgba(251, 113, 133, 0.09), rgba(251, 113, 133, 0.03));
+}
+
 .fc .fc-daygrid-event,
 .fc .fc-timegrid-allday-event {
   border: none;

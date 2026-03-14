@@ -19,12 +19,13 @@ import type {
   PlannerExportPayload,
   Preferences,
   SeedDataset,
+  SickDay,
   StudyBlock,
   SubjectId,
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-13-trust-fixes-v17";
+const PLANNING_MODEL_VERSION = "2026-03-14-sick-days-v18";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-12-april-camp-roadmap-v1";
@@ -110,6 +111,18 @@ function normalizeFixedEvent(event: PlannerExportPayload["fixedEvents"][number])
       ? Array.from(new Set(event.excludedDates)).sort((left, right) => left.localeCompare(right))
       : undefined,
   };
+}
+
+function normalizeSickDay(sickDay: SickDay) {
+  const [startDate, endDate] = [sickDay.startDate, sickDay.endDate].sort((left, right) =>
+    left.localeCompare(right),
+  );
+
+  return {
+    ...sickDay,
+    startDate,
+    endDate,
+  } satisfies SickDay;
 }
 
 function normalizePreferences(preferences: Preferences): Preferences {
@@ -215,6 +228,7 @@ export interface PlannerSnapshot {
   subjects: PlannerExportPayload["subjects"];
   topics: PlannerExportPayload["topics"];
   fixedEvents: PlannerExportPayload["fixedEvents"];
+  sickDays: PlannerExportPayload["sickDays"];
   studyBlocks: PlannerExportPayload["studyBlocks"];
   completionLogs: PlannerExportPayload["completionLogs"];
   weeklyPlans: PlannerExportPayload["weeklyPlans"];
@@ -242,6 +256,7 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
     subjects: snapshot.subjects,
     topics: snapshot.topics,
     fixedEvents: snapshot.fixedEvents,
+    sickDays: snapshot.sickDays,
     preferences: snapshot.preferences,
     existingStudyBlocks: snapshot.studyBlocks,
   });
@@ -258,6 +273,7 @@ async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Da
     subjects: snapshot.subjects,
     topics: snapshot.topics,
     fixedEvents: snapshot.fixedEvents,
+    sickDays: snapshot.sickDays,
     preferences: snapshot.preferences,
     existingStudyBlocks: snapshot.studyBlocks,
   });
@@ -496,12 +512,16 @@ async function syncExtendedGoalSubjects(snapshot: PlannerSnapshot, referenceDate
 async function writeSeedDataset(seed: SeedDataset) {
   await db.transaction(
     "rw",
-    [db.goals, db.subjects, db.topics, db.fixedEvents, db.preferences, db.meta],
+    [db.goals, db.subjects, db.topics, db.fixedEvents, db.sickDays, db.preferences, db.meta],
     async () => {
       await db.goals.bulkPut(seed.goals);
       await db.subjects.bulkPut(seed.subjects);
       await db.topics.bulkPut(seed.topics);
       await db.fixedEvents.bulkPut(seed.fixedEvents);
+      await db.sickDays.clear();
+      if (seed.sickDays.length) {
+        await db.sickDays.bulkPut(seed.sickDays.map(normalizeSickDay));
+      }
       await db.preferences.put(seed.preferences);
       await db.meta.put({ key: "seeded", value: "true" });
       await db.meta.put({ key: "planning-model-version", value: PLANNING_MODEL_VERSION });
@@ -512,12 +532,13 @@ async function writeSeedDataset(seed: SeedDataset) {
 }
 
 export async function loadPlannerSnapshot(): Promise<PlannerSnapshot> {
-  const [goals, subjects, topics, fixedEvents, studyBlocks, completionLogs, weeklyPlans, preferences] =
+  const [goals, subjects, topics, fixedEvents, sickDays, studyBlocks, completionLogs, weeklyPlans, preferences] =
     await Promise.all([
       db.goals.toArray(),
       db.subjects.toArray(),
       db.topics.toArray(),
       db.fixedEvents.toArray(),
+      db.sickDays.toArray(),
       db.studyBlocks.toArray(),
       db.completionLogs.toArray(),
       db.weeklyPlans.toArray(),
@@ -533,6 +554,7 @@ export async function loadPlannerSnapshot(): Promise<PlannerSnapshot> {
     subjects,
     topics,
     fixedEvents: fixedEvents.map(normalizeFixedEvent),
+    sickDays: sickDays.map(normalizeSickDay),
     studyBlocks,
     completionLogs,
     weeklyPlans: weeklyPlans.map((weeklyPlan) => normalizeWeeklyPlan(weeklyPlan, new Date())),
@@ -552,6 +574,7 @@ export async function initializePlannerDatabase(referenceDate = new Date()) {
       subjects: seedDataset.subjects,
       topics: seedDataset.topics,
       fixedEvents: seedDataset.fixedEvents,
+      sickDays: [],
       preferences: seedDataset.preferences,
     });
 
@@ -628,6 +651,14 @@ export async function saveFixedEvent(event: PlannerSnapshot["fixedEvents"][numbe
   await db.fixedEvents.put(normalizeFixedEvent(event));
 }
 
+export async function saveSickDay(sickDay: SickDay) {
+  await db.sickDays.put(normalizeSickDay(sickDay));
+}
+
+export async function deleteSickDayById(id: string) {
+  await db.sickDays.delete(id);
+}
+
 export async function deleteFixedEventById(id: string) {
   await db.fixedEvents.delete(id);
 }
@@ -691,6 +722,7 @@ export async function importPlannerData(rawJson: string) {
       db.subjects,
       db.topics,
       db.fixedEvents,
+      db.sickDays,
       db.studyBlocks,
       db.completionLogs,
       db.weeklyPlans,
@@ -703,6 +735,7 @@ export async function importPlannerData(rawJson: string) {
         db.subjects.clear(),
         db.topics.clear(),
         db.fixedEvents.clear(),
+        db.sickDays.clear(),
         db.studyBlocks.clear(),
         db.completionLogs.clear(),
         db.weeklyPlans.clear(),
@@ -713,11 +746,13 @@ export async function importPlannerData(rawJson: string) {
       await db.subjects.bulkPut(payload.subjects);
       await db.topics.bulkPut(payload.topics);
       await db.fixedEvents.bulkPut(payload.fixedEvents.map(normalizeFixedEvent));
+      await db.sickDays.bulkPut((payload.sickDays ?? []).map(normalizeSickDay));
       await db.studyBlocks.bulkPut(payload.studyBlocks);
       await db.completionLogs.bulkPut(payload.completionLogs);
       await db.weeklyPlans.bulkPut(payload.weeklyPlans);
       await db.preferences.put(normalizePreferences(payload.preferences));
       await db.meta.put({ key: "seeded", value: "true" });
+      await db.meta.put({ key: "planning-model-version", value: PLANNING_MODEL_VERSION });
     },
   );
 

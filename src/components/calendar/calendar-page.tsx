@@ -21,6 +21,7 @@ import { usePlannerStore } from "@/lib/store/planner-store";
 export function CalendarPage() {
   const currentWeekStart = usePlannerStore((state) => state.currentWeekStart);
   const fixedEvents = usePlannerStore((state) => state.fixedEvents);
+  const sickDays = usePlannerStore((state) => state.sickDays);
   const preferences = usePlannerStore((state) => state.preferences);
   const studyBlocks = usePlannerStore((state) => state.studyBlocks);
   const topics = usePlannerStore((state) => state.topics);
@@ -145,6 +146,7 @@ export function CalendarPage() {
         <PlannerCalendar
           weekStart={currentWeekStart}
           fixedEvents={fixedEvents}
+          sickDays={sickDays}
           preferences={preferences}
           studyBlocks={studyBlocks}
           subjects={subjects}

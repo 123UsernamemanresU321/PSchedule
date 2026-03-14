@@ -23,6 +23,7 @@ export type BlockIntensity = (typeof blockIntensityValues)[number];
 export type EnergyLevel = (typeof energyLevelValues)[number];
 export type RiskFlag = (typeof riskFlagValues)[number];
 export type ResourceType = (typeof resourceTypeValues)[number];
+export type SickDaySeverity = "light" | "moderate" | "severe";
 export type SubjectCategory =
   | "physics"
   | "maths"
@@ -101,6 +102,14 @@ export interface FixedEvent {
   excludedDates?: string[];
   flexibility: FixedEventFlexibility;
   category: FixedEventCategory;
+  notes?: string;
+}
+
+export interface SickDay {
+  id: string;
+  startDate: string;
+  endDate: string;
+  severity: SickDaySeverity;
   notes?: string;
 }
 
@@ -219,6 +228,16 @@ export interface HolidaySchedule {
   maxStudyHoursPerDay: number | null;
 }
 
+export interface SickDayEffectProfile {
+  severity: SickDaySeverity;
+  studyCapacityMultiplier: number;
+  maxHeavySessionsPerDay: number;
+  allowedBlockTypes?: BlockType[];
+  pianoMinutesOverride: number | null;
+  label: string;
+  description: string;
+}
+
 export interface SundayStudySettings {
   enabled: boolean;
   workloadIntensity: number;
@@ -255,6 +274,7 @@ export interface PlannerExportPayload {
   subjects: Subject[];
   topics: Topic[];
   fixedEvents: FixedEvent[];
+  sickDays: SickDay[];
   studyBlocks: StudyBlock[];
   completionLogs: CompletionLog[];
   weeklyPlans: WeeklyPlan[];
@@ -276,6 +296,9 @@ export interface CalendarSlot {
   dayIndex: number;
   scheduleRegime: "school-term" | "holiday" | "default";
   dayStudyCapMinutes: number;
+  maxHeavySessionsPerDay: number;
+  sickDaySeverity: SickDaySeverity | null;
+  sickDayDescription: string | null;
 }
 
 export interface TaskCandidate {
@@ -316,6 +339,7 @@ export interface SeedDataset {
   subjects: Subject[];
   topics: Topic[];
   fixedEvents: FixedEvent[];
+  sickDays: SickDay[];
   preferences: Preferences;
 }
 

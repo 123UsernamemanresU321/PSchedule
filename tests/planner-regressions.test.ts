@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 
 import { buildSeedDataset } from "@/lib/seed";
 import { getCalendarCompletionForecast } from "@/lib/analytics/metrics";
+import { expandReservedCommitmentWindowsForWeek } from "@/lib/scheduler/free-slots";
 import { generateStudyPlanHorizon, shouldPreserveStudyBlockOnRegeneration } from "@/lib/scheduler/generator";
+import { getActiveSickDaySeverity, resolveDailyScheduleProfile } from "@/lib/scheduler/schedule-regime";
 import { buildTaskCandidates } from "@/lib/scheduler/task-candidates";
 import { validateGeneratedHorizon } from "@/lib/scheduler/validation";
 import type { StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
@@ -242,5 +244,172 @@ test("generated horizon passes core validation checks for a short seeded window"
     errorIssues,
     [],
     `expected no blocking validation issues, got: ${errorIssues.map((issue) => issue.message).join(" | ")}`,
+  );
+});
+
+test("overlapping sick-day ranges resolve to the highest active severity", () => {
+  const severity = getActiveSickDaySeverity(new Date("2026-03-18T10:00:00"), [
+    {
+      id: "light-range",
+      startDate: "2026-03-17",
+      endDate: "2026-03-20",
+      severity: "light",
+    },
+    {
+      id: "severe-range",
+      startDate: "2026-03-18",
+      endDate: "2026-03-18",
+      severity: "severe",
+    },
+  ]);
+
+  assert.equal(severity, "severe");
+});
+
+test("sick-day severity lightens capacity and keeps homework while reducing piano", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-16T08:00:00"));
+  const preferences = {
+    ...dataset.preferences,
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: true,
+      weekdays: [1, 2, 3, 4, 5],
+      terms: [
+        {
+          id: "term-1",
+          label: "Term 1",
+          startDate: "2026-03-01",
+          endDate: "2026-03-31",
+        },
+      ],
+    },
+  };
+
+  const lightProfile = resolveDailyScheduleProfile(
+    new Date("2026-03-17T10:00:00"),
+    preferences,
+    [],
+  );
+  const reducedLightProfile = resolveDailyScheduleProfile(
+    new Date("2026-03-17T10:00:00"),
+    preferences,
+    [
+      {
+        id: "light",
+        startDate: "2026-03-17",
+        endDate: "2026-03-17",
+        severity: "light",
+      },
+    ],
+  );
+
+  assert.equal(reducedLightProfile.maxHeavySessionsPerDay, 1);
+  assert.ok(reducedLightProfile.maxStudyHoursPerDay < lightProfile.maxStudyHoursPerDay);
+
+  const lightCommitments = expandReservedCommitmentWindowsForWeek(
+    new Date("2026-03-16T00:00:00"),
+    preferences,
+    [],
+    [
+      {
+        id: "light",
+        startDate: "2026-03-17",
+        endDate: "2026-03-17",
+        severity: "light",
+      },
+    ],
+  ).filter((window) => window.start.startsWith("2026-03-17"));
+
+  const pianoCommitment = lightCommitments.find((window) => window.label === "Piano");
+  const homeworkCommitment = lightCommitments.find((window) => window.label === "Homework");
+
+  assert.ok(pianoCommitment);
+  assert.equal(
+    Math.round(
+      (new Date(pianoCommitment!.end).getTime() - new Date(pianoCommitment!.start).getTime()) /
+        60000,
+    ),
+    30,
+  );
+  assert.ok(homeworkCommitment);
+  assert.equal(
+    Math.round(
+      (new Date(homeworkCommitment!.end).getTime() - new Date(homeworkCommitment!.start).getTime()) /
+        60000,
+    ),
+    90,
+  );
+});
+
+test("moderate and severe sick days remove piano and restrict heavier study modes", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-16T08:00:00"));
+  const preferences = {
+    ...dataset.preferences,
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: true,
+      weekdays: [1, 2, 3, 4, 5],
+      terms: [
+        {
+          id: "term-1",
+          label: "Term 1",
+          startDate: "2026-03-01",
+          endDate: "2026-03-31",
+        },
+      ],
+    },
+  };
+
+  const moderateProfile = resolveDailyScheduleProfile(
+    new Date("2026-03-18T10:00:00"),
+    preferences,
+    [
+      {
+        id: "moderate",
+        startDate: "2026-03-18",
+        endDate: "2026-03-18",
+        severity: "moderate",
+      },
+    ],
+  );
+  const severeProfile = resolveDailyScheduleProfile(
+    new Date("2026-03-19T10:00:00"),
+    preferences,
+    [
+      {
+        id: "severe",
+        startDate: "2026-03-19",
+        endDate: "2026-03-19",
+        severity: "severe",
+      },
+    ],
+  );
+
+  assert.equal(moderateProfile.maxHeavySessionsPerDay, 0);
+  assert.deepEqual(moderateProfile.allowedBlockTypes, ["standard_focus", "drill", "review", "recovery"]);
+  assert.equal(severeProfile.maxHeavySessionsPerDay, 0);
+  assert.deepEqual(severeProfile.allowedBlockTypes, ["drill", "review", "recovery"]);
+
+  const moderateCommitments = expandReservedCommitmentWindowsForWeek(
+    new Date("2026-03-16T00:00:00"),
+    preferences,
+    [],
+    [
+      {
+        id: "moderate",
+        startDate: "2026-03-18",
+        endDate: "2026-03-18",
+        severity: "moderate",
+      },
+    ],
+  ).filter((window) => window.start.startsWith("2026-03-18"));
+
+  assert.equal(
+    moderateCommitments.some((window) => window.label === "Piano"),
+    false,
+  );
+  assert.equal(
+    moderateCommitments.some((window) => window.label === "Homework"),
+    true,
   );
 });

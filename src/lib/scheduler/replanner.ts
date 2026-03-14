@@ -6,6 +6,7 @@ import type {
   Goal,
   Preferences,
   SchedulerResult,
+  SickDay,
   StudyBlock,
   Subject,
   Topic,
@@ -39,6 +40,7 @@ export function replanStudyPlan(options: {
   subjects: Subject[];
   topics: Topic[];
   fixedEvents: FixedEvent[];
+  sickDays?: SickDay[];
   studyBlocks: StudyBlock[];
   preferences: Preferences;
 }): SchedulerResult {
@@ -93,6 +95,7 @@ export function replanStudyPlan(options: {
       subjects: options.subjects,
       topics: options.topics,
       fixedEvents: options.fixedEvents,
+      sickDays: options.sickDays,
       preferences: options.preferences,
       lockedBlocks,
       dailyCapBoostMinutes: scenario.dailyCapBoostMinutes,
@@ -109,6 +112,7 @@ export function replanStudyPlan(options: {
     subjects: options.subjects,
     topics: options.topics,
     fixedEvents: options.fixedEvents,
+    sickDays: options.sickDays,
     preferences: options.preferences,
     lockedBlocks: preservedBlocks,
     dailyCapBoostMinutes: 45,

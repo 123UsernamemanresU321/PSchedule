@@ -84,6 +84,14 @@ export const fixedEventSchema = z.object({
   notes: z.string().optional(),
 });
 
+export const sickDaySchema = z.object({
+  id: z.string(),
+  startDate: z.string(),
+  endDate: z.string(),
+  severity: z.enum(["light", "moderate", "severe"]),
+  notes: z.string().optional(),
+});
+
 export const scoreBreakdownSchema = z.object({
   priorityWeight: z.number(),
   deadlineUrgency: z.number(),
@@ -287,6 +295,7 @@ export const plannerExportSchema = z.object({
   subjects: z.array(subjectSchema),
   topics: z.array(topicSchema),
   fixedEvents: z.array(fixedEventSchema),
+  sickDays: z.array(sickDaySchema).optional().default([]),
   studyBlocks: z.array(studyBlockSchema),
   completionLogs: z.array(completionLogSchema),
   weeklyPlans: z.array(weeklyPlanSchema),

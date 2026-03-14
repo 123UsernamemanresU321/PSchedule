@@ -10,9 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { toDateKey } from "@/lib/dates/helpers";
 import { createExportFilename } from "@/lib/storage/json-transfer";
 import { usePlannerStore } from "@/lib/store/planner-store";
-import type { Preferences } from "@/lib/types/planner";
+import type { Preferences, SickDay } from "@/lib/types/planner";
 import { createId } from "@/lib/utils";
 
 const weekdayOptions = [
@@ -25,22 +26,47 @@ const weekdayOptions = [
   { value: 0, label: "Sun" },
 ] as const;
 
+const sickDaySeverityDescriptions: Record<
+  SickDay["severity"],
+  { label: string; description: string }
+> = {
+  light: {
+    label: "Light",
+    description: "Mild cold. The planner keeps the day lighter than normal and limits intense sessions.",
+  },
+  moderate: {
+    label: "Moderate",
+    description: "Tired or foggy. Essential work only, no deep work, and no piano practice.",
+  },
+  severe: {
+    label: "Severe",
+    description: "Recovery-first. Only minimal light maintenance if unavoidable.",
+  },
+};
+
 export function SettingsPage() {
   const preferences = usePlannerStore((state) => state.preferences);
   const subjects = usePlannerStore((state) => state.subjects);
+  const sickDays = usePlannerStore((state) => state.sickDays);
+  const saveSickDay = usePlannerStore((state) => state.saveSickDay);
+  const deleteSickDay = usePlannerStore((state) => state.deleteSickDay);
   const updatePreferences = usePlannerStore((state) => state.updatePreferences);
   const exportToJson = usePlannerStore((state) => state.exportToJson);
   const importFromJson = usePlannerStore((state) => state.importFromJson);
   const [form, setForm] = useState<Preferences | null>(preferences);
+  const [sickDayDrafts, setSickDayDrafts] = useState<SickDay[]>(sickDays);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (preferences) {
       // Sync the editable settings form when IndexedDB state finishes bootstrapping.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setForm(preferences);
     }
   }, [preferences]);
+
+  useEffect(() => {
+    setSickDayDrafts(sickDays);
+  }, [sickDays]);
 
   if (!form) {
     return null;
@@ -77,6 +103,20 @@ export function SettingsPage() {
         terms: [...form.schoolSchedule.terms, ...nextTerms],
       },
     });
+  };
+
+  const appendSickDay = () => {
+    const today = toDateKey(new Date());
+    setSickDayDrafts((current) => [
+      ...current,
+      {
+        id: createId("sick"),
+        startDate: today,
+        endDate: today,
+        severity: "light",
+        notes: "",
+      },
+    ]);
   };
 
   return (
@@ -698,6 +738,160 @@ export function SettingsPage() {
                   </p>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex-row items-end justify-between gap-4">
+              <div>
+                <CardTitle>Sick days</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Mark single days or ranges when you are ill. Saving a sick day immediately lightens that date and regenerates the horizon.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={appendSickDay}
+                data-testid="settings-add-sick-day"
+              >
+                <Plus className="h-4 w-4" />
+                Add sick day
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {sickDayDrafts.length ? (
+                sickDayDrafts.map((sickDay) => {
+                  const saved = sickDays.some((candidate) => candidate.id === sickDay.id);
+                  const severityCopy = sickDaySeverityDescriptions[sickDay.severity];
+
+                  return (
+                    <div
+                      key={sickDay.id}
+                      className="rounded-sm border border-white/6 bg-white/4 p-4"
+                      data-testid="settings-sick-day-row"
+                    >
+                      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_180px]">
+                        <div className="space-y-2">
+                          <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">From</label>
+                          <Input
+                            type="date"
+                            value={sickDay.startDate}
+                            data-testid={`settings-sick-day-from-${sickDay.id}`}
+                            onChange={(event) =>
+                              setSickDayDrafts((current) =>
+                                current.map((candidate) =>
+                                  candidate.id === sickDay.id
+                                    ? { ...candidate, startDate: event.target.value }
+                                    : candidate,
+                                ),
+                              )
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">To</label>
+                          <Input
+                            type="date"
+                            value={sickDay.endDate}
+                            data-testid={`settings-sick-day-to-${sickDay.id}`}
+                            onChange={(event) =>
+                              setSickDayDrafts((current) =>
+                                current.map((candidate) =>
+                                  candidate.id === sickDay.id
+                                    ? { ...candidate, endDate: event.target.value }
+                                    : candidate,
+                                ),
+                              )
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Severity</label>
+                          <select
+                            value={sickDay.severity}
+                            data-testid={`settings-sick-day-severity-${sickDay.id}`}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                            onChange={(event) =>
+                              setSickDayDrafts((current) =>
+                                current.map((candidate) =>
+                                  candidate.id === sickDay.id
+                                    ? {
+                                        ...candidate,
+                                        severity: event.target.value as SickDay["severity"],
+                                      }
+                                    : candidate,
+                                ),
+                              )
+                            }
+                          >
+                            {Object.entries(sickDaySeverityDescriptions).map(([value, copy]) => (
+                              <option key={value} value={value}>
+                                {copy.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="mt-4 space-y-2">
+                        <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Notes (optional)</label>
+                        <Input
+                          value={sickDay.notes ?? ""}
+                          data-testid={`settings-sick-day-notes-${sickDay.id}`}
+                          placeholder="Cold, headache, fever, exhausted after travel..."
+                          onChange={(event) =>
+                            setSickDayDrafts((current) =>
+                              current.map((candidate) =>
+                                candidate.id === sickDay.id
+                                  ? { ...candidate, notes: event.target.value }
+                                  : candidate,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-sm text-muted-foreground">{severityCopy.description}</p>
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            data-testid={`settings-sick-day-delete-${sickDay.id}`}
+                            onClick={async () => {
+                              if (saved) {
+                                await deleteSickDay(sickDay.id);
+                              } else {
+                                setSickDayDrafts((current) =>
+                                  current.filter((candidate) => candidate.id !== sickDay.id),
+                                );
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Delete
+                          </Button>
+                          <Button
+                            type="button"
+                            data-testid={`settings-sick-day-save-${sickDay.id}`}
+                            onClick={() =>
+                              void saveSickDay({
+                                ...sickDay,
+                                notes: sickDay.notes?.trim() ? sickDay.notes.trim() : undefined,
+                              })
+                            }
+                          >
+                            {saved ? "Update sick day" : "Save sick day"}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="rounded-sm border border-dashed border-white/10 bg-white/3 px-4 py-5 text-sm text-muted-foreground">
+                  No sick days added yet.
+                </div>
+              )}
             </CardContent>
           </Card>
 

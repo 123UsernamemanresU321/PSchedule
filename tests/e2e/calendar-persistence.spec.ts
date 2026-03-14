@@ -131,4 +131,30 @@ test.describe("calendar recurrence and persistence", () => {
       page.locator('[data-testid="calendar-fixed-event"][data-event-title="Gym E2E Series"]'),
     ).toHaveCount(1);
   });
+
+  test("sick days persist and appear in the calendar all-day row", async ({ page }) => {
+    const today = formatDateOnly(new Date());
+
+    await page.goto("/settings");
+    await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+
+    await page.getByTestId("settings-add-sick-day").click();
+    const sickDayRow = page.getByTestId("settings-sick-day-row").last();
+    await sickDayRow.locator('[data-testid^="settings-sick-day-from-"]').fill(today);
+    await sickDayRow.locator('[data-testid^="settings-sick-day-to-"]').fill(today);
+    await sickDayRow.locator('[data-testid^="settings-sick-day-severity-"]').selectOption("moderate");
+    await sickDayRow.locator('[data-testid^="settings-sick-day-save-"]').click();
+
+    await page.goto("/calendar");
+    await expect(page.getByRole("heading", { name: "Calendar" })).toBeVisible();
+    await expect(
+      page.locator('[data-testid="calendar-sick-day"][data-event-title="Sick day · Moderate"]'),
+    ).toHaveCount(1);
+
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Calendar" })).toBeVisible();
+    await expect(
+      page.locator('[data-testid="calendar-sick-day"][data-event-title="Sick day · Moderate"]'),
+    ).toHaveCount(1);
+  });
 });

@@ -22,6 +22,7 @@ import { clamp, createId, recordFromKeys, sum } from "@/lib/utils";
 import type {
   CalendarSlot,
   Goal,
+  SickDay,
   Preferences,
   SchedulerResult,
   StudyBlock,
@@ -32,6 +33,17 @@ import type {
 } from "@/lib/types/planner";
 
 const MIN_ALLOCATABLE_MINUTES = 30;
+
+function getAllowedBlockTypesForSlot(slot: CalendarSlot) {
+  switch (slot.sickDaySeverity) {
+    case "moderate":
+      return new Set(["standard_focus", "drill", "review", "recovery"]);
+    case "severe":
+      return new Set(["drill", "review", "recovery"]);
+    default:
+      return null;
+  }
+}
 
 function buildRecoveryBlock(slot: CalendarSlot, weekStart: string): StudyBlock {
   return {
@@ -556,6 +568,7 @@ function allocateTasksToSlots(options: {
       const dailyBudget = slot.dayStudyCapMinutes + (options.dailyCapBoostMinutes ?? 0);
       const usedToday = dailyMinutes[slot.dateKey] ?? 0;
       const availableToday = dailyBudget - usedToday;
+      const slotHeavyLimit = Math.min(maxHeavySessionsPerDay, slot.maxHeavySessionsPerDay);
 
       if (availableToday < MIN_ALLOCATABLE_MINUTES) {
         break;
@@ -571,6 +584,7 @@ function allocateTasksToSlots(options: {
         end: addMinutes(cursor, Math.min(remainingSlotMinutes, availableToday)),
         durationMinutes: Math.min(remainingSlotMinutes, availableToday),
       };
+      const allowedBlockTypes = getAllowedBlockTypesForSlot(slotSlice);
 
       const scoredOptions = workingTasks
         .filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES)
@@ -588,6 +602,10 @@ function allocateTasksToSlots(options: {
             return null;
           }
 
+          if (allowedBlockTypes && !allowedBlockTypes.has(blockOption.blockType)) {
+            return null;
+          }
+
           if (task.sessionMode === "exam") {
             const lastExamBlock = getLastScheduledExamBlock(slot.dateKey);
             if (
@@ -600,7 +618,7 @@ function allocateTasksToSlots(options: {
 
           if (
             blockOption.intensity === "heavy" &&
-            (heavyBlocksPerDay[slot.dateKey] ?? 0) >= maxHeavySessionsPerDay
+            (heavyBlocksPerDay[slot.dateKey] ?? 0) >= slotHeavyLimit
           ) {
             return null;
           }
@@ -824,6 +842,7 @@ export function generateStudyPlanForWeek(options: {
   subjects: Subject[];
   topics: Topic[];
   fixedEvents: import("@/lib/types/planner").FixedEvent[];
+  sickDays?: SickDay[];
   preferences: Preferences;
   lockedBlocks?: StudyBlock[];
   existingPlannedBlocks?: StudyBlock[];
@@ -835,6 +854,7 @@ export function generateStudyPlanForWeek(options: {
   const horizonStartDate = options.horizonStartDate ?? getPlannerReferenceDate(startOfPlannerWeek(new Date()));
   const isPartialCurrentWeek = toDateKey(referenceDate) !== toDateKey(weekStart);
   const lockedBlocks = options.lockedBlocks ?? [];
+  const sickDays = options.sickDays ?? [];
   const weekStartKey = toDateKey(weekStart);
   const existingPlannedBlocks = options.existingPlannedBlocks ?? lockedBlocks;
   const deadlineTracks = computeSubjectDeadlineTracks({
@@ -888,6 +908,7 @@ export function generateStudyPlanForWeek(options: {
   const initialFreeSlots = calculateFreeSlots({
     weekStart,
     fixedEvents: options.fixedEvents,
+    sickDays,
     preferences: options.preferences,
     blockedStudyBlocks: lockedBlocks,
     planningStart: referenceDate,
@@ -895,6 +916,7 @@ export function generateStudyPlanForWeek(options: {
   const capacityFreeSlots = calculateFreeSlots({
     weekStart,
     fixedEvents: options.fixedEvents,
+    sickDays,
     preferences: options.preferences,
     blockedStudyBlocks: lockedBlocks,
     planningStart: referenceDate,
@@ -960,6 +982,7 @@ export function generateStudyPlanForWeek(options: {
     const freeSlots = calculateFreeSlots({
       weekStart,
       fixedEvents: options.fixedEvents,
+      sickDays,
       preferences: options.preferences,
       blockedStudyBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
       planningStart: referenceDate,
@@ -1004,6 +1027,7 @@ export function generateStudyPlanForWeek(options: {
   const finalFreeSlots = calculateFreeSlots({
     weekStart,
     fixedEvents: options.fixedEvents,
+    sickDays,
     preferences: options.preferences,
     blockedStudyBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
     planningStart: referenceDate,
@@ -1090,6 +1114,7 @@ export function generateStudyPlanHorizon(options: {
   subjects: Subject[];
   topics: Topic[];
   fixedEvents: import("@/lib/types/planner").FixedEvent[];
+  sickDays?: SickDay[];
   preferences: Preferences;
   existingStudyBlocks?: StudyBlock[];
   preservedStudyBlockIds?: string[];
@@ -1121,6 +1146,7 @@ export function generateStudyPlanHorizon(options: {
       subjects: options.subjects,
       topics: options.topics,
       fixedEvents: options.fixedEvents,
+      sickDays: options.sickDays,
       preferences: options.preferences,
       lockedBlocks,
       existingPlannedBlocks: [...accumulatedBlocks, ...lockedBlocks],

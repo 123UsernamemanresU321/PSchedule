@@ -2,6 +2,7 @@ import { addDays, addMinutes, differenceInCalendarDays, startOfDay } from "date-
 
 import { classifySlotEnergy } from "@/lib/scheduler/slot-classifier";
 import {
+  getActiveSickDaySeverity,
   isDateInActiveSchoolTerm,
   resolveDailyScheduleProfile,
 } from "@/lib/scheduler/schedule-regime";
@@ -16,6 +17,7 @@ import type {
   CalendarSlot,
   FixedEvent,
   Preferences,
+  SickDay,
   StudyBlock,
   TimeInterval,
 } from "@/lib/types/planner";
@@ -232,6 +234,7 @@ function shiftRecoveryInterval(options: {
   movable: boolean;
   busyIntervals: TimeInterval[];
   preferences: Preferences;
+  sickDays?: SickDay[];
 }) {
   if (!options.movable) {
     return options.interval;
@@ -239,7 +242,11 @@ function shiftRecoveryInterval(options: {
 
   const durationMinutes = minutesBetween(options.interval.start, options.interval.end);
   const mergedBusyIntervals = mergeIntervals(options.busyIntervals);
-  const scheduleProfile = resolveDailyScheduleProfile(options.day, options.preferences);
+  const scheduleProfile = resolveDailyScheduleProfile(
+    options.day,
+    options.preferences,
+    options.sickDays,
+  );
   const preferredWindowEnd = createDateAtTime(options.day, scheduleProfile.dailyStudyWindow.end);
   const absoluteLatestEnd = createDateAtTime(options.day, "23:00");
   let candidateStart = options.interval.start;
@@ -265,6 +272,7 @@ function resolveRecoveryWindowsForDay(options: {
   day: Date;
   fixedEvents: FixedEvent[];
   preferences: Preferences;
+  sickDays?: SickDay[];
   blockedStudyBlocks?: StudyBlock[];
   skipMovableRecovery?: boolean;
 }) {
@@ -294,6 +302,7 @@ function resolveRecoveryWindowsForDay(options: {
           ...resolvedIntervals,
         ],
         preferences: options.preferences,
+        sickDays: options.sickDays,
       });
 
       resolvedIntervals.push({
@@ -386,6 +395,7 @@ export function expandReservedCommitmentWindowsForWeek(
   weekStart: Date,
   preferences: Preferences,
   fixedEvents: FixedEvent[] = [],
+  sickDays: SickDay[] = [],
 ): ReservedCommitmentOccurrence[] {
   const expandedFixedEvents = expandPlannerFixedEventsForWeek(weekStart, fixedEvents, preferences);
 
@@ -396,6 +406,7 @@ export function expandReservedCommitmentWindowsForWeek(
       day,
       fixedEvents: expandedFixedEvents,
       preferences,
+      sickDays,
       blockedStudyBlocks: [],
       skipMovableRecovery: false,
     }).map((window) => createInterval(window.start, window.end));
@@ -415,6 +426,20 @@ export function expandReservedCommitmentWindowsForWeek(
         return [];
       }
 
+      const activeSickDaySeverity = getActiveSickDaySeverity(day, sickDays);
+      const durationMinutes =
+        rule.id === "piano-practice"
+          ? activeSickDaySeverity === "light"
+            ? 30
+            : activeSickDaySeverity === "moderate" || activeSickDaySeverity === "severe"
+              ? 0
+              : rule.durationMinutes
+          : rule.durationMinutes;
+
+      if (durationMinutes <= 0) {
+        return [];
+      }
+
       const start = resolveReservedCommitmentStart({
         day,
         preferences,
@@ -424,7 +449,7 @@ export function expandReservedCommitmentWindowsForWeek(
       const commitmentSegments = placeReservedCommitmentIntervals({
         day,
         start,
-        durationMinutes: rule.durationMinutes,
+        durationMinutes,
         busyIntervals: [...dayFixedEventIntervals, ...dayRecoveryIntervals, ...resolvedIntervals],
       });
 
@@ -449,6 +474,7 @@ export function expandLockedRecoveryWindowsForWeek(
   weekStart: Date,
   preferences: Preferences,
   fixedEvents: FixedEvent[] = [],
+  sickDays: SickDay[] = [],
   blockedStudyBlocks: StudyBlock[] = [],
   skipMovableRecovery = false,
 ): RecoveryWindowOccurrence[] {
@@ -459,6 +485,7 @@ export function expandLockedRecoveryWindowsForWeek(
       day,
       fixedEvents: expandedFixedEvents,
       preferences,
+      sickDays,
       blockedStudyBlocks,
       skipMovableRecovery,
     }).map((window) => ({
@@ -472,10 +499,10 @@ export function expandLockedRecoveryWindowsForWeek(
   );
 }
 
-function buildEventIntervals(day: Date, fixedEvents: FixedEvent[], preferences: Preferences) {
+function buildEventIntervals(day: Date, fixedEvents: FixedEvent[], preferences: Preferences, sickDays: SickDay[] = []) {
   const dayStart = startOfDay(day);
   const nextDay = addDays(dayStart, 1);
-  const scheduleProfile = resolveDailyScheduleProfile(day, preferences);
+  const scheduleProfile = resolveDailyScheduleProfile(day, preferences, sickDays);
   const plannerWindowStart = createDateAtTime(day, scheduleProfile.dailyStudyWindow.start);
   const plannerWindowEnd = createDateAtTime(day, scheduleProfile.dailyStudyWindow.end);
 
@@ -507,23 +534,27 @@ function buildEventIntervals(day: Date, fixedEvents: FixedEvent[], preferences: 
 export function calculateFreeSlots(options: {
   weekStart: Date;
   fixedEvents: FixedEvent[];
+  sickDays?: SickDay[];
   preferences: Preferences;
   blockedStudyBlocks?: StudyBlock[];
   planningStart?: Date;
   skipMovableRecovery?: boolean;
 }) {
   const { weekStart, preferences, planningStart } = options;
+  const sickDays = options.sickDays ?? [];
   const fixedEvents = expandPlannerFixedEventsForWeek(weekStart, options.fixedEvents, preferences);
   const reservedCommitments = expandReservedCommitmentWindowsForWeek(
     weekStart,
     preferences,
     options.fixedEvents,
+    sickDays,
   );
   const blockedStudyBlocks = options.blockedStudyBlocks ?? [];
   const recoveryWindows = expandLockedRecoveryWindowsForWeek(
     weekStart,
     preferences,
     options.fixedEvents,
+    sickDays,
     blockedStudyBlocks,
     options.skipMovableRecovery ?? false,
   );
@@ -531,7 +562,7 @@ export function calculateFreeSlots(options: {
   const slots: CalendarSlot[] = [];
 
   Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)).forEach((day) => {
-    const scheduleProfile = resolveDailyScheduleProfile(day, preferences);
+    const scheduleProfile = resolveDailyScheduleProfile(day, preferences, sickDays);
     if (!scheduleProfile.isStudyEnabled) {
       return;
     }
@@ -555,7 +586,7 @@ export function calculateFreeSlots(options: {
       ...reservedCommitments
         .filter((window) => toDateKey(new Date(window.start)) === toDateKey(day))
         .map((window) => createInterval(new Date(window.start), new Date(window.end))),
-      ...buildEventIntervals(day, fixedEvents, preferences),
+      ...buildEventIntervals(day, fixedEvents, preferences, sickDays),
       ...buildStudyBlockIntervals(day, blockedStudyBlocks),
     ]);
 
@@ -572,6 +603,9 @@ export function calculateFreeSlots(options: {
           dayIndex: day.getDay(),
           scheduleRegime: scheduleProfile.regime,
           dayStudyCapMinutes: scheduleProfile.maxStudyHoursPerDay * 60,
+          maxHeavySessionsPerDay: scheduleProfile.maxHeavySessionsPerDay,
+          sickDaySeverity: scheduleProfile.sickDaySeverity,
+          sickDayDescription: scheduleProfile.sickDayDescription,
         };
 
         slot.energy = classifySlotEnergy(slot, preferences);

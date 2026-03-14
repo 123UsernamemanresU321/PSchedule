@@ -6,6 +6,7 @@ import { fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers"
 import { generateStudyPlanHorizon } from "@/lib/scheduler/generator";
 import {
   deleteFixedEventById,
+  deleteSickDayById as deleteSickDayRecordById,
   excludeFixedEventOccurrence,
   exportPlannerData,
   getCurrentWeekKey,
@@ -16,6 +17,7 @@ import {
   saveCompletionLog,
   saveFixedEvent,
   savePreferences,
+  saveSickDay as persistSickDay,
   updateStudyBlock,
   updateTopic,
 } from "@/lib/storage/planner-repository";
@@ -24,6 +26,7 @@ import type {
   FixedEvent,
   PlannerExportPayload,
   Preferences,
+  SickDay,
   StudyBlock,
   StudyBlockStatus,
   Topic,
@@ -39,6 +42,7 @@ interface PlannerState {
   subjects: PlannerExportPayload["subjects"];
   topics: PlannerExportPayload["topics"];
   fixedEvents: PlannerExportPayload["fixedEvents"];
+  sickDays: PlannerExportPayload["sickDays"];
   studyBlocks: PlannerExportPayload["studyBlocks"];
   completionLogs: PlannerExportPayload["completionLogs"];
   weeklyPlans: PlannerExportPayload["weeklyPlans"];
@@ -49,11 +53,13 @@ interface PlannerState {
   setCurrentWeekStart: (weekStart: string) => void;
   regenerateHorizon: () => Promise<void>;
   saveFixedEvent: (event: FixedEvent) => Promise<void>;
+  saveSickDay: (sickDay: SickDay) => Promise<void>;
   deleteFixedEvent: (options: {
     id: string;
     scope?: "occurrence" | "series";
     occurrenceDate?: string;
   }) => Promise<void>;
+  deleteSickDay: (id: string) => Promise<void>;
   updatePreferences: (patch: Partial<Preferences>) => Promise<void>;
   updateStudyBlockStatus: (options: {
     blockId: string;
@@ -97,6 +103,7 @@ async function recalculateCurrentWeek(options?: { preservedStudyBlockIds?: strin
     subjects: snapshot.subjects,
     topics: snapshot.topics,
     fixedEvents: snapshot.fixedEvents,
+    sickDays: snapshot.sickDays,
     preferences: snapshot.preferences,
     existingStudyBlocks: snapshot.studyBlocks,
     preservedStudyBlockIds: options?.preservedStudyBlockIds,
@@ -119,6 +126,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   subjects: [],
   topics: [],
   fixedEvents: [],
+  sickDays: [],
   studyBlocks: [],
   completionLogs: [],
   weeklyPlans: [],
@@ -188,12 +196,21 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     await get().regenerateHorizon();
     get().setCurrentWeekStart(toDateKey(new Date(event.start)));
   },
+  saveSickDay: async (sickDay) => {
+    await persistSickDay(sickDay);
+    await get().regenerateHorizon();
+    get().setCurrentWeekStart(sickDay.startDate);
+  },
   deleteFixedEvent: async ({ id, scope = "series", occurrenceDate }) => {
     if (scope === "occurrence" && occurrenceDate) {
       await excludeFixedEventOccurrence(id, occurrenceDate);
     } else {
       await deleteFixedEventById(id);
     }
+    await get().regenerateHorizon();
+  },
+  deleteSickDay: async (id) => {
+    await deleteSickDayRecordById(id);
     await get().regenerateHorizon();
   },
   updatePreferences: async (patch) => {

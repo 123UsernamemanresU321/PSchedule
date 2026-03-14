@@ -9,13 +9,15 @@ import { addDays, differenceInMinutes, format } from "date-fns";
 import { SubjectBadge, getSubjectAccentStyles } from "@/components/planner/subject-badge";
 import { Badge } from "@/components/ui/badge";
 import { studyBlockStatusLabels } from "@/lib/constants/planner";
+import { toDateKey } from "@/lib/dates/helpers";
 import {
   expandPlannerFixedEventsForWeek,
   expandLockedRecoveryWindowsForWeek,
   expandReservedCommitmentWindowsForWeek,
 } from "@/lib/scheduler/free-slots";
+import { getActiveSickDaySeverity } from "@/lib/scheduler/schedule-regime";
 import { fromDateKey } from "@/lib/dates/helpers";
-import type { FixedEvent, Preferences, StudyBlock, Subject } from "@/lib/types/planner";
+import type { FixedEvent, Preferences, SickDay, StudyBlock, Subject } from "@/lib/types/planner";
 
 function buildVisibleBreakEvents(options: {
   studyBlocks: StudyBlock[];
@@ -99,6 +101,7 @@ function getStudyBlockStatusIcon(status: StudyBlock["status"]) {
 interface PlannerCalendarProps {
   weekStart: string;
   fixedEvents: FixedEvent[];
+  sickDays: SickDay[];
   preferences: Preferences;
   studyBlocks: StudyBlock[];
   subjects: Subject[];
@@ -114,6 +117,7 @@ interface PlannerCalendarProps {
 export function PlannerCalendar({
   weekStart,
   fixedEvents,
+  sickDays,
   preferences,
   studyBlocks,
   subjects,
@@ -129,6 +133,7 @@ export function PlannerCalendar({
     visibleWeekStart,
     preferences,
     fixedEvents,
+    sickDays,
     studyBlocks.filter((block) => block.weekStart === weekStart),
   );
   const visibleRecoveryWindows = recoveryWindows.filter((window) => {
@@ -153,7 +158,28 @@ export function PlannerCalendar({
     visibleWeekStart,
     preferences,
     fixedEvents,
+    sickDays,
   );
+  const sickDayEvents = Array.from({ length: 7 }, (_, index) => addDays(visibleWeekStart, index)).flatMap((day) => {
+    const severity = getActiveSickDaySeverity(day, sickDays);
+    if (!severity) {
+      return [];
+    }
+
+    return [
+      {
+        id: `sick-day:${toDateKey(day)}`,
+        title: `Sick day · ${severity.charAt(0).toUpperCase()}${severity.slice(1)}`,
+        start: day,
+        end: addDays(day, 1),
+        allDay: true,
+        extendedProps: {
+          kind: "sick-day" as const,
+          severity,
+        },
+      },
+    ];
+  });
   const blockedIntervals = [
     ...recoveryWindows.map((window) => ({
       start: new Date(window.start),
@@ -205,6 +231,7 @@ export function PlannerCalendar({
         },
       };
     }),
+    ...sickDayEvents,
     ...reservedCommitments.map((commitment) => ({
       id: `reserved:${commitment.id}`,
       title: commitment.title,
@@ -262,6 +289,10 @@ export function PlannerCalendar({
         headerToolbar={false}
         events={calendarEvents}
         eventDisplay="block"
+        dayCellClassNames={(arg) => {
+          const severity = getActiveSickDaySeverity(arg.date, sickDays);
+          return severity ? [`planner-sick-day-${severity}`] : [];
+        }}
         select={(selection) =>
           onCreateEvent({
             start: selection.startStr,
@@ -275,8 +306,14 @@ export function PlannerCalendar({
             | "study"
             | "recovery-window"
             | "reserved-commitment"
-            | "break";
-          if (kind === "recovery-window" || kind === "reserved-commitment" || kind === "break") {
+            | "break"
+            | "sick-day";
+          if (
+            kind === "recovery-window" ||
+            kind === "reserved-commitment" ||
+            kind === "break" ||
+            kind === "sick-day"
+          ) {
             return;
           }
           if (kind === "fixed") {
@@ -312,11 +349,32 @@ export function PlannerCalendar({
             | "study"
             | "recovery-window"
             | "reserved-commitment"
-            | "break";
+            | "break"
+            | "sick-day";
           const eventStart = eventInfo.event.start ?? new Date();
           const eventEnd = eventInfo.event.end ?? eventStart;
           const durationMinutes = differenceInMinutes(eventEnd, eventStart);
           const showCompactTitleOnly = !eventInfo.event.allDay && durationMinutes <= 50;
+
+          if (kind === "sick-day") {
+            const severity = eventInfo.event.extendedProps.severity as SickDay["severity"];
+            const severityStyle =
+              severity === "severe"
+                ? "border-rose-400/30 bg-rose-400/12 text-rose-50"
+                : severity === "moderate"
+                  ? "border-amber-300/35 bg-amber-300/10 text-amber-50"
+                  : "border-sky-300/30 bg-sky-300/10 text-sky-50";
+
+            return (
+              <div
+                className={`h-full overflow-hidden rounded-lg border px-3 py-2 text-sm shadow-panel ${severityStyle}`}
+                data-testid="calendar-sick-day"
+                data-event-title={eventInfo.event.title}
+              >
+                <p className="truncate font-medium">{eventInfo.event.title}</p>
+              </div>
+            );
+          }
 
           if (kind === "recovery-window") {
             const window = eventInfo.event.extendedProps.window as {
