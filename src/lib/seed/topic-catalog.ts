@@ -717,7 +717,36 @@ const physicsTopicBlueprints: SeedTopicBlueprint[] = [
   },
 ];
 
-const mathsTopicBlueprints: SeedTopicBlueprint[] = [
+const MATHS_SL_BOOK_FINISH_TOPIC_ID = "maths-topic5-integration-core";
+
+function usesTextbookLabel(blueprint: SeedTopicBlueprint, label: string) {
+  return blueprint.sourceMaterials.some(
+    (material) => material.type === "textbook" && material.label === label,
+  );
+}
+
+function gateMathsHlBookTopicsAfterSlBook(
+  blueprints: SeedTopicBlueprint[],
+): SeedTopicBlueprint[] {
+  return blueprints.map((blueprint) => {
+    if (
+      blueprint.subjectId !== "maths-aa-hl" ||
+      !usesTextbookLabel(blueprint, "Hodder AA HL 2019")
+    ) {
+      return blueprint;
+    }
+
+    return {
+      ...blueprint,
+      dependsOnTopicId: blueprint.dependsOnTopicId ?? MATHS_SL_BOOK_FINISH_TOPIC_ID,
+      notes: blueprint.notes
+        ? `${blueprint.notes} Finish the Hodder AA SL book sequence before starting the HL book for this topic.`
+        : "Finish the Hodder AA SL book sequence before starting the HL book for this topic.",
+    };
+  });
+}
+
+const mathsTopicBlueprints: SeedTopicBlueprint[] = gateMathsHlBookTopicsAfterSlBook([
   {
     id: "maths-topic1-exponents-logs",
     subjectId: "maths-aa-hl",
@@ -1035,7 +1064,7 @@ const mathsTopicBlueprints: SeedTopicBlueprint[] = [
       textbook("Hodder AA HL 2019", "Ch. 11D-11E Series and differential equations."),
     ],
   },
-];
+]);
 
 const chemistryTopicBlueprints: SeedTopicBlueprint[] = [
   {

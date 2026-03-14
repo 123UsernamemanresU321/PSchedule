@@ -109,6 +109,45 @@ test("paired paper reviews retain their dependency scheduling window", () => {
   assert.equal(reviewCandidate?.latestAt?.slice(0, 10), "2026-09-29");
 });
 
+test("maths HL-book topics stay blocked until the SL book sequence is complete", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
+  const hlBookTopic = dataset.topics.find(
+    (topic) => topic.id === "maths-topic1-complex-numbers",
+  );
+
+  assert.ok(hlBookTopic, "expected a seeded HL-book maths topic");
+  assert.equal(hlBookTopic.dependsOnTopicId, "maths-topic5-integration-core");
+
+  const blockedCandidates = buildTaskCandidates({
+    topics: [hlBookTopic as Topic],
+    existingPlannedBlocks: [],
+    referenceDate: new Date("2026-03-14T08:00:00"),
+    subjectDeadlinesById: { "maths-aa-hl": "2027-06-30" },
+  });
+
+  assert.equal(blockedCandidates.length, 0);
+
+  const slBoundaryBlock = createStudyBlock({
+    id: "integration-boundary",
+    subjectId: "maths-aa-hl",
+    topicId: "maths-topic5-integration-core",
+    title: "Core integration",
+    start: "2026-06-01T08:00:00.000Z",
+    end: "2026-06-01T09:30:00.000Z",
+    estimatedMinutes: 90,
+  });
+
+  const unlockedCandidates = buildTaskCandidates({
+    topics: [hlBookTopic as Topic],
+    existingPlannedBlocks: [slBoundaryBlock],
+    referenceDate: new Date("2026-06-02T08:00:00"),
+    subjectDeadlinesById: { "maths-aa-hl": "2027-06-30" },
+  });
+
+  assert.equal(unlockedCandidates.length, 1);
+  assert.equal(unlockedCandidates[0]?.topicId, "maths-topic1-complex-numbers");
+});
+
 test("calendar completion forecast distinguishes impossible from simply underplanned", () => {
   const dataset = buildSeedDataset(new Date("2026-03-13T08:00:00"));
   const subject = dataset.subjects.find((candidate) => candidate.id === "physics-hl");

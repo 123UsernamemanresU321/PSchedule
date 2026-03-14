@@ -28,7 +28,7 @@ const PLANNING_MODEL_VERSION = "2026-03-13-trust-fixes-v17";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-12-april-camp-roadmap-v1";
-const EXTENDED_GOALS_VERSION = "2026-03-13-post-syllabus-papers-v6";
+const EXTENDED_GOALS_VERSION = "2026-03-14-post-syllabus-papers-v7";
 
 function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreferences: Preferences) {
   const mergedWindows = new Map(
