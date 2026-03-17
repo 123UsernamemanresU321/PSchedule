@@ -1,9 +1,10 @@
 import { isWithinInterval } from "date-fns";
 
-import { fromDateKey } from "@/lib/dates/helpers";
+import { fromDateKey, toDateKey } from "@/lib/dates/helpers";
 import type {
   BlockType,
   Preferences,
+  ReservedCommitmentRule,
   SickDay,
   SickDayEffectProfile,
   SickDaySeverity,
@@ -77,16 +78,7 @@ function getReservedCommitmentMinutes(
   sickDayEffect: SickDayEffectProfile | null,
 ) {
   return preferences.reservedCommitmentRules.reduce((total, rule) => {
-    if (!rule.days.includes(day.getDay())) {
-      return total;
-    }
-
-    const appliesToday =
-      rule.appliesDuring === "all" ||
-      (rule.appliesDuring === "school-term" && inSchoolTerm) ||
-      (rule.appliesDuring === "holiday" && !inSchoolTerm);
-
-    if (!appliesToday) {
+    if (!isReservedCommitmentRuleActiveOnDate(rule, day, inSchoolTerm)) {
       return total;
     }
 
@@ -96,6 +88,39 @@ function getReservedCommitmentMinutes(
 
     return total + rule.durationMinutes;
   }, 0);
+}
+
+function doesReservedCommitmentRuleMatchRegime(
+  rule: ReservedCommitmentRule,
+  inSchoolTerm: boolean,
+) {
+  return (
+    rule.appliesDuring === "all" ||
+    (rule.appliesDuring === "school-term" && inSchoolTerm) ||
+    (rule.appliesDuring === "holiday" && !inSchoolTerm)
+  );
+}
+
+export function isReservedCommitmentRuleActiveOnDate(
+  rule: ReservedCommitmentRule,
+  day: Date,
+  inSchoolTerm: boolean,
+) {
+  const appliesToRegime = doesReservedCommitmentRuleMatchRegime(rule, inSchoolTerm);
+  if (!appliesToRegime) {
+    return false;
+  }
+
+  const dateKey = toDateKey(day);
+  if (rule.additionalDates?.includes(dateKey)) {
+    return true;
+  }
+
+  if (rule.excludedDates?.includes(dateKey)) {
+    return false;
+  }
+
+  return rule.days.includes(day.getDay());
 }
 
 const SICK_DAY_SEVERITY_ORDER: SickDaySeverity[] = ["light", "moderate", "severe"];

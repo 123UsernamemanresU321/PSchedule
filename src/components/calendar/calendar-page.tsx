@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { addDays, subDays } from "date-fns";
-import { CalendarClock, ChevronLeft, ChevronRight, Plus, RefreshCw } from "lucide-react";
+import { CalendarClock, ChevronLeft, ChevronRight, Music4, Plus, RefreshCw } from "lucide-react";
 
 import {
   EventEditorDialog,
   type EventEditorDraft,
 } from "@/components/calendar/event-editor-dialog";
+import { PianoOverrideDialog } from "@/components/calendar/piano-override-dialog";
 import { HorizonRoadmap } from "@/components/planner/horizon-roadmap";
 import { PlannerCalendar } from "@/components/calendar/planner-calendar";
 import { PageHeader } from "@/components/layout/page-header";
@@ -31,15 +32,26 @@ export function CalendarPage() {
   const setCurrentWeekStart = usePlannerStore((state) => state.setCurrentWeekStart);
   const savePlannerFixedEvent = usePlannerStore((state) => state.saveFixedEvent);
   const deleteFixedEvent = usePlannerStore((state) => state.deleteFixedEvent);
+  const updatePreferences = usePlannerStore((state) => state.updatePreferences);
   const selectStudyBlock = usePlannerStore((state) => state.selectStudyBlock);
   const [editorDraft, setEditorDraft] = useState<EventEditorDraft>(null);
+  const [pianoOverrideDraft, setPianoOverrideDraft] = useState<{
+    date: string;
+    mode: "add" | "remove";
+  } | null>(null);
   const hasConfiguredConstraints =
     !!fixedEvents.length || !!preferences?.schoolSchedule.enabled || !!preferences?.holidaySchedule.enabled;
   const roadmapSummary = getHorizonRoadmapSummary(weeklyPlans, topics, currentWeekStart);
 
   const visibleWeekStart = startOfPlannerWeek(fromDateKey(currentWeekStart));
+  const visibleWeekEnd = addDays(visibleWeekStart, 6);
   const todayWeekStart = toDateKey(startOfPlannerWeek(new Date()));
   const isViewingCurrentWeek = currentWeekStart === todayWeekStart;
+  const todayKey = toDateKey(new Date());
+  const defaultPianoDate =
+    fromDateKey(todayKey) >= visibleWeekStart && fromDateKey(todayKey) <= visibleWeekEnd
+      ? todayKey
+      : currentWeekStart;
   const defaultCreateStart = new Date(addDays(visibleWeekStart, 1));
   defaultCreateStart.setHours(16, 0, 0, 0);
   const defaultCreateEnd = new Date(addDays(visibleWeekStart, 1));
@@ -82,6 +94,19 @@ export function CalendarPage() {
               onClick={() => setCurrentWeekStart(todayWeekStart)}
             >
               Today
+            </Button>
+            <Button
+              data-testid="calendar-adjust-piano"
+              variant="outline"
+              onClick={() =>
+                setPianoOverrideDraft({
+                  date: defaultPianoDate,
+                  mode: "add",
+                })
+              }
+            >
+              <Music4 className="h-4 w-4" />
+              Adjust piano
             </Button>
             <Button
               data-testid="calendar-add-event"
@@ -150,6 +175,12 @@ export function CalendarPage() {
           preferences={preferences}
           studyBlocks={studyBlocks}
           subjects={subjects}
+          onManagePianoDate={(dateKey) =>
+            setPianoOverrideDraft({
+              date: dateKey,
+              mode: "remove",
+            })
+          }
           onCreateEvent={({ start, end, allDay }) =>
             setEditorDraft({
               mode: "create",
@@ -192,6 +223,18 @@ export function CalendarPage() {
             occurrenceDate,
           });
           setEditorDraft(null);
+        }}
+      />
+
+      <PianoOverrideDialog
+        open={!!pianoOverrideDraft}
+        defaultDate={pianoOverrideDraft?.date ?? null}
+        defaultMode={pianoOverrideDraft?.mode}
+        preferences={preferences}
+        onClose={() => setPianoOverrideDraft(null)}
+        onSave={async (nextPreferences) => {
+          await updatePreferences(nextPreferences);
+          setPianoOverrideDraft(null);
         }}
       />
     </div>

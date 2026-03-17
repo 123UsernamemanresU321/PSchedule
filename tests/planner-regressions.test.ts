@@ -5,7 +5,11 @@ import { buildSeedDataset } from "@/lib/seed";
 import { getCalendarCompletionForecast } from "@/lib/analytics/metrics";
 import { expandReservedCommitmentWindowsForWeek } from "@/lib/scheduler/free-slots";
 import { generateStudyPlanHorizon, shouldPreserveStudyBlockOnRegeneration } from "@/lib/scheduler/generator";
-import { getActiveSickDaySeverity, resolveDailyScheduleProfile } from "@/lib/scheduler/schedule-regime";
+import {
+  getActiveSickDaySeverity,
+  isReservedCommitmentRuleActiveOnDate,
+  resolveDailyScheduleProfile,
+} from "@/lib/scheduler/schedule-regime";
 import { buildTaskCandidates } from "@/lib/scheduler/task-candidates";
 import { validateGeneratedHorizon } from "@/lib/scheduler/validation";
 import type { StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
@@ -412,4 +416,31 @@ test("moderate and severe sick days remove piano and restrict heavier study mode
     moderateCommitments.some((window) => window.label === "Homework"),
     true,
   );
+});
+
+test("piano commitment rules support single-day additions and removals", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-16T08:00:00"));
+  const pianoRule = dataset.preferences.reservedCommitmentRules.find(
+    (rule) => rule.id === "piano-practice",
+  );
+
+  assert.ok(pianoRule, "expected seeded piano rule");
+
+  const monday = new Date("2026-03-16T10:00:00");
+  const tuesday = new Date("2026-03-17T10:00:00");
+
+  assert.equal(isReservedCommitmentRuleActiveOnDate(pianoRule!, monday, false), false);
+  assert.equal(isReservedCommitmentRuleActiveOnDate(pianoRule!, tuesday, false), true);
+
+  const withMondayAddition = {
+    ...pianoRule!,
+    additionalDates: ["2026-03-16"],
+  };
+  const withTuesdayRemoval = {
+    ...pianoRule!,
+    excludedDates: ["2026-03-17"],
+  };
+
+  assert.equal(isReservedCommitmentRuleActiveOnDate(withMondayAddition, monday, false), true);
+  assert.equal(isReservedCommitmentRuleActiveOnDate(withTuesdayRemoval, tuesday, false), false);
 });

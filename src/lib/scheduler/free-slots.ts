@@ -4,6 +4,7 @@ import { classifySlotEnergy } from "@/lib/scheduler/slot-classifier";
 import {
   getActiveSickDaySeverity,
   isDateInActiveSchoolTerm,
+  isReservedCommitmentRuleActiveOnDate,
   resolveDailyScheduleProfile,
 } from "@/lib/scheduler/schedule-regime";
 import {
@@ -33,6 +34,8 @@ export interface RecoveryWindowOccurrence {
 
 export interface ReservedCommitmentOccurrence {
   id: string;
+  ruleId: string;
+  dateKey: string;
   title: string;
   start: string;
   end: string;
@@ -413,16 +416,7 @@ export function expandReservedCommitmentWindowsForWeek(
     const resolvedIntervals: TimeInterval[] = [];
 
     return preferences.reservedCommitmentRules.flatMap((rule) => {
-      if (!rule.days.includes(day.getDay())) {
-        return [];
-      }
-
-      const appliesToday =
-        rule.appliesDuring === "all" ||
-        (rule.appliesDuring === "school-term" && inSchoolTerm) ||
-        (rule.appliesDuring === "holiday" && !inSchoolTerm);
-
-      if (!appliesToday) {
+      if (!isReservedCommitmentRuleActiveOnDate(rule, day, inSchoolTerm)) {
         return [];
       }
 
@@ -461,6 +455,8 @@ export function expandReservedCommitmentWindowsForWeek(
 
       return commitmentSegments.map((segment, segmentIndex) => ({
         id: `${rule.id}:${toDateKey(day)}:${segmentIndex + 1}`,
+        ruleId: rule.id,
+        dateKey: toDateKey(day),
         title: rule.label,
         start: segment.start.toISOString(),
         end: segment.end.toISOString(),

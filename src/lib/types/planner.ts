@@ -216,6 +216,8 @@ export interface ReservedCommitmentRule {
   days: number[];
   appliesDuring: "all" | "school-term" | "holiday";
   preferredStart: string;
+  additionalDates?: string[];
+  excludedDates?: string[];
 }
 
 export interface HolidaySchedule {

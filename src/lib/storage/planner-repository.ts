@@ -25,7 +25,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-14-sick-days-v18";
+const PLANNING_MODEL_VERSION = "2026-03-17-piano-overrides-v19";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-12-april-camp-roadmap-v1";
@@ -100,7 +100,15 @@ function normalizeReservedCommitmentRules(preferences: Preferences, seedPreferen
     });
   });
 
-  return Array.from(mergedRules.values());
+  return Array.from(mergedRules.values()).map((rule) => ({
+    ...rule,
+    additionalDates: Array.from(new Set(rule.additionalDates ?? [])).sort((left, right) =>
+      left.localeCompare(right),
+    ),
+    excludedDates: Array.from(new Set(rule.excludedDates ?? [])).sort((left, right) =>
+      left.localeCompare(right),
+    ),
+  }));
 }
 
 function normalizeFixedEvent(event: PlannerExportPayload["fixedEvents"][number]) {
