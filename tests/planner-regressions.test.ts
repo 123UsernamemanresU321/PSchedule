@@ -444,3 +444,70 @@ test("piano commitment rules support single-day additions and removals", () => {
   assert.equal(isReservedCommitmentRuleActiveOnDate(withMondayAddition, monday, false), true);
   assert.equal(isReservedCommitmentRuleActiveOnDate(withTuesdayRemoval, tuesday, false), false);
 });
+
+test("homework commitment rules can be explicitly added outside normal school-term dates", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-16T08:00:00"));
+  const homeworkRule = dataset.preferences.reservedCommitmentRules.find(
+    (rule) => rule.id === "term-homework",
+  );
+
+  assert.ok(homeworkRule, "expected seeded homework rule");
+
+  const holidayDate = new Date("2026-07-10T10:00:00");
+  assert.equal(isReservedCommitmentRuleActiveOnDate(homeworkRule!, holidayDate, false), false);
+
+  const withHolidayAddition = {
+    ...homeworkRule!,
+    additionalDates: ["2026-07-10"],
+  };
+
+  assert.equal(isReservedCommitmentRuleActiveOnDate(withHolidayAddition, holidayDate, false), true);
+});
+
+test("homework duration overrides change the reserved commitment length for one date", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-16T08:00:00"));
+  const preferences = {
+    ...dataset.preferences,
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: true,
+      weekdays: [1, 2, 3, 4, 5],
+      terms: [
+        {
+          id: "term-1",
+          label: "Term 1",
+          startDate: "2026-03-01",
+          endDate: "2026-03-31",
+        },
+      ],
+    },
+    reservedCommitmentRules: dataset.preferences.reservedCommitmentRules.map((rule) =>
+      rule.id === "term-homework"
+        ? {
+            ...rule,
+            durationOverrides: {
+              ...(rule.durationOverrides ?? {}),
+              "2026-03-17": 120,
+            },
+          }
+        : rule,
+    ),
+  };
+
+  const commitment = expandReservedCommitmentWindowsForWeek(
+    new Date("2026-03-16T00:00:00"),
+    preferences,
+    [],
+    [],
+  ).find(
+    (window) => window.label === "Homework" && window.start.startsWith("2026-03-17"),
+  );
+
+  assert.ok(commitment);
+  assert.equal(
+    Math.round(
+      (new Date(commitment!.end).getTime() - new Date(commitment!.start).getTime()) / 60000,
+    ),
+    120,
+  );
+});

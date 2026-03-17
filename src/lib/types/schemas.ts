@@ -197,6 +197,7 @@ export const reservedCommitmentRuleSchema = z.object({
   preferredStart: z.string(),
   additionalDates: z.array(z.string()).optional().default([]),
   excludedDates: z.array(z.string()).optional().default([]),
+  durationOverrides: z.record(z.string(), z.number().min(0)).optional().default({}),
 });
 
 export const holidayScheduleSchema = z.object({
@@ -232,6 +233,7 @@ export const preferencesSchema = z.object({
       preferredStart: "18:00",
       additionalDates: [],
       excludedDates: [],
+      durationOverrides: {},
     },
     {
       id: "term-homework",
@@ -242,6 +244,7 @@ export const preferencesSchema = z.object({
       preferredStart: "16:00",
       additionalDates: [],
       excludedDates: [],
+      durationOverrides: {},
     },
   ]),
   maxHeavySessionsPerDay: z.number(),

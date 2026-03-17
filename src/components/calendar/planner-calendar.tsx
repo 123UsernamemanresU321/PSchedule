@@ -112,7 +112,10 @@ interface PlannerCalendarProps {
     occurrenceEnd: string;
   }) => void;
   onSelectStudyBlock: (id: string) => void;
-  onManagePianoDate: (dateKey: string) => void;
+  onManageReservedCommitmentDate: (options: {
+    dateKey: string;
+    ruleId: "piano-practice" | "term-homework";
+  }) => void;
 }
 
 export function PlannerCalendar({
@@ -125,7 +128,7 @@ export function PlannerCalendar({
   onCreateEvent,
   onEditFixedEvent,
   onSelectStudyBlock,
-  onManagePianoDate,
+  onManageReservedCommitmentDate,
 }: PlannerCalendarProps) {
   const subjectMap = new Map(subjects.map((subject) => [subject.id, subject]));
   const visibleWeekStart = fromDateKey(weekStart);
@@ -319,12 +322,18 @@ export function PlannerCalendar({
           }
           if (kind === "reserved-commitment") {
             const commitment = clickInfo.event.extendedProps.commitment as {
-              ruleId: string;
+              ruleId: "piano-practice" | "term-homework";
               dateKey: string;
             };
 
-            if (commitment.ruleId === "piano-practice") {
-              onManagePianoDate(commitment.dateKey);
+            if (
+              commitment.ruleId === "piano-practice" ||
+              commitment.ruleId === "term-homework"
+            ) {
+              onManageReservedCommitmentDate({
+                dateKey: commitment.dateKey,
+                ruleId: commitment.ruleId,
+              });
             }
             return;
           }

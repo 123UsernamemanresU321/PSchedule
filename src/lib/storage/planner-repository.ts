@@ -25,7 +25,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-17-piano-overrides-v19";
+const PLANNING_MODEL_VERSION = "2026-03-17-homework-duration-v20";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-12-april-camp-roadmap-v1";
@@ -107,6 +107,11 @@ function normalizeReservedCommitmentRules(preferences: Preferences, seedPreferen
     ),
     excludedDates: Array.from(new Set(rule.excludedDates ?? [])).sort((left, right) =>
       left.localeCompare(right),
+    ),
+    durationOverrides: Object.fromEntries(
+      Object.entries(rule.durationOverrides ?? {})
+        .filter(([, minutes]) => Number.isFinite(minutes) && minutes >= 0)
+        .sort(([left], [right]) => left.localeCompare(right)),
     ),
   }));
 }

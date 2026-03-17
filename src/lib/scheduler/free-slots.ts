@@ -3,6 +3,8 @@ import { addDays, addMinutes, differenceInCalendarDays, startOfDay } from "date-
 import { classifySlotEnergy } from "@/lib/scheduler/slot-classifier";
 import {
   getActiveSickDaySeverity,
+  getReservedCommitmentDurationForDate,
+  getSickDayEffectProfile,
   isDateInActiveSchoolTerm,
   isReservedCommitmentRuleActiveOnDate,
   resolveDailyScheduleProfile,
@@ -421,14 +423,11 @@ export function expandReservedCommitmentWindowsForWeek(
       }
 
       const activeSickDaySeverity = getActiveSickDaySeverity(day, sickDays);
-      const durationMinutes =
-        rule.id === "piano-practice"
-          ? activeSickDaySeverity === "light"
-            ? 30
-            : activeSickDaySeverity === "moderate" || activeSickDaySeverity === "severe"
-              ? 0
-              : rule.durationMinutes
-          : rule.durationMinutes;
+      const durationMinutes = getReservedCommitmentDurationForDate(
+        rule,
+        toDateKey(day),
+        activeSickDaySeverity ? getSickDayEffectProfile(activeSickDaySeverity) : null,
+      );
 
       if (durationMinutes <= 0) {
         return [];

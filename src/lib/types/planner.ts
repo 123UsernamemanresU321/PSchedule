@@ -218,6 +218,7 @@ export interface ReservedCommitmentRule {
   preferredStart: string;
   additionalDates?: string[];
   excludedDates?: string[];
+  durationOverrides?: Record<string, number>;
 }
 
 export interface HolidaySchedule {

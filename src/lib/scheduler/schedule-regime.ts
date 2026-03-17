@@ -77,16 +77,13 @@ function getReservedCommitmentMinutes(
   inSchoolTerm: boolean,
   sickDayEffect: SickDayEffectProfile | null,
 ) {
+  const dateKey = toDateKey(day);
   return preferences.reservedCommitmentRules.reduce((total, rule) => {
     if (!isReservedCommitmentRuleActiveOnDate(rule, day, inSchoolTerm)) {
       return total;
     }
 
-    if (rule.id === "piano-practice" && sickDayEffect) {
-      return total + (sickDayEffect.pianoMinutesOverride ?? 0);
-    }
-
-    return total + rule.durationMinutes;
+    return total + getReservedCommitmentDurationForDate(rule, dateKey, sickDayEffect);
   }, 0);
 }
 
@@ -106,21 +103,35 @@ export function isReservedCommitmentRuleActiveOnDate(
   day: Date,
   inSchoolTerm: boolean,
 ) {
+  const dateKey = toDateKey(day);
+  if (rule.excludedDates?.includes(dateKey)) {
+    return false;
+  }
+
+  if (rule.additionalDates?.includes(dateKey)) {
+    return true;
+  }
+
   const appliesToRegime = doesReservedCommitmentRuleMatchRegime(rule, inSchoolTerm);
   if (!appliesToRegime) {
     return false;
   }
 
-  const dateKey = toDateKey(day);
-  if (rule.additionalDates?.includes(dateKey)) {
-    return true;
-  }
-
-  if (rule.excludedDates?.includes(dateKey)) {
-    return false;
-  }
-
   return rule.days.includes(day.getDay());
+}
+
+export function getReservedCommitmentDurationForDate(
+  rule: ReservedCommitmentRule,
+  dateKey: string,
+  sickDayEffect: SickDayEffectProfile | null = null,
+) {
+  const overriddenDuration = rule.durationOverrides?.[dateKey];
+
+  if (rule.id === "piano-practice" && sickDayEffect) {
+    return sickDayEffect.pianoMinutesOverride ?? 0;
+  }
+
+  return overriddenDuration ?? rule.durationMinutes;
 }
 
 const SICK_DAY_SEVERITY_ORDER: SickDaySeverity[] = ["light", "moderate", "severe"];

@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import { addDays, subDays } from "date-fns";
-import { CalendarClock, ChevronLeft, ChevronRight, Music4, Plus, RefreshCw } from "lucide-react";
+import { BookOpen, CalendarClock, ChevronLeft, ChevronRight, Music4, Plus, RefreshCw } from "lucide-react";
 
 import {
   EventEditorDialog,
   type EventEditorDraft,
 } from "@/components/calendar/event-editor-dialog";
-import { PianoOverrideDialog } from "@/components/calendar/piano-override-dialog";
+import { CommitmentOverrideDialog } from "@/components/calendar/commitment-override-dialog";
 import { HorizonRoadmap } from "@/components/planner/horizon-roadmap";
 import { PlannerCalendar } from "@/components/calendar/planner-calendar";
 import { PageHeader } from "@/components/layout/page-header";
@@ -35,7 +35,8 @@ export function CalendarPage() {
   const updatePreferences = usePlannerStore((state) => state.updatePreferences);
   const selectStudyBlock = usePlannerStore((state) => state.selectStudyBlock);
   const [editorDraft, setEditorDraft] = useState<EventEditorDraft>(null);
-  const [pianoOverrideDraft, setPianoOverrideDraft] = useState<{
+  const [commitmentOverrideDraft, setCommitmentOverrideDraft] = useState<{
+    ruleId: "piano-practice" | "term-homework";
     date: string;
     mode: "add" | "remove";
   } | null>(null);
@@ -48,7 +49,7 @@ export function CalendarPage() {
   const todayWeekStart = toDateKey(startOfPlannerWeek(new Date()));
   const isViewingCurrentWeek = currentWeekStart === todayWeekStart;
   const todayKey = toDateKey(new Date());
-  const defaultPianoDate =
+  const defaultOverrideDate =
     fromDateKey(todayKey) >= visibleWeekStart && fromDateKey(todayKey) <= visibleWeekEnd
       ? todayKey
       : currentWeekStart;
@@ -99,14 +100,29 @@ export function CalendarPage() {
               data-testid="calendar-adjust-piano"
               variant="outline"
               onClick={() =>
-                setPianoOverrideDraft({
-                  date: defaultPianoDate,
+                setCommitmentOverrideDraft({
+                  ruleId: "piano-practice",
+                  date: defaultOverrideDate,
                   mode: "add",
                 })
               }
             >
               <Music4 className="h-4 w-4" />
               Adjust piano
+            </Button>
+            <Button
+              data-testid="calendar-adjust-homework"
+              variant="outline"
+              onClick={() =>
+                setCommitmentOverrideDraft({
+                  ruleId: "term-homework",
+                  date: defaultOverrideDate,
+                  mode: "add",
+                })
+              }
+            >
+              <BookOpen className="h-4 w-4" />
+              Adjust homework
             </Button>
             <Button
               data-testid="calendar-add-event"
@@ -175,10 +191,11 @@ export function CalendarPage() {
           preferences={preferences}
           studyBlocks={studyBlocks}
           subjects={subjects}
-          onManagePianoDate={(dateKey) =>
-            setPianoOverrideDraft({
+          onManageReservedCommitmentDate={({ dateKey, ruleId }) =>
+            setCommitmentOverrideDraft({
+              ruleId,
               date: dateKey,
-              mode: "remove",
+              mode: ruleId === "term-homework" ? "add" : "remove",
             })
           }
           onCreateEvent={({ start, end, allDay }) =>
@@ -226,15 +243,16 @@ export function CalendarPage() {
         }}
       />
 
-      <PianoOverrideDialog
-        open={!!pianoOverrideDraft}
-        defaultDate={pianoOverrideDraft?.date ?? null}
-        defaultMode={pianoOverrideDraft?.mode}
+      <CommitmentOverrideDialog
+        open={!!commitmentOverrideDraft}
+        ruleId={commitmentOverrideDraft?.ruleId ?? null}
+        defaultDate={commitmentOverrideDraft?.date ?? null}
+        defaultMode={commitmentOverrideDraft?.mode}
         preferences={preferences}
-        onClose={() => setPianoOverrideDraft(null)}
+        onClose={() => setCommitmentOverrideDraft(null)}
         onSave={async (nextPreferences) => {
           await updatePreferences(nextPreferences);
-          setPianoOverrideDraft(null);
+          setCommitmentOverrideDraft(null);
         }}
       />
     </div>
