@@ -509,6 +509,27 @@ function allocateTasksToSlots(options: {
   const scheduledBlocks: StudyBlock[] = [];
   let usedSundayMinutes = 0;
 
+  function extendScheduledStudyBlock(block: StudyBlock, extraMinutes: number) {
+    if (!block.subjectId || extraMinutes <= 0) {
+      return;
+    }
+
+    block.end = addMinutes(new Date(block.end), extraMinutes).toISOString();
+    block.estimatedMinutes += extraMinutes;
+    dailyMinutes[block.date] = (dailyMinutes[block.date] ?? 0) + extraMinutes;
+    assignedMinutesBySubject[block.subjectId] += extraMinutes;
+    subjectMinutesByDate[block.date] = {
+      ...(subjectMinutesByDate[block.date] ?? {}),
+      [block.subjectId]:
+        (subjectMinutesByDate[block.date]?.[block.subjectId] ?? 0) + extraMinutes,
+    };
+    consumedStudyMinutes += extraMinutes;
+
+    if (new Date(block.start).getDay() === 0) {
+      usedSundayMinutes += extraMinutes;
+    }
+  }
+
   function absorbTrailingGapIntoPreviousBlock(
     dateKey: string,
     extensionStart: Date,
@@ -531,21 +552,7 @@ function allocateTasksToSlots(options: {
       return false;
     }
 
-    previousBlock.end = addMinutes(new Date(previousBlock.end), remainingMinutes).toISOString();
-    previousBlock.estimatedMinutes += remainingMinutes;
-    dailyMinutes[dateKey] = (dailyMinutes[dateKey] ?? 0) + remainingMinutes;
-    if (previousBlock.subjectId) {
-      assignedMinutesBySubject[previousBlock.subjectId] += remainingMinutes;
-      subjectMinutesByDate[dateKey] = {
-        ...(subjectMinutesByDate[dateKey] ?? {}),
-        [previousBlock.subjectId]:
-          (subjectMinutesByDate[dateKey]?.[previousBlock.subjectId] ?? 0) + remainingMinutes,
-      };
-    }
-    consumedStudyMinutes += remainingMinutes;
-    if (new Date(previousBlock.start).getDay() === 0) {
-      usedSundayMinutes += remainingMinutes;
-    }
+    extendScheduledStudyBlock(previousBlock, remainingMinutes);
 
     return true;
   }
@@ -836,12 +843,36 @@ function allocateTasksToSlots(options: {
       const requiredBreakMinutes =
         winner.task.sessionMode === "exam"
           ? Math.max(minBreakMinutes, 30)
-          : minBreakMinutes;
+          : 0;
       const breakAfterBlock = getInlineBreakMinutes(
         remainingSlotMinutes,
         winner.blockOption.durationMinutes,
         requiredBreakMinutes,
       );
+      const trailingTailMinutes =
+        remainingSlotMinutes -
+        winner.blockOption.durationMinutes -
+        breakAfterBlock;
+
+      if (
+        winner.task.sessionMode !== "exam" &&
+        breakAfterBlock === 0 &&
+        trailingTailMinutes > 0 &&
+        trailingTailMinutes < MIN_ALLOCATABLE_MINUTES
+      ) {
+        extendScheduledStudyBlock(block, trailingTailMinutes);
+        winner.task.remainingMinutes = Math.max(
+          0,
+          winner.task.remainingMinutes - trailingTailMinutes,
+        );
+        cursor = addMinutes(
+          cursor,
+          winner.blockOption.durationMinutes + trailingTailMinutes,
+        );
+        remainingSlotMinutes = 0;
+        continue;
+      }
+
       cursor = addMinutes(
         cursor,
         winner.blockOption.durationMinutes + breakAfterBlock,
