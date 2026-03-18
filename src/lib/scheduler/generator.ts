@@ -376,6 +376,7 @@ function allocateTasksToSlots(options: {
 }) {
   const weekStartKey = toDateKey(options.weekStart);
   const subjectMap = new Map(options.subjects.map((subject) => [subject.id, subject]));
+  const topicMap = new Map(options.topics.map((topic) => [topic.id, topic]));
   const examTopicIds = new Set(
     options.topics
       .filter((topic) => (topic.sessionMode ?? "flexible") === "exam")
@@ -508,6 +509,39 @@ function allocateTasksToSlots(options: {
   const scheduledBlocks: StudyBlock[] = [];
   let usedSundayMinutes = 0;
 
+  function absorbTrailingGapIntoPreviousBlock(dateKey: string, remainingMinutes: number) {
+    if (remainingMinutes < MIN_ALLOCATABLE_MINUTES || remainingMinutes > 60) {
+      return false;
+    }
+
+    const previousBlock = scheduledBlocks[scheduledBlocks.length - 1];
+    if (!previousBlock || previousBlock.date !== dateKey || !previousBlock.subjectId) {
+      return false;
+    }
+
+    if (topicMap.get(previousBlock.topicId ?? "")?.sessionMode === "exam") {
+      return false;
+    }
+
+    previousBlock.end = addMinutes(new Date(previousBlock.end), remainingMinutes).toISOString();
+    previousBlock.estimatedMinutes += remainingMinutes;
+    dailyMinutes[dateKey] = (dailyMinutes[dateKey] ?? 0) + remainingMinutes;
+    if (previousBlock.subjectId) {
+      assignedMinutesBySubject[previousBlock.subjectId] += remainingMinutes;
+      subjectMinutesByDate[dateKey] = {
+        ...(subjectMinutesByDate[dateKey] ?? {}),
+        [previousBlock.subjectId]:
+          (subjectMinutesByDate[dateKey]?.[previousBlock.subjectId] ?? 0) + remainingMinutes,
+      };
+    }
+    consumedStudyMinutes += remainingMinutes;
+    if (new Date(previousBlock.start).getDay() === 0) {
+      usedSundayMinutes += remainingMinutes;
+    }
+
+    return true;
+  }
+
   function isOlympiadGoldPushDate(dateKey: string) {
     return dateKey >= "2026-07-01" && dateKey <= "2027-03-16";
   }
@@ -569,6 +603,7 @@ function allocateTasksToSlots(options: {
     }
 
     if (shouldHoldCapacityForLaterDays(slot.dateKey)) {
+      absorbTrailingGapIntoPreviousBlock(slot.dateKey, slot.durationMinutes);
       return;
     }
 
@@ -585,10 +620,16 @@ function allocateTasksToSlots(options: {
       const slotHeavyLimit = Math.min(maxHeavySessionsPerDay, slot.maxHeavySessionsPerDay);
 
       if (availableToday < MIN_ALLOCATABLE_MINUTES) {
+        if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, remainingSlotMinutes)) {
+          remainingSlotMinutes = 0;
+        }
         break;
       }
 
       if (shouldHoldCapacityForLaterDays(slot.dateKey)) {
+        if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, remainingSlotMinutes)) {
+          remainingSlotMinutes = 0;
+        }
         break;
       }
 
@@ -673,6 +714,11 @@ function allocateTasksToSlots(options: {
         options.protectRecovery ?? (!needsIntensityRamp || allTargetsMet);
 
       if (!winner) {
+        if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, remainingSlotMinutes)) {
+          remainingSlotMinutes = 0;
+          break;
+        }
+
         if (
           shouldProtectRecovery &&
           canInsertRecoveryBlock(slotSlice, usedToday, dailyBudget) &&
@@ -712,6 +758,11 @@ function allocateTasksToSlots(options: {
         shouldProtectRecovery &&
         (slotSlice.energy === "low" || allTargetsMet)
       ) {
+        if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, remainingSlotMinutes)) {
+          remainingSlotMinutes = 0;
+          break;
+        }
+
         if (canInsertRecoveryBlock(slotSlice, usedToday, dailyBudget)) {
           const recoveryDuration = clamp(
             Math.min(30, remainingSlotMinutes),
