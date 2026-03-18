@@ -509,13 +509,21 @@ function allocateTasksToSlots(options: {
   const scheduledBlocks: StudyBlock[] = [];
   let usedSundayMinutes = 0;
 
-  function absorbTrailingGapIntoPreviousBlock(dateKey: string, remainingMinutes: number) {
-    if (remainingMinutes < MIN_ALLOCATABLE_MINUTES || remainingMinutes > 60) {
+  function absorbTrailingGapIntoPreviousBlock(
+    dateKey: string,
+    extensionStart: Date,
+    remainingMinutes: number,
+  ) {
+    if (remainingMinutes <= 0) {
       return false;
     }
 
     const previousBlock = scheduledBlocks[scheduledBlocks.length - 1];
     if (!previousBlock || previousBlock.date !== dateKey || !previousBlock.subjectId) {
+      return false;
+    }
+
+    if (new Date(previousBlock.end).getTime() !== extensionStart.getTime()) {
       return false;
     }
 
@@ -603,7 +611,7 @@ function allocateTasksToSlots(options: {
     }
 
     if (shouldHoldCapacityForLaterDays(slot.dateKey)) {
-      absorbTrailingGapIntoPreviousBlock(slot.dateKey, slot.durationMinutes);
+      absorbTrailingGapIntoPreviousBlock(slot.dateKey, slot.start, slot.durationMinutes);
       return;
     }
 
@@ -620,14 +628,14 @@ function allocateTasksToSlots(options: {
       const slotHeavyLimit = Math.min(maxHeavySessionsPerDay, slot.maxHeavySessionsPerDay);
 
       if (availableToday < MIN_ALLOCATABLE_MINUTES) {
-        if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, remainingSlotMinutes)) {
+        if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)) {
           remainingSlotMinutes = 0;
         }
         break;
       }
 
       if (shouldHoldCapacityForLaterDays(slot.dateKey)) {
-        if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, remainingSlotMinutes)) {
+        if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)) {
           remainingSlotMinutes = 0;
         }
         break;
@@ -714,7 +722,7 @@ function allocateTasksToSlots(options: {
         options.protectRecovery ?? (!needsIntensityRamp || allTargetsMet);
 
       if (!winner) {
-        if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, remainingSlotMinutes)) {
+        if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)) {
           remainingSlotMinutes = 0;
           break;
         }
@@ -758,7 +766,7 @@ function allocateTasksToSlots(options: {
         shouldProtectRecovery &&
         (slotSlice.energy === "low" || allTargetsMet)
       ) {
-        if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, remainingSlotMinutes)) {
+        if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)) {
           remainingSlotMinutes = 0;
           break;
         }
