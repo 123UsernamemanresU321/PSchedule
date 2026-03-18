@@ -517,12 +517,9 @@ function buildEventIntervals(day: Date, fixedEvents: FixedEvent[], preferences: 
 
       const clippedStart = start < dayStart ? dayStart : start;
       const clippedEnd = end > nextDay ? nextDay : end;
-      const bufferedStart =
-        event.category === "recovery"
-          ? clippedStart
-          : addMinutes(clippedStart, -preferences.bufferMinutesBeforeFixedEvent);
-
-      return createInterval(bufferedStart, clippedEnd);
+      // User-entered fixed-event times already include any preparation or travel padding.
+      // Keep study slots flush against the fixed boundary instead of carving out extra buffer.
+      return createInterval(clippedStart, clippedEnd);
     });
 }
 

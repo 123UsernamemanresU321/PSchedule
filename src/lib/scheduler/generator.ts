@@ -45,6 +45,20 @@ function getAllowedBlockTypesForSlot(slot: CalendarSlot) {
   }
 }
 
+export function getInlineBreakMinutes(
+  remainingSlotMinutes: number,
+  blockDurationMinutes: number,
+  requestedBreakMinutes: number,
+) {
+  const remainingAfterBlock = remainingSlotMinutes - blockDurationMinutes;
+
+  if (remainingAfterBlock < requestedBreakMinutes + MIN_ALLOCATABLE_MINUTES) {
+    return 0;
+  }
+
+  return requestedBreakMinutes;
+}
+
 function buildRecoveryBlock(slot: CalendarSlot, weekStart: string): StudyBlock {
   return {
     id: createId("block"),
@@ -677,10 +691,15 @@ function allocateTasksToSlots(options: {
           const recoveryBlock = buildRecoveryBlock(recoverySlot, weekStartKey);
           scheduledBlocks.push(recoveryBlock);
           dailyMinutes[slot.dateKey] = (dailyMinutes[slot.dateKey] ?? 0) + recoveryDuration;
-          cursor = addMinutes(cursor, recoveryDuration + minBreakMinutes);
+          const breakAfterRecovery = getInlineBreakMinutes(
+            remainingSlotMinutes,
+            recoveryDuration,
+            minBreakMinutes,
+          );
+          cursor = addMinutes(cursor, recoveryDuration + breakAfterRecovery);
           remainingSlotMinutes = Math.max(
             0,
-            remainingSlotMinutes - recoveryDuration - minBreakMinutes,
+            remainingSlotMinutes - recoveryDuration - breakAfterRecovery,
           );
           continue;
         }
@@ -707,10 +726,15 @@ function allocateTasksToSlots(options: {
           const recoveryBlock = buildRecoveryBlock(recoverySlot, weekStartKey);
           scheduledBlocks.push(recoveryBlock);
           dailyMinutes[slot.dateKey] = (dailyMinutes[slot.dateKey] ?? 0) + recoveryDuration;
-          cursor = addMinutes(cursor, recoveryDuration + minBreakMinutes);
+          const breakAfterRecovery = getInlineBreakMinutes(
+            remainingSlotMinutes,
+            recoveryDuration,
+            minBreakMinutes,
+          );
+          cursor = addMinutes(cursor, recoveryDuration + breakAfterRecovery);
           remainingSlotMinutes = Math.max(
             0,
-            remainingSlotMinutes - recoveryDuration - minBreakMinutes,
+            remainingSlotMinutes - recoveryDuration - breakAfterRecovery,
           );
           continue;
         }
@@ -754,15 +778,20 @@ function allocateTasksToSlots(options: {
         winner.task.sessionMode === "exam"
           ? Math.max(minBreakMinutes, 30)
           : minBreakMinutes;
+      const breakAfterBlock = getInlineBreakMinutes(
+        remainingSlotMinutes,
+        winner.blockOption.durationMinutes,
+        requiredBreakMinutes,
+      );
       cursor = addMinutes(
         cursor,
-        winner.blockOption.durationMinutes + requiredBreakMinutes,
+        winner.blockOption.durationMinutes + breakAfterBlock,
       );
       remainingSlotMinutes = Math.max(
         0,
         remainingSlotMinutes -
           winner.blockOption.durationMinutes -
-          requiredBreakMinutes,
+          breakAfterBlock,
       );
     }
   });

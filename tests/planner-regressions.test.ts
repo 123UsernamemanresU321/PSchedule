@@ -3,8 +3,12 @@ import assert from "node:assert/strict";
 
 import { buildSeedDataset } from "@/lib/seed";
 import { getCalendarCompletionForecast } from "@/lib/analytics/metrics";
-import { expandReservedCommitmentWindowsForWeek } from "@/lib/scheduler/free-slots";
-import { generateStudyPlanHorizon, shouldPreserveStudyBlockOnRegeneration } from "@/lib/scheduler/generator";
+import { calculateFreeSlots, expandReservedCommitmentWindowsForWeek } from "@/lib/scheduler/free-slots";
+import {
+  generateStudyPlanHorizon,
+  getInlineBreakMinutes,
+  shouldPreserveStudyBlockOnRegeneration,
+} from "@/lib/scheduler/generator";
 import {
   getActiveSickDaySeverity,
   isReservedCommitmentRuleActiveOnDate,
@@ -510,4 +514,44 @@ test("homework duration overrides change the reserved commitment length for one 
     ),
     120,
   );
+});
+
+test("fixed events do not carve out an extra pre-event buffer from the free slots", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-16T08:00:00"));
+  const preferences = {
+    ...dataset.preferences,
+    dailyStudyWindow: {
+      start: "16:00",
+      end: "19:00",
+    },
+    lockedRecoveryWindows: [],
+    reservedCommitmentRules: [],
+    bufferMinutesBeforeFixedEvent: 15,
+  };
+
+  const slots = calculateFreeSlots({
+    weekStart: new Date("2026-03-16T00:00:00"),
+    fixedEvents: [
+      {
+        id: "lesson",
+        title: "Lesson",
+        start: "2026-03-16T18:00:00+02:00",
+        end: "2026-03-16T19:00:00+02:00",
+        recurrence: "none",
+        flexibility: "fixed",
+        category: "activity",
+      },
+    ],
+    preferences,
+  });
+
+  const mondaySlot = slots.find((slot) => slot.dateKey === "2026-03-16");
+  assert.ok(mondaySlot);
+  assert.equal(mondaySlot?.end.getHours(), 18);
+  assert.equal(mondaySlot?.end.getMinutes(), 0);
+});
+
+test("the allocator does not force a gap when a busy boundary is immediately next", () => {
+  assert.equal(getInlineBreakMinutes(90, 60, 15), 0);
+  assert.equal(getInlineBreakMinutes(120, 60, 15), 15);
 });
