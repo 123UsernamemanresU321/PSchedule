@@ -14,6 +14,7 @@ import {
   initializePlannerDatabase,
   loadPlannerSnapshot,
   replacePlanningHorizon,
+  deleteCompletionLogsByStudyBlockId,
   saveCompletionLog,
   saveFixedEvent,
   savePreferences,
@@ -63,7 +64,7 @@ interface PlannerState {
   updatePreferences: (patch: Partial<Preferences>) => Promise<void>;
   updateStudyBlockStatus: (options: {
     blockId: string;
-    status: Extract<StudyBlockStatus, "done" | "partial" | "missed" | "rescheduled">;
+    status: Extract<StudyBlockStatus, "planned" | "done" | "partial" | "missed" | "rescheduled">;
     actualMinutes?: number;
     notes?: string;
     perceivedDifficulty?: CompletionLog["perceivedDifficulty"];
@@ -270,11 +271,15 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     const updatedBlock: StudyBlock = {
       ...block,
       status,
-      actualMinutes: nextActualMinutes,
+      actualMinutes: status === "planned" ? null : nextActualMinutes,
       notes,
     };
 
     await updateStudyBlock(updatedBlock);
+
+    if (status === "planned") {
+      await deleteCompletionLogsByStudyBlockId(block.id);
+    }
 
     if (status === "done" || status === "partial" || status === "missed") {
       const completionLog: CompletionLog = {
@@ -292,23 +297,46 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     if (block.topicId) {
       const topic = snapshot.topics.find((candidate) => candidate.id === block.topicId);
       if (topic) {
+        const previousActualMinutes = block.actualMinutes ?? block.estimatedMinutes;
+        const previousCompletedHoursDelta =
+          block.status === "done"
+            ? previousActualMinutes / 60
+            : block.status === "partial"
+              ? previousActualMinutes / 60
+              : 0;
+        const previousMasteryDelta =
+          block.status === "done"
+            ? 1
+            : block.status === "partial"
+              ? 0.5
+              : block.status === "missed"
+                ? -0.25
+                : 0;
         const completedHoursDelta =
           status === "done"
             ? nextActualMinutes / 60
             : status === "partial"
               ? nextActualMinutes / 60
               : 0;
-        const nextMastery =
-          status === "done"
-            ? Math.min(5, topic.mastery + 1)
-            : status === "partial"
-              ? Math.min(5, topic.mastery + 0.5)
-              : Math.max(0, topic.mastery - 0.25);
+        const nextMastery = clampMastery(
+          topic.mastery - previousMasteryDelta +
+            (status === "done"
+              ? 1
+              : status === "partial"
+                ? 0.5
+                : status === "missed"
+                  ? -0.25
+                  : 0),
+        );
         const nextTopic: Topic = {
           ...topic,
-          completedHours: Math.min(topic.estHours, topic.completedHours + completedHoursDelta),
+          completedHours: clampCompletedHours(
+            topic.completedHours - previousCompletedHoursDelta + completedHoursDelta,
+            topic.estHours,
+          ),
           mastery: nextMastery,
-          lastStudiedAt: new Date().toISOString(),
+          lastStudiedAt:
+            status === "planned" ? topic.lastStudiedAt : new Date().toISOString(),
         };
         nextTopic.status = deriveTopicStatus(nextTopic);
         await updateTopic(nextTopic);
@@ -318,13 +346,21 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     const now = new Date();
     const preservedStudyBlockIds = snapshot.studyBlocks
       .filter((candidate) => {
-        if (candidate.id === block.id || candidate.status !== "planned") {
+        if (candidate.status !== "planned") {
+          return false;
+        }
+
+        if (candidate.id === block.id && status !== "planned") {
           return false;
         }
 
         return new Date(candidate.end) > now;
       })
       .map((candidate) => candidate.id);
+
+    if (status === "planned") {
+      preservedStudyBlockIds.push(block.id);
+    }
 
     const nextSnapshot = await recalculateCurrentWeek({
       preservedStudyBlockIds,
@@ -361,3 +397,11 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     set({ selectedStudyBlockId: id });
   },
 }));
+
+function clampMastery(value: number) {
+  return Math.min(5, Math.max(0, value));
+}
+
+function clampCompletedHours(value: number, estHours: number) {
+  return Math.min(estHours, Math.max(0, value));
+}

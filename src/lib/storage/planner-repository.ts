@@ -708,6 +708,19 @@ export async function saveCompletionLog(log: CompletionLog) {
   await db.completionLogs.put(log);
 }
 
+export async function deleteCompletionLogsByStudyBlockId(studyBlockId: string) {
+  const completionLogIds = await db.completionLogs
+    .where("studyBlockId")
+    .equals(studyBlockId)
+    .primaryKeys();
+
+  if (!completionLogIds.length) {
+    return;
+  }
+
+  await db.completionLogs.bulkDelete(completionLogIds);
+}
+
 export async function updateTopic(topic: PlannerSnapshot["topics"][number]) {
   await db.topics.put(topic);
 }

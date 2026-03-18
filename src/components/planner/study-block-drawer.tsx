@@ -63,13 +63,15 @@ function StudyBlockDrawerPanel({
   );
 
   const handleStatusUpdate = async (
-    status: "done" | "partial" | "missed" | "rescheduled",
+    status: "planned" | "done" | "partial" | "missed" | "rescheduled",
   ) => {
     await onStatusUpdate({
       blockId: block.id,
       status,
       actualMinutes:
-        status === "missed"
+        status === "planned"
+          ? undefined
+          : status === "missed"
           ? 0
           : Math.max(0, Number(actualMinutes || block.estimatedMinutes)),
       notes,
@@ -238,6 +240,11 @@ function StudyBlockDrawerPanel({
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
+                {block.status !== "planned" ? (
+                  <Button variant="outline" onClick={() => void handleStatusUpdate("planned")}>
+                    Back to planned
+                  </Button>
+                ) : null}
                 <Button variant="default" onClick={() => void handleStatusUpdate("done")}>
                   Done
                 </Button>
