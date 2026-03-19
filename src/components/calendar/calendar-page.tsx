@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 import { addDays, subDays } from "date-fns";
-import { BookOpen, CalendarClock, ChevronLeft, ChevronRight, Music4, Plus, RefreshCw } from "lucide-react";
+import { BookOpen, CalendarClock, ChevronLeft, ChevronRight, Crosshair, Music4, Plus, RefreshCw } from "lucide-react";
 
 import {
   EventEditorDialog,
   type EventEditorDraft,
 } from "@/components/calendar/event-editor-dialog";
 import { CommitmentOverrideDialog } from "@/components/calendar/commitment-override-dialog";
+import { FocusDayDialog } from "@/components/calendar/focus-day-dialog";
 import { HorizonRoadmap } from "@/components/planner/horizon-roadmap";
 import { PlannerCalendar } from "@/components/calendar/planner-calendar";
 import { PageHeader } from "@/components/layout/page-header";
@@ -18,11 +19,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { getHorizonRoadmapSummary } from "@/lib/analytics/metrics";
 import { formatWeekRangeLabel, fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import { usePlannerStore } from "@/lib/store/planner-store";
+import { createId } from "@/lib/utils";
 
 export function CalendarPage() {
   const currentWeekStart = usePlannerStore((state) => state.currentWeekStart);
   const fixedEvents = usePlannerStore((state) => state.fixedEvents);
   const sickDays = usePlannerStore((state) => state.sickDays);
+  const focusedDays = usePlannerStore((state) => state.focusedDays);
   const preferences = usePlannerStore((state) => state.preferences);
   const studyBlocks = usePlannerStore((state) => state.studyBlocks);
   const topics = usePlannerStore((state) => state.topics);
@@ -31,7 +34,9 @@ export function CalendarPage() {
   const regenerateHorizon = usePlannerStore((state) => state.regenerateHorizon);
   const setCurrentWeekStart = usePlannerStore((state) => state.setCurrentWeekStart);
   const savePlannerFixedEvent = usePlannerStore((state) => state.saveFixedEvent);
+  const saveFocusedDay = usePlannerStore((state) => state.saveFocusedDay);
   const deleteFixedEvent = usePlannerStore((state) => state.deleteFixedEvent);
+  const deleteFocusedDay = usePlannerStore((state) => state.deleteFocusedDay);
   const updatePreferences = usePlannerStore((state) => state.updatePreferences);
   const selectStudyBlock = usePlannerStore((state) => state.selectStudyBlock);
   const [editorDraft, setEditorDraft] = useState<EventEditorDraft>(null);
@@ -40,6 +45,7 @@ export function CalendarPage() {
     date: string;
     mode: "add" | "remove";
   } | null>(null);
+  const [focusDayDraftDate, setFocusDayDraftDate] = useState<string | null>(null);
   const hasConfiguredConstraints =
     !!fixedEvents.length || !!preferences?.schoolSchedule.enabled || !!preferences?.holidaySchedule.enabled;
   const roadmapSummary = getHorizonRoadmapSummary(weeklyPlans, topics, currentWeekStart);
@@ -125,6 +131,14 @@ export function CalendarPage() {
               Adjust homework
             </Button>
             <Button
+              data-testid="calendar-set-focus"
+              variant="outline"
+              onClick={() => setFocusDayDraftDate(defaultOverrideDate)}
+            >
+              <Crosshair className="h-4 w-4" />
+              Set focus
+            </Button>
+            <Button
               data-testid="calendar-add-event"
               variant="outline"
               onClick={() =>
@@ -188,6 +202,7 @@ export function CalendarPage() {
           weekStart={currentWeekStart}
           fixedEvents={fixedEvents}
           sickDays={sickDays}
+          focusedDays={focusedDays}
           preferences={preferences}
           studyBlocks={studyBlocks}
           subjects={subjects}
@@ -206,6 +221,7 @@ export function CalendarPage() {
               allDay,
             })
           }
+          onManageFocusDay={(dateKey) => setFocusDayDraftDate(dateKey)}
           onEditFixedEvent={({ event, occurrenceStart, occurrenceEnd }) =>
             setEditorDraft({
               mode: "edit",
@@ -253,6 +269,30 @@ export function CalendarPage() {
         onSave={async (nextPreferences) => {
           await updatePreferences(nextPreferences);
           setCommitmentOverrideDraft(null);
+        }}
+      />
+
+      <FocusDayDialog
+        key={focusDayDraftDate ?? "focus-day-dialog"}
+        open={!!focusDayDraftDate}
+        defaultDate={focusDayDraftDate}
+        existingFocusedDay={
+          focusDayDraftDate
+            ? focusedDays.find((focusedDay) => focusedDay.date === focusDayDraftDate) ?? null
+            : null
+        }
+        subjects={subjects}
+        onClose={() => setFocusDayDraftDate(null)}
+        onDelete={async (id) => {
+          await deleteFocusedDay(id);
+          setFocusDayDraftDate(null);
+        }}
+        onSave={async (focusedDay) => {
+          await saveFocusedDay({
+            ...focusedDay,
+            id: focusedDay.id || createId("focused-day"),
+          });
+          setFocusDayDraftDate(null);
         }}
       />
     </div>

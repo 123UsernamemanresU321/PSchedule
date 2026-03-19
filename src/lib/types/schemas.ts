@@ -92,6 +92,13 @@ export const sickDaySchema = z.object({
   notes: z.string().optional(),
 });
 
+export const focusedDaySchema = z.object({
+  id: z.string(),
+  date: z.string(),
+  subjectIds: z.array(z.string()).min(1),
+  notes: z.string().optional(),
+});
+
 export const scoreBreakdownSchema = z.object({
   priorityWeight: z.number(),
   deadlineUrgency: z.number(),
@@ -100,6 +107,7 @@ export const scoreBreakdownSchema = z.object({
   reviewDueBonus: z.number(),
   neglectedSubjectBonus: z.number(),
   olympiadSlotBonus: z.number(),
+  focusDayBonus: z.number().optional().default(0),
   badSlotFitPenalty: z.number(),
   fragmentationPenalty: z.number(),
   total: z.number(),
@@ -305,6 +313,7 @@ export const plannerExportSchema = z.object({
   topics: z.array(topicSchema),
   fixedEvents: z.array(fixedEventSchema),
   sickDays: z.array(sickDaySchema).optional().default([]),
+  focusedDays: z.array(focusedDaySchema).optional().default([]),
   studyBlocks: z.array(studyBlockSchema),
   completionLogs: z.array(completionLogSchema),
   weeklyPlans: z.array(weeklyPlanSchema),

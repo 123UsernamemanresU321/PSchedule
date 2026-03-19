@@ -3,7 +3,7 @@
 import FullCalendar from "@fullcalendar/react";
 import interactionPlugin from "@fullcalendar/interaction";
 import timeGridPlugin from "@fullcalendar/timegrid";
-import { BedDouble, BookOpen, CheckCircle2, Coffee, Lock, Music4, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
+import { BedDouble, BookOpen, CheckCircle2, Coffee, Crosshair, Lock, Music4, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 import { addDays, differenceInMinutes, format } from "date-fns";
 
 import { SubjectBadge, getSubjectAccentStyles } from "@/components/planner/subject-badge";
@@ -17,7 +17,7 @@ import {
 } from "@/lib/scheduler/free-slots";
 import { getActiveSickDaySeverity } from "@/lib/scheduler/schedule-regime";
 import { fromDateKey } from "@/lib/dates/helpers";
-import type { FixedEvent, Preferences, SickDay, StudyBlock, Subject } from "@/lib/types/planner";
+import type { FixedEvent, FocusedDay, Preferences, SickDay, StudyBlock, Subject } from "@/lib/types/planner";
 
 function buildVisibleBreakEvents(options: {
   studyBlocks: StudyBlock[];
@@ -102,6 +102,7 @@ interface PlannerCalendarProps {
   weekStart: string;
   fixedEvents: FixedEvent[];
   sickDays: SickDay[];
+  focusedDays: FocusedDay[];
   preferences: Preferences;
   studyBlocks: StudyBlock[];
   subjects: Subject[];
@@ -116,12 +117,14 @@ interface PlannerCalendarProps {
     dateKey: string;
     ruleId: "piano-practice" | "term-homework";
   }) => void;
+  onManageFocusDay: (dateKey: string) => void;
 }
 
 export function PlannerCalendar({
   weekStart,
   fixedEvents,
   sickDays,
+  focusedDays,
   preferences,
   studyBlocks,
   subjects,
@@ -129,6 +132,7 @@ export function PlannerCalendar({
   onEditFixedEvent,
   onSelectStudyBlock,
   onManageReservedCommitmentDate,
+  onManageFocusDay,
 }: PlannerCalendarProps) {
   const subjectMap = new Map(subjects.map((subject) => [subject.id, subject]));
   const visibleWeekStart = fromDateKey(weekStart);
@@ -185,6 +189,24 @@ export function PlannerCalendar({
       },
     ];
   });
+  const focusedDayEvents = focusedDays
+    .filter((focusedDay) => {
+      const day = fromDateKey(focusedDay.date);
+      return day >= visibleWeekStart && day < visibleWeekEnd;
+    })
+    .map((focusedDay) => ({
+      id: `focused-day:${focusedDay.date}`,
+      title: `Focus: ${focusedDay.subjectIds
+        .map((subjectId) => subjectMap.get(subjectId)?.shortName ?? subjectId)
+        .join(", ")}`,
+      start: fromDateKey(focusedDay.date),
+      end: addDays(fromDateKey(focusedDay.date), 1),
+      allDay: true,
+      extendedProps: {
+        kind: "focused-day" as const,
+        focusedDay,
+      },
+    }));
   const blockedIntervals = [
     ...recoveryWindows.map((window) => ({
       start: new Date(window.start),
@@ -237,6 +259,7 @@ export function PlannerCalendar({
       };
     }),
     ...sickDayEvents,
+    ...focusedDayEvents,
     ...reservedCommitments.map((commitment) => ({
       id: `reserved:${commitment.id}`,
       title: commitment.title,
@@ -295,8 +318,15 @@ export function PlannerCalendar({
         events={calendarEvents}
         eventDisplay="block"
         dayCellClassNames={(arg) => {
+          const classNames: string[] = [];
           const severity = getActiveSickDaySeverity(arg.date, sickDays);
-          return severity ? [`planner-sick-day-${severity}`] : [];
+          if (severity) {
+            classNames.push(`planner-sick-day-${severity}`);
+          }
+          if (focusedDays.some((focusedDay) => focusedDay.date === toDateKey(arg.date))) {
+            classNames.push("planner-focused-day");
+          }
+          return classNames;
         }}
         select={(selection) =>
           onCreateEvent({
@@ -312,12 +342,18 @@ export function PlannerCalendar({
             | "recovery-window"
             | "reserved-commitment"
             | "break"
-            | "sick-day";
+            | "sick-day"
+            | "focused-day";
           if (
             kind === "recovery-window" ||
             kind === "break" ||
             kind === "sick-day"
           ) {
+            return;
+          }
+          if (kind === "focused-day") {
+            const focusedDay = clickInfo.event.extendedProps.focusedDay as FocusedDay;
+            onManageFocusDay(focusedDay.date);
             return;
           }
           if (kind === "reserved-commitment") {
@@ -371,7 +407,8 @@ export function PlannerCalendar({
             | "recovery-window"
             | "reserved-commitment"
             | "break"
-            | "sick-day";
+            | "sick-day"
+            | "focused-day";
           const eventStart = eventInfo.event.start ?? new Date();
           const eventEnd = eventInfo.event.end ?? eventStart;
           const durationMinutes = differenceInMinutes(eventEnd, eventStart);
@@ -393,6 +430,26 @@ export function PlannerCalendar({
                 data-event-title={eventInfo.event.title}
               >
                 <p className="truncate font-medium">{eventInfo.event.title}</p>
+              </div>
+            );
+          }
+
+          if (kind === "focused-day") {
+            const focusedDay = eventInfo.event.extendedProps.focusedDay as FocusedDay;
+
+            return (
+              <div
+                className="h-full overflow-hidden rounded-lg border border-primary/35 bg-primary/12 px-3 py-2 text-sm text-primary-foreground shadow-panel"
+                data-testid="calendar-focused-day"
+                data-event-title={eventInfo.event.title}
+              >
+                <div className="flex items-center gap-2">
+                  <Crosshair className="h-3.5 w-3.5" />
+                  <span className="truncate font-medium">{eventInfo.event.title}</span>
+                </div>
+                {focusedDay.notes ? (
+                  <p className="mt-1 truncate text-xs text-primary-foreground/75">{focusedDay.notes}</p>
+                ) : null}
               </div>
             );
           }

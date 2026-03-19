@@ -113,6 +113,13 @@ export interface SickDay {
   notes?: string;
 }
 
+export interface FocusedDay {
+  id: string;
+  date: string;
+  subjectIds: SubjectId[];
+  notes?: string;
+}
+
 export interface ScoreBreakdown {
   priorityWeight: number;
   deadlineUrgency: number;
@@ -121,6 +128,7 @@ export interface ScoreBreakdown {
   reviewDueBonus: number;
   neglectedSubjectBonus: number;
   olympiadSlotBonus: number;
+  focusDayBonus: number;
   badSlotFitPenalty: number;
   fragmentationPenalty: number;
   total: number;
@@ -278,6 +286,7 @@ export interface PlannerExportPayload {
   topics: Topic[];
   fixedEvents: FixedEvent[];
   sickDays: SickDay[];
+  focusedDays: FocusedDay[];
   studyBlocks: StudyBlock[];
   completionLogs: CompletionLog[];
   weeklyPlans: WeeklyPlan[];
@@ -343,6 +352,7 @@ export interface SeedDataset {
   topics: Topic[];
   fixedEvents: FixedEvent[];
   sickDays: SickDay[];
+  focusedDays: FocusedDay[];
   preferences: Preferences;
 }
 

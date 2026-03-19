@@ -11,6 +11,7 @@ export function buildSeedDataset(referenceDate = new Date()): SeedDataset {
     topics: buildSeedTopics(),
     fixedEvents: buildSeedFixedEvents(),
     sickDays: [],
+    focusedDays: [],
     preferences: buildSeedPreferences(),
   };
 }

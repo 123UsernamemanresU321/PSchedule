@@ -21,6 +21,7 @@ import {
 import { clamp, createId, recordFromKeys, sum } from "@/lib/utils";
 import type {
   CalendarSlot,
+  FocusedDay,
   Goal,
   SickDay,
   Preferences,
@@ -33,6 +34,7 @@ import type {
 } from "@/lib/types/planner";
 
 const MIN_ALLOCATABLE_MINUTES = 30;
+const FOCUSED_DAY_RESERVED_SHARE = 0.7;
 
 function getAllowedBlockTypesForSlot(slot: CalendarSlot) {
   switch (slot.sickDaySeverity) {
@@ -84,6 +86,7 @@ function buildRecoveryBlock(slot: CalendarSlot, weekStart: string): StudyBlock {
       reviewDueBonus: 0,
       neglectedSubjectBonus: 0,
       olympiadSlotBonus: 0,
+      focusDayBonus: 0,
       badSlotFitPenalty: 0,
       fragmentationPenalty: 0,
       total: 0,
@@ -182,6 +185,7 @@ function buildDailyTargetMinutes(options: {
   effectiveCapacityMinutes: number;
   preferences: Preferences;
   fillAvailableStudyDays: boolean;
+  focusedSubjectsByDate?: Record<string, string[]>;
 }) {
   const dayKeys = Object.keys(options.dayCapacityByDate).sort();
   const totalDayCapacity = sum(Object.values(options.dayCapacityByDate).map((entry) => entry.capacity));
@@ -198,6 +202,20 @@ function buildDailyTargetMinutes(options: {
     });
     return accumulator;
   }, {});
+
+  dayKeys.forEach((dayKey) => {
+    const focusedSubjectCount = options.focusedSubjectsByDate?.[dayKey]?.length ?? 0;
+    if (focusedSubjectCount <= 0) {
+      return;
+    }
+
+    const minimumFocusedTarget = Math.min(
+      options.dayCapacityByDate[dayKey].capacity,
+      Math.max(60, Math.min(focusedSubjectCount * 60, 180)),
+    );
+
+    targets[dayKey] = Math.max(targets[dayKey], minimumFocusedTarget);
+  });
 
   const reservedTargetMinutes = sum(Object.values(targets));
   const cappedEffectiveCapacityMinutes = clamp(
@@ -258,6 +276,100 @@ function buildDailyTargetMinutes(options: {
   }
 
   return targets;
+}
+
+function buildFocusedSubjectsByDate(focusedDays: FocusedDay[] = []) {
+  return focusedDays.reduce<Record<string, string[]>>((accumulator, focusedDay) => {
+    if (!focusedDay.subjectIds.length) {
+      return accumulator;
+    }
+
+    accumulator[focusedDay.date] = focusedDay.subjectIds;
+    return accumulator;
+  }, {});
+}
+
+function buildFocusedTargetMinutesByDate(options: {
+  focusedSubjectsByDate: Record<string, string[]>;
+  dayCapacityByDate: Record<string, DayCapacityEntry>;
+}) {
+  return Object.keys(options.focusedSubjectsByDate).reduce<Record<string, number>>(
+    (accumulator, dateKey) => {
+      const dayCapacityMinutes = options.dayCapacityByDate[dateKey]?.capacity ?? 0;
+
+      if (dayCapacityMinutes < MIN_ALLOCATABLE_MINUTES) {
+        accumulator[dateKey] = 0;
+        return accumulator;
+      }
+
+      const reservedMinutes = Math.min(
+        dayCapacityMinutes,
+        Math.max(
+          60,
+          Math.round((dayCapacityMinutes * FOCUSED_DAY_RESERVED_SHARE) / 15) * 15,
+        ),
+      );
+
+      accumulator[dateKey] = reservedMinutes;
+      return accumulator;
+    },
+    {},
+  );
+}
+
+function buildFocusedSubjectTargetMinutesByDate(options: {
+  focusedSubjectsByDate: Record<string, string[]>;
+  focusedTargetMinutesByDate: Record<string, number>;
+  requiredMinutesBySubject: Record<string, number>;
+}) {
+  return Object.entries(options.focusedSubjectsByDate).reduce<Record<string, Record<string, number>>>(
+    (accumulator, [dateKey, subjectIds]) => {
+      const totalFocusedTargetMinutes = options.focusedTargetMinutesByDate[dateKey] ?? 0;
+
+      if (totalFocusedTargetMinutes < MIN_ALLOCATABLE_MINUTES || !subjectIds.length) {
+        accumulator[dateKey] = {};
+        return accumulator;
+      }
+
+      const subjectWeights = subjectIds.map((subjectId) => ({
+        subjectId,
+        weight: Math.max(options.requiredMinutesBySubject[subjectId] ?? 0, 60),
+      }));
+      const totalWeight = sum(subjectWeights.map((entry) => entry.weight));
+      const subjectTargets = recordFromKeys(subjectIds, () => 0);
+      let assignedTargetMinutes = 0;
+
+      subjectWeights.forEach(({ subjectId, weight }) => {
+        const rawShare = (totalFocusedTargetMinutes * weight) / Math.max(totalWeight, 1);
+        const roundedShare = Math.max(
+          subjectWeights.length === 1 ? MIN_ALLOCATABLE_MINUTES : 0,
+          Math.floor(rawShare / 15) * 15,
+        );
+        subjectTargets[subjectId] = roundedShare;
+        assignedTargetMinutes += roundedShare;
+      });
+
+      while (assignedTargetMinutes + 15 <= totalFocusedTargetMinutes) {
+        const nextSubject = [...subjectWeights]
+          .sort((left, right) => {
+            const leftProgress = subjectTargets[left.subjectId] / Math.max(left.weight, 1);
+            const rightProgress = subjectTargets[right.subjectId] / Math.max(right.weight, 1);
+            return leftProgress - rightProgress;
+          })[0];
+
+        if (!nextSubject) {
+          break;
+        }
+
+        subjectTargets[nextSubject.subjectId] += 15;
+        assignedTargetMinutes += 15;
+      }
+
+      accumulator[dateKey] = subjectTargets;
+      return accumulator;
+    },
+    {},
+  );
 }
 
 function sumAssignedMinutesBySubject(blocks: StudyBlock[]) {
@@ -383,6 +495,7 @@ function allocateTasksToSlots(options: {
   protectRecovery?: boolean;
   blockSelectionPolicy?: BlockSelectionPolicy;
   fillAvailableStudyDays?: boolean;
+  focusedSubjectsByDate?: Record<string, string[]>;
 }) {
   const weekStartKey = toDateKey(options.weekStart);
   const subjectMap = new Map(options.subjects.map((subject) => [subject.id, subject]));
@@ -405,13 +518,24 @@ function allocateTasksToSlots(options: {
   const heavyBlocksPerDay: Record<string, number> = {};
   const subjectMinutesByDate: Record<string, Record<string, number>> = {};
 
-  function hasReachedWeeklyTarget(task: TaskCandidate) {
+  function hasReachedWeeklyTarget(task: TaskCandidate, dateKey?: string) {
     if (options.fillAvailableStudyDays) {
       return false;
     }
 
     if (!task.subjectId) {
       return false;
+    }
+
+    if (dateKey) {
+      const focusedSubjectTargetMinutes =
+        focusedSubjectTargetMinutesByDate[dateKey]?.[task.subjectId] ?? 0;
+      const focusedSubjectAssignedMinutes =
+        subjectMinutesByDate[dateKey]?.[task.subjectId] ?? 0;
+
+      if (focusedSubjectTargetMinutes > focusedSubjectAssignedMinutes + 14) {
+        return false;
+      }
     }
 
     const requiredMinutes = requiredMinutesBySubject[task.subjectId] ?? 0;
@@ -566,16 +690,63 @@ function allocateTasksToSlots(options: {
     (needsIntensityRamp ? 1 : 0) +
     (options.heavySessionBoost ?? 0);
   const minBreakMinutes = options.minBreakMinutes ?? options.preferences.minBreakMinutes;
+  const focusedSubjectsByDate = options.focusedSubjectsByDate ?? {};
   const dailyTargetMinutes = buildDailyTargetMinutes({
     dayCapacityByDate,
     effectiveCapacityMinutes,
     preferences: options.preferences,
     fillAvailableStudyDays: options.fillAvailableStudyDays ?? false,
+    focusedSubjectsByDate,
+  });
+  const focusedTargetMinutesByDate = buildFocusedTargetMinutesByDate({
+    focusedSubjectsByDate,
+    dayCapacityByDate,
+  });
+  const focusedSubjectTargetMinutesByDate = buildFocusedSubjectTargetMinutesByDate({
+    focusedSubjectsByDate,
+    focusedTargetMinutesByDate,
+    requiredMinutesBySubject,
   });
   let consumedStudyMinutes = 0;
   const workingTasks = cloneTasks(options.tasks);
   const scheduledBlocks: StudyBlock[] = [];
   let usedSundayMinutes = 0;
+
+  function getFocusedAssignedMinutes(dateKey: string) {
+    const focusedSubjectIds = focusedSubjectsByDate[dateKey] ?? [];
+    return focusedSubjectIds.reduce(
+      (total, subjectId) => total + (subjectMinutesByDate[dateKey]?.[subjectId] ?? 0),
+      0,
+    );
+  }
+
+  function getFocusedSubjectAssignedMinutes(dateKey: string, subjectId: string) {
+    return subjectMinutesByDate[dateKey]?.[subjectId] ?? 0;
+  }
+
+  function isFocusedSubjectUnderTarget(dateKey: string, subjectId: string) {
+    const subjectTargetMinutes = focusedSubjectTargetMinutesByDate[dateKey]?.[subjectId] ?? 0;
+    return subjectTargetMinutes > getFocusedSubjectAssignedMinutes(dateKey, subjectId) + 14;
+  }
+
+  function getUnmetFocusedSubjectIds(dateKey: string) {
+    const focusedSubjectIds = focusedSubjectsByDate[dateKey] ?? [];
+    if (!focusedSubjectIds.length) {
+      return [];
+    }
+
+    return focusedSubjectIds.filter((subjectId) => {
+      if (!isFocusedSubjectUnderTarget(dateKey, subjectId)) {
+        return false;
+      }
+
+      return workingTasks.some(
+        (task) =>
+          task.subjectId === subjectId &&
+          task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
+      );
+    });
+  }
 
   function extendScheduledStudyBlock(block: StudyBlock, extraMinutes: number) {
     if (!block.subjectId || extraMinutes <= 0) {
@@ -738,7 +909,7 @@ function allocateTasksToSlots(options: {
         .filter((task) => !task.availableAt || new Date(task.availableAt) <= slotSlice.start)
         .filter((task) => !task.latestAt || new Date(task.latestAt) >= slotSlice.start)
         .filter((task) => isTaskDependencySatisfied(task, slotSlice.start))
-        .filter((task) => !hasReachedWeeklyTarget(task))
+        .filter((task) => !hasReachedWeeklyTarget(task, slot.dateKey))
         .map((task) => {
           const blockOption = selectBlockOption(
             task,
@@ -773,6 +944,10 @@ function allocateTasksToSlots(options: {
 
           if (
             blockOption.intensity === "heavy" &&
+            !(
+              task.subjectId &&
+              isFocusedSubjectUnderTarget(slot.dateKey, task.subjectId)
+            ) &&
             (heavyBlocksPerDay[slot.dateKey] ?? 0) >= slotHeavyLimit
           ) {
             return null;
@@ -783,6 +958,13 @@ function allocateTasksToSlots(options: {
             preferences: options.preferences,
             requiredMinutesBySubject,
             assignedMinutesBySubject,
+            focusedSubjectIdsByDate: focusedSubjectsByDate,
+            focusedTargetMinutesByDate,
+            focusedSubjectTargetMinutesByDate,
+            subjectMinutesByDate,
+            hasFocusDemandByDate: {
+              [slot.dateKey]: getUnmetFocusedSubjectIds(slot.dateKey).length > 0,
+            },
             referenceDate: options.referenceDate,
           });
           const cadenceBonus = getCadenceBonus(task, slot.dateKey);
@@ -808,7 +990,20 @@ function allocateTasksToSlots(options: {
         scoreBreakdown: StudyBlock["scoreBreakdown"];
       }>;
 
-      const winner = scoredOptions[0];
+      const focusedTargetMinutes = focusedTargetMinutesByDate[slot.dateKey] ?? 0;
+      const unmetFocusedSubjectIds = getUnmetFocusedSubjectIds(slot.dateKey);
+      const focusedTargetStillOpen =
+        focusedTargetMinutes > 0 &&
+        unmetFocusedSubjectIds.length > 0 &&
+        getFocusedAssignedMinutes(slot.dateKey) + 14 < focusedTargetMinutes;
+      const focusedOptions = focusedTargetStillOpen
+        ? scoredOptions.filter(
+            (candidate) =>
+              !!candidate.task.subjectId &&
+              unmetFocusedSubjectIds.includes(candidate.task.subjectId),
+          )
+        : [];
+      const winner = focusedOptions[0] ?? scoredOptions[0];
       const allTargetsMet = allWeeklyTargetsSatisfied();
       const shouldProtectRecovery =
         mustFillEndOfDaySlot
@@ -1049,6 +1244,7 @@ export function generateStudyPlanForWeek(options: {
   topics: Topic[];
   fixedEvents: import("@/lib/types/planner").FixedEvent[];
   sickDays?: SickDay[];
+  focusedDays?: FocusedDay[];
   preferences: Preferences;
   lockedBlocks?: StudyBlock[];
   existingPlannedBlocks?: StudyBlock[];
@@ -1061,6 +1257,7 @@ export function generateStudyPlanForWeek(options: {
   const isPartialCurrentWeek = toDateKey(referenceDate) !== toDateKey(weekStart);
   const lockedBlocks = options.lockedBlocks ?? [];
   const sickDays = options.sickDays ?? [];
+  const focusedDays = options.focusedDays ?? [];
   const weekStartKey = toDateKey(weekStart);
   const existingPlannedBlocks = options.existingPlannedBlocks ?? lockedBlocks;
   const deadlineTracks = computeSubjectDeadlineTracks({
@@ -1142,6 +1339,7 @@ export function generateStudyPlanForWeek(options: {
     requiredMinutes,
     preferences: options.preferences,
   });
+  const focusedSubjectsByDate = buildFocusedSubjectsByDate(focusedDays);
   const passPolicies = buildAllocationPasses(
     Math.max(options.dailyCapBoostMinutes ?? 0, automaticDailyCapBoostMinutes),
     { partialCurrentWeek: isPartialCurrentWeek },
@@ -1217,6 +1415,7 @@ export function generateStudyPlanForWeek(options: {
       protectRecovery: passPolicy.protectRecovery,
       blockSelectionPolicy: passPolicy.blockSelectionPolicy,
       fillAvailableStudyDays: shouldFillAvailableStudyDays,
+      focusedSubjectsByDate,
     });
 
     if (!result.scheduledBlocks.length) {
@@ -1321,6 +1520,7 @@ export function generateStudyPlanHorizon(options: {
   topics: Topic[];
   fixedEvents: import("@/lib/types/planner").FixedEvent[];
   sickDays?: SickDay[];
+  focusedDays?: FocusedDay[];
   preferences: Preferences;
   existingStudyBlocks?: StudyBlock[];
   preservedStudyBlockIds?: string[];
@@ -1353,6 +1553,7 @@ export function generateStudyPlanHorizon(options: {
       topics: options.topics,
       fixedEvents: options.fixedEvents,
       sickDays: options.sickDays,
+      focusedDays: options.focusedDays,
       preferences: options.preferences,
       lockedBlocks,
       existingPlannedBlocks: [...accumulatedBlocks, ...lockedBlocks],

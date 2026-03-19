@@ -6,6 +6,7 @@ import { fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers"
 import { generateStudyPlanHorizon } from "@/lib/scheduler/generator";
 import {
   deleteFixedEventById,
+  deleteFocusedDayById as deleteFocusedDayRecordById,
   deleteSickDayById as deleteSickDayRecordById,
   excludeFixedEventOccurrence,
   exportPlannerData,
@@ -17,6 +18,7 @@ import {
   deleteCompletionLogsByStudyBlockId,
   saveCompletionLog,
   saveFixedEvent,
+  saveFocusedDay as persistFocusedDay,
   savePreferences,
   saveSickDay as persistSickDay,
   updateStudyBlock,
@@ -25,6 +27,7 @@ import {
 import type {
   CompletionLog,
   FixedEvent,
+  FocusedDay,
   PlannerExportPayload,
   Preferences,
   SickDay,
@@ -44,6 +47,7 @@ interface PlannerState {
   topics: PlannerExportPayload["topics"];
   fixedEvents: PlannerExportPayload["fixedEvents"];
   sickDays: PlannerExportPayload["sickDays"];
+  focusedDays: PlannerExportPayload["focusedDays"];
   studyBlocks: PlannerExportPayload["studyBlocks"];
   completionLogs: PlannerExportPayload["completionLogs"];
   weeklyPlans: PlannerExportPayload["weeklyPlans"];
@@ -55,12 +59,14 @@ interface PlannerState {
   regenerateHorizon: () => Promise<void>;
   saveFixedEvent: (event: FixedEvent) => Promise<void>;
   saveSickDay: (sickDay: SickDay) => Promise<void>;
+  saveFocusedDay: (focusedDay: FocusedDay) => Promise<void>;
   deleteFixedEvent: (options: {
     id: string;
     scope?: "occurrence" | "series";
     occurrenceDate?: string;
   }) => Promise<void>;
   deleteSickDay: (id: string) => Promise<void>;
+  deleteFocusedDay: (id: string) => Promise<void>;
   updatePreferences: (patch: Partial<Preferences>) => Promise<void>;
   updateStudyBlockStatus: (options: {
     blockId: string;
@@ -105,6 +111,7 @@ async function recalculateCurrentWeek(options?: { preservedStudyBlockIds?: strin
     topics: snapshot.topics,
     fixedEvents: snapshot.fixedEvents,
     sickDays: snapshot.sickDays,
+    focusedDays: snapshot.focusedDays,
     preferences: snapshot.preferences,
     existingStudyBlocks: snapshot.studyBlocks,
     preservedStudyBlockIds: options?.preservedStudyBlockIds,
@@ -128,6 +135,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   topics: [],
   fixedEvents: [],
   sickDays: [],
+  focusedDays: [],
   studyBlocks: [],
   completionLogs: [],
   weeklyPlans: [],
@@ -202,6 +210,11 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     await get().regenerateHorizon();
     get().setCurrentWeekStart(sickDay.startDate);
   },
+  saveFocusedDay: async (focusedDay) => {
+    await persistFocusedDay(focusedDay);
+    await get().regenerateHorizon();
+    get().setCurrentWeekStart(focusedDay.date);
+  },
   deleteFixedEvent: async ({ id, scope = "series", occurrenceDate }) => {
     if (scope === "occurrence" && occurrenceDate) {
       await excludeFixedEventOccurrence(id, occurrenceDate);
@@ -212,6 +225,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
   deleteSickDay: async (id) => {
     await deleteSickDayRecordById(id);
+    await get().regenerateHorizon();
+  },
+  deleteFocusedDay: async (id) => {
+    await deleteFocusedDayRecordById(id);
     await get().regenerateHorizon();
   },
   updatePreferences: async (patch) => {

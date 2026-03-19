@@ -5,6 +5,7 @@ import { buildSeedDataset } from "@/lib/seed";
 import { getCalendarCompletionForecast } from "@/lib/analytics/metrics";
 import { calculateFreeSlots, expandReservedCommitmentWindowsForWeek } from "@/lib/scheduler/free-slots";
 import {
+  generateStudyPlanForWeek,
   generateStudyPlanHorizon,
   getInlineBreakMinutes,
   shouldPreserveStudyBlockOnRegeneration,
@@ -42,6 +43,7 @@ function createStudyBlock(overrides: Partial<StudyBlock> = {}): StudyBlock {
       reviewDueBonus: 0,
       neglectedSubjectBonus: 0,
       olympiadSlotBonus: 0,
+      focusDayBonus: 0,
       badSlotFitPenalty: 0,
       fragmentationPenalty: 0,
       total: 0,
@@ -292,6 +294,221 @@ test("generated horizon passes core validation checks for a short seeded window"
     [],
     `expected no blocking validation issues, got: ${errorIssues.map((issue) => issue.message).join(" | ")}`,
   );
+});
+
+test("single-subject focused days reserve most of the day for that subject", () => {
+  const referenceDate = new Date("2026-03-16T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const focusedDate = "2026-03-23";
+  const basePhysics = dataset.subjects.find((subject) => subject.id === "physics-hl");
+  const baseChemistry = dataset.subjects.find((subject) => subject.id === "chemistry-hl");
+
+  assert.ok(basePhysics);
+  assert.ok(baseChemistry);
+
+  const result = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T00:00:00"),
+    goals: [
+      {
+        id: "goal-physics",
+        title: "Physics deadline",
+        subjectId: "physics-hl",
+        deadline: "2026-04-30",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+      {
+        id: "goal-chemistry",
+        title: "Chemistry deadline",
+        subjectId: "chemistry-hl",
+        deadline: "2026-05-30",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [
+      { ...basePhysics, deadline: "2026-04-30" },
+      { ...baseChemistry, deadline: "2026-05-30" },
+    ],
+    topics: [
+      {
+        id: "physics-focus-topic",
+        subjectId: "physics-hl",
+        unitId: "focus-unit-physics",
+        unitTitle: "Focus unit",
+        title: "Physics focus topic",
+        subtopics: ["Focused physics work"],
+        estHours: 10,
+        completedHours: 0,
+        difficulty: 3,
+        status: "not_started",
+        mastery: 0,
+        reviewDue: null,
+        lastStudiedAt: null,
+        sourceMaterials: [],
+        preferredBlockTypes: ["drill"],
+        order: 1,
+      },
+      {
+        id: "chemistry-background-topic",
+        subjectId: "chemistry-hl",
+        unitId: "focus-unit-chem",
+        unitTitle: "Background unit",
+        title: "Chemistry background topic",
+        subtopics: ["Background chemistry work"],
+        estHours: 10,
+        completedHours: 0,
+        difficulty: 3,
+        status: "not_started",
+        mastery: 0,
+        reviewDue: null,
+        lastStudiedAt: null,
+        sourceMaterials: [],
+        preferredBlockTypes: ["drill"],
+        order: 1,
+      },
+    ],
+    fixedEvents: [],
+    preferences: {
+      ...dataset.preferences,
+      reservedCommitmentRules: [],
+      schoolSchedule: {
+        ...dataset.preferences.schoolSchedule,
+        enabled: false,
+        terms: [],
+      },
+      holidaySchedule: {
+        ...dataset.preferences.holidaySchedule,
+        enabled: true,
+      },
+    },
+    focusedDays: [
+      {
+        id: "focus-physics",
+        date: focusedDate,
+        subjectIds: ["physics-hl"],
+      },
+    ],
+  });
+
+  const focusedDayBlocks = result.studyBlocks.filter(
+    (block) => block.date === focusedDate && block.subjectId,
+  );
+  const totalMinutes = focusedDayBlocks.reduce((total, block) => total + block.estimatedMinutes, 0);
+  const physicsMinutes = focusedDayBlocks
+    .filter((block) => block.subjectId === "physics-hl")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+
+  assert.ok(totalMinutes >= 60, "expected focused day to contain real study time");
+  assert.ok(physicsMinutes / totalMinutes >= 0.65);
+});
+
+test("multi-subject focused days split work by pressure instead of equally", () => {
+  const referenceDate = new Date("2026-03-16T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const basePhysics = dataset.subjects.find((subject) => subject.id === "physics-hl");
+  const baseChemistry = dataset.subjects.find((subject) => subject.id === "chemistry-hl");
+
+  assert.ok(basePhysics);
+  assert.ok(baseChemistry);
+
+  const result = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T00:00:00"),
+    goals: [
+      {
+        id: "goal-physics",
+        title: "Physics deadline",
+        subjectId: "physics-hl",
+        deadline: "2026-04-15",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+      {
+        id: "goal-chemistry",
+        title: "Chemistry deadline",
+        subjectId: "chemistry-hl",
+        deadline: "2026-06-15",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [
+      { ...basePhysics, deadline: "2026-04-15" },
+      { ...baseChemistry, deadline: "2026-06-15" },
+    ],
+    topics: [
+      {
+        id: "physics-focus-topic",
+        subjectId: "physics-hl",
+        unitId: "focus-unit-physics",
+        unitTitle: "Focus unit",
+        title: "Physics focus topic",
+        subtopics: ["High-priority physics work"],
+        estHours: 8,
+        completedHours: 0,
+        difficulty: 3,
+        status: "not_started",
+        mastery: 0,
+        reviewDue: null,
+        lastStudiedAt: null,
+        sourceMaterials: [],
+        preferredBlockTypes: ["drill"],
+        order: 1,
+      },
+      {
+        id: "chemistry-focus-topic",
+        subjectId: "chemistry-hl",
+        unitId: "focus-unit-chem",
+        unitTitle: "Focus unit",
+        title: "Chemistry focus topic",
+        subtopics: ["Lower-pressure chemistry work"],
+        estHours: 8,
+        completedHours: 0,
+        difficulty: 3,
+        status: "not_started",
+        mastery: 0,
+        reviewDue: null,
+        lastStudiedAt: null,
+        sourceMaterials: [],
+        preferredBlockTypes: ["drill"],
+        order: 1,
+      },
+    ],
+    fixedEvents: [],
+    preferences: {
+      ...dataset.preferences,
+      reservedCommitmentRules: [],
+      schoolSchedule: {
+        ...dataset.preferences.schoolSchedule,
+        enabled: false,
+        terms: [],
+      },
+      holidaySchedule: {
+        ...dataset.preferences.holidaySchedule,
+        enabled: true,
+      },
+    },
+    focusedDays: [
+      {
+        id: "focus-physics-chem",
+        date: "2026-03-23",
+        subjectIds: ["physics-hl", "chemistry-hl"],
+      },
+    ],
+  });
+
+  const focusedDayBlocks = result.studyBlocks.filter(
+    (block) => block.date === "2026-03-23" && block.subjectId,
+  );
+  const physicsMinutes = focusedDayBlocks
+    .filter((block) => block.subjectId === "physics-hl")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+  const chemistryMinutes = focusedDayBlocks
+    .filter((block) => block.subjectId === "chemistry-hl")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+
+  assert.ok(physicsMinutes > 0, "expected at least some physics time on the focused day");
+  assert.ok(physicsMinutes >= chemistryMinutes);
 });
 
 test("overlapping sick-day ranges resolve to the highest active severity", () => {

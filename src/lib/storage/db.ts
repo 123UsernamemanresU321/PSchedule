@@ -3,6 +3,7 @@ import Dexie, { type Table } from "dexie";
 import type {
   CompletionLog,
   FixedEvent,
+  FocusedDay,
   Goal,
   Preferences,
   SickDay,
@@ -23,6 +24,7 @@ class PlannerDatabase extends Dexie {
   topics!: Table<Topic, string>;
   fixedEvents!: Table<FixedEvent, string>;
   sickDays!: Table<SickDay, string>;
+  focusedDays!: Table<FocusedDay, string>;
   studyBlocks!: Table<StudyBlock, string>;
   completionLogs!: Table<CompletionLog, string>;
   weeklyPlans!: Table<WeeklyPlan, string>;
@@ -50,6 +52,21 @@ class PlannerDatabase extends Dexie {
       topics: "id, subjectId, unitId, status, reviewDue",
       fixedEvents: "id, start, end, recurrence, category",
       sickDays: "id, startDate, endDate, severity",
+      focusedDays: "id, date",
+      studyBlocks: "id, weekStart, date, subjectId, status",
+      completionLogs: "id, studyBlockId, recordedAt",
+      weeklyPlans: "weekStart, riskFlag",
+      preferences: "id",
+      meta: "key",
+    });
+
+    this.version(3).stores({
+      goals: "id, subjectId, deadline",
+      subjects: "id, category",
+      topics: "id, subjectId, unitId, status, reviewDue",
+      fixedEvents: "id, start, end, recurrence, category",
+      sickDays: "id, startDate, endDate, severity",
+      focusedDays: "id, date",
       studyBlocks: "id, weekStart, date, subjectId, status",
       completionLogs: "id, studyBlockId, recordedAt",
       weeklyPlans: "weekStart, riskFlag",

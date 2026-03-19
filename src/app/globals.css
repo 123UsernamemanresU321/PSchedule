@@ -173,6 +173,12 @@ select {
   background: linear-gradient(180deg, rgba(251, 113, 133, 0.09), rgba(251, 113, 133, 0.03));
 }
 
+.fc .planner-focused-day {
+  background-image:
+    linear-gradient(180deg, rgba(59, 130, 246, 0.11), rgba(59, 130, 246, 0.03)),
+    linear-gradient(90deg, rgba(96, 165, 250, 0.05), transparent 35%);
+}
+
 .fc .fc-daygrid-event,
 .fc .fc-timegrid-allday-event {
   border: none;

@@ -15,6 +15,11 @@ export interface ScoringContext {
   preferences: Preferences;
   requiredMinutesBySubject: Record<string, number>;
   assignedMinutesBySubject: Record<string, number>;
+  focusedSubjectIdsByDate?: Record<string, string[]>;
+  focusedTargetMinutesByDate?: Record<string, number>;
+  focusedSubjectTargetMinutesByDate?: Record<string, Record<string, number>>;
+  subjectMinutesByDate?: Record<string, Record<string, number>>;
+  hasFocusDemandByDate?: Record<string, boolean>;
   referenceDate: Date;
 }
 
@@ -33,6 +38,7 @@ export function scoreTaskCandidate(
       reviewDueBonus: 0,
       neglectedSubjectBonus: 0,
       olympiadSlotBonus: 0,
+      focusDayBonus: 0,
       badSlotFitPenalty: 0,
       fragmentationPenalty: 0,
       total: 0,
@@ -83,6 +89,32 @@ export function scoreTaskCandidate(
           ? 2
           : -7
       : 0;
+  const focusedSubjectIds = context.focusedSubjectIdsByDate?.[slot.dateKey] ?? [];
+  const hasFocusDemand = context.hasFocusDemandByDate?.[slot.dateKey] ?? false;
+  const focusedTargetMinutes = context.focusedTargetMinutesByDate?.[slot.dateKey] ?? 0;
+  const focusedAssignedMinutes = focusedSubjectIds.reduce(
+    (total, subjectId) => total + (context.subjectMinutesByDate?.[slot.dateKey]?.[subjectId] ?? 0),
+    0,
+  );
+  const subjectIsFocused = focusedSubjectIds.includes(task.subjectId);
+  const focusedSubjectTargetMinutes =
+    context.focusedSubjectTargetMinutesByDate?.[slot.dateKey]?.[task.subjectId] ?? 0;
+  const focusedSubjectAssignedMinutes =
+    context.subjectMinutesByDate?.[slot.dateKey]?.[task.subjectId] ?? 0;
+  const focusTargetStillOpen =
+    hasFocusDemand && focusedTargetMinutes > focusedAssignedMinutes + 14;
+  const focusedSubjectTargetStillOpen =
+    subjectIsFocused && focusedSubjectTargetMinutes > focusedSubjectAssignedMinutes + 14;
+  const focusDayBonus =
+    !focusedSubjectIds.length
+      ? 0
+      : subjectIsFocused
+        ? focusedSubjectTargetStillOpen
+          ? 20
+          : 8
+        : focusTargetStillOpen
+          ? -18
+          : 0;
   const sequencePenalty =
     task.kind === "topic"
       ? clamp(task.blockedByEarlierTopics, 0, 6) * 13
@@ -97,7 +129,8 @@ export function scoreTaskCandidate(
     lowMasteryBonus +
     reviewDueBonus +
     neglectedSubjectBonus +
-    olympiadSlotBonus -
+    olympiadSlotBonus +
+    focusDayBonus -
     sequencePenalty -
     badSlotFitPenalty -
     fragmentationPenalty;
@@ -110,6 +143,7 @@ export function scoreTaskCandidate(
     reviewDueBonus,
     neglectedSubjectBonus,
     olympiadSlotBonus,
+    focusDayBonus,
     badSlotFitPenalty,
     fragmentationPenalty,
     total: Math.round(total * 10) / 10,
@@ -141,6 +175,10 @@ export function buildGeneratedReason(
     {
       label: "the subject has been neglected recently",
       value: scoreBreakdown.neglectedSubjectBonus,
+    },
+    {
+      label: "this day is focused on this subject",
+      value: scoreBreakdown.focusDayBonus,
     },
   ]
     .filter((reason) => reason.value > 0)
