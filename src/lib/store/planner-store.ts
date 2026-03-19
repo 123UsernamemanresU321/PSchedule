@@ -75,6 +75,11 @@ interface PlannerState {
     notes?: string;
     perceivedDifficulty?: CompletionLog["perceivedDifficulty"];
   }) => Promise<void>;
+  requestMorePractice: (options: {
+    blockId: string;
+    extraMinutes?: number;
+    notes?: string;
+  }) => Promise<void>;
   exportToJson: () => Promise<string>;
   importFromJson: (rawJson: string) => Promise<void>;
   selectStudyBlock: (id: string | null) => void;
@@ -389,6 +394,54 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     });
     get().setCurrentWeekStart(block.weekStart);
   },
+  requestMorePractice: async ({ blockId, extraMinutes, notes = "" }) => {
+    const snapshot = await loadPlannerSnapshot();
+    const block = snapshot.studyBlocks.find((candidate) => candidate.id === blockId);
+
+    if (!block?.topicId) {
+      return;
+    }
+
+    const topic = snapshot.topics.find((candidate) => candidate.id === block.topicId);
+    if (!topic) {
+      return;
+    }
+
+    const additionalPracticeMinutes = resolveAdditionalPracticeMinutes(block, extraMinutes);
+    const nextTopic: Topic = {
+      ...topic,
+      estHours: roundToQuarterHour(topic.estHours + additionalPracticeMinutes / 60),
+      mastery: clampMastery(topic.mastery - 0.35),
+      notes: appendMorePracticeNote(topic.notes, {
+        addedMinutes: additionalPracticeMinutes,
+        sourceDate: block.date,
+        extraNotes: notes,
+      }),
+    };
+    nextTopic.status = deriveTopicStatus(nextTopic);
+    await updateTopic(nextTopic);
+
+    const now = new Date();
+    const preservedStudyBlockIds = snapshot.studyBlocks
+      .filter((candidate) => {
+        if (candidate.status !== "planned") {
+          return false;
+        }
+
+        return new Date(candidate.end) > now;
+      })
+      .map((candidate) => candidate.id);
+
+    const nextSnapshot = await recalculateCurrentWeek({
+      preservedStudyBlockIds,
+    });
+    set({
+      ...nextSnapshot,
+      loading: false,
+      error: null,
+    });
+    get().setCurrentWeekStart(block.weekStart);
+  },
   exportToJson: async () => {
     const payload = await exportPlannerData();
     return JSON.stringify(payload, null, 2);
@@ -421,4 +474,22 @@ function clampMastery(value: number) {
 
 function clampCompletedHours(value: number, estHours: number) {
   return Math.min(estHours, Math.max(0, value));
+}
+
+function resolveAdditionalPracticeMinutes(block: StudyBlock, explicitMinutes?: number) {
+  const baseMinutes = explicitMinutes ?? block.actualMinutes ?? block.estimatedMinutes;
+  return Math.max(30, Math.ceil(Math.max(baseMinutes, 0) / 30) * 30);
+}
+
+function roundToQuarterHour(value: number) {
+  return Math.round(value * 4) / 4;
+}
+
+function appendMorePracticeNote(
+  existingNotes: string | undefined,
+  options: { addedMinutes: number; sourceDate: string; extraNotes?: string },
+) {
+  const baseNotes = existingNotes?.trim();
+  const morePracticeLine = `More practice requested on ${options.sourceDate}: +${options.addedMinutes} min${options.extraNotes?.trim() ? ` (${options.extraNotes.trim()})` : ""}`;
+  return baseNotes ? `${baseNotes}\n${morePracticeLine}` : morePracticeLine;
 }

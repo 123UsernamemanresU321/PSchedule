@@ -21,6 +21,7 @@ export function StudyBlockDrawer() {
   const topics = usePlannerStore((state) => state.topics);
   const selectStudyBlock = usePlannerStore((state) => state.selectStudyBlock);
   const updateStudyBlockStatus = usePlannerStore((state) => state.updateStudyBlockStatus);
+  const requestMorePractice = usePlannerStore((state) => state.requestMorePractice);
 
   const block = studyBlocks.find((candidate) => candidate.id === selectedStudyBlockId);
   const subject = block?.subjectId
@@ -40,6 +41,7 @@ export function StudyBlockDrawer() {
       topic={topic}
       onClose={() => selectStudyBlock(null)}
       onStatusUpdate={updateStudyBlockStatus}
+      onMorePractice={requestMorePractice}
     />
   );
 }
@@ -50,12 +52,14 @@ function StudyBlockDrawerPanel({
   topic,
   onClose,
   onStatusUpdate,
+  onMorePractice,
 }: {
   block: StudyBlock;
   subject: Subject | null;
   topic: Topic | null | undefined;
   onClose: () => void;
   onStatusUpdate: ReturnType<typeof usePlannerStore.getState>["updateStudyBlockStatus"];
+  onMorePractice: ReturnType<typeof usePlannerStore.getState>["requestMorePractice"];
 }) {
   const [notes, setNotes] = useState(block.notes);
   const [actualMinutes, setActualMinutes] = useState(
@@ -74,6 +78,15 @@ function StudyBlockDrawerPanel({
           : status === "missed"
           ? 0
           : Math.max(0, Number(actualMinutes || block.estimatedMinutes)),
+      notes,
+    });
+    onClose();
+  };
+
+  const handleMorePractice = async () => {
+    await onMorePractice({
+      blockId: block.id,
+      extraMinutes: Math.max(0, Number(actualMinutes || block.estimatedMinutes)),
       notes,
     });
     onClose();
@@ -240,6 +253,11 @@ function StudyBlockDrawerPanel({
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
+                {block.topicId ? (
+                  <Button variant="outline" onClick={() => void handleMorePractice()}>
+                    More practice
+                  </Button>
+                ) : null}
                 {block.status !== "planned" ? (
                   <Button variant="outline" onClick={() => void handleStatusUpdate("planned")}>
                     Back to planned
