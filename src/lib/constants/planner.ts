@@ -142,8 +142,8 @@ export const subjectPrioritySeed: Record<string, number> = {
   "chemistry-hl": 0.9,
   olympiad: 0.85,
   "cpp-book": 0.45,
-  "english-a-sl": 0.35,
-  "french-b-sl": 0.35,
+  "english-a-sl": 0,
+  "french-b-sl": 0.15,
   "geography-transition": 0.4,
 };
 

@@ -555,3 +555,26 @@ test("the allocator does not force a gap when a busy boundary is immediately nex
   assert.equal(getInlineBreakMinutes(90, 60, 15), 0);
   assert.equal(getInlineBreakMinutes(120, 60, 15), 15);
 });
+
+test("english is no longer auto-seeded for study and french is only light grammar/vocab maintenance", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-19T08:00:00"));
+  const englishTopics = dataset.topics.filter((topic) => topic.subjectId === "english-a-sl");
+  const frenchTopics = dataset.topics.filter((topic) => topic.subjectId === "french-b-sl");
+
+  assert.equal(englishTopics.length, 0);
+  assert.ok(frenchTopics.length > 0);
+  assert.ok(
+    frenchTopics.every(
+      (topic) =>
+        topic.title.toLowerCase().includes("grammar") ||
+        topic.title.toLowerCase().includes("vocabulary"),
+    ),
+  );
+  assert.ok(
+    frenchTopics.every(
+      (topic) =>
+        topic.availableFrom !== null &&
+        topic.availableFrom !== undefined,
+    ),
+  );
+});

@@ -72,6 +72,58 @@ function buildOlympiadGoldPhaseWeeks() {
 
 const olympiadGoldPhaseWeeks = buildOlympiadGoldPhaseWeeks();
 
+function buildFrenchMaintenanceBlueprints(): SeedTopicBlueprint[] {
+  const sessions: SeedTopicBlueprint[] = [];
+  let cursor = new Date("2026-03-23T00:00:00");
+  const end = new Date("2027-06-29T00:00:00");
+  let index = 1;
+
+  while (cursor.getTime() <= end.getTime()) {
+    const isGrammarSession = index % 2 === 1;
+    sessions.push({
+      id: `french-maintenance-${String(index).padStart(2, "0")}`,
+      subjectId: "french-b-sl",
+      unitId: "french-maintenance",
+      unitTitle: "French maintenance",
+      title: isGrammarSession
+        ? `French grammar tune-up ${index}`
+        : `French vocabulary tune-up ${index}`,
+      subtopics: isGrammarSession
+        ? [
+            "Review one focused grammar point that keeps causing errors.",
+            "Write 6-8 clean example sentences using the structure correctly.",
+            "Finish with a short correction drill.",
+          ]
+        : [
+            "Review a small high-frequency vocab set from current class material.",
+            "Use the new words in short phrases or sentences.",
+            "Do a quick recall pass without notes.",
+          ],
+      availableFrom: cursor.toISOString().slice(0, 10),
+      estHours: 1,
+      difficulty: 2,
+      preferredBlockTypes: ["drill", "review"],
+      sourceMaterials: [
+        guide(
+          "Language B Guide 2020",
+          "Keep French active through light grammar and vocabulary maintenance rather than full theme study.",
+        ),
+        notes(
+          isGrammarSession ? "Grammar tune-up" : "Vocabulary tune-up",
+          isGrammarSession
+            ? "Use current error patterns from written work to choose the grammar point."
+            : "Use current class vocabulary and spaced recall, not broad theme revision.",
+        ),
+      ],
+    });
+
+    cursor = new Date(cursor.getTime() + 14 * 24 * 60 * 60 * 1000);
+    index += 1;
+  }
+
+  return sessions;
+}
+
 function buildPastPaperSessions(options: {
   subjectId: SubjectId;
   unitIdPrefix: string;
@@ -1843,116 +1895,9 @@ const olympiadTopicBlueprints: SeedTopicBlueprint[] = [
 
 const olympiadGoldPhaseBlueprints: SeedTopicBlueprint[] = buildOlympiadGoldPhaseBlueprints();
 
-const englishTopicBlueprints: SeedTopicBlueprint[] = [
-  {
-    id: "english-area-readers-writers-texts",
-    subjectId: "english-a-sl",
-    unitId: "english-area-1",
-    unitTitle: "Area 1 - Readers, writers and texts",
-    title: "Readers, writers and texts",
-    subtopics: ["Authorial choices", "Close reading", "Commentary practice"],
-    estHours: 1.5,
-    difficulty: 2,
-    preferredBlockTypes: ["review", "recovery"],
-    sourceMaterials: [
-      guide("Language A Guide 2021", "Area of exploration 1."),
-      notes("Class annotations", "Maintain annotation and commentary fluency."),
-    ],
-  },
-  {
-    id: "english-area-time-space",
-    subjectId: "english-a-sl",
-    unitId: "english-area-2",
-    unitTitle: "Area 2 - Time and space",
-    title: "Time and space",
-    subtopics: ["Context", "Cultural perspective", "Text and society"],
-    estHours: 1.5,
-    difficulty: 2,
-    preferredBlockTypes: ["review", "recovery"],
-    sourceMaterials: [
-      guide("Language A Guide 2021", "Area of exploration 2."),
-      notes("Text-context notebook", "Short context refresh and paragraph writing."),
-    ],
-  },
-  {
-    id: "english-area-intertextuality",
-    subjectId: "english-a-sl",
-    unitId: "english-area-3",
-    unitTitle: "Area 3 - Intertextuality",
-    title: "Intertextuality: connecting texts",
-    subtopics: ["Comparison", "Themes across texts", "Oral comparison planning"],
-    estHours: 1.5,
-    difficulty: 2,
-    preferredBlockTypes: ["review", "recovery"],
-    sourceMaterials: [
-      guide("Language A Guide 2021", "Area of exploration 3."),
-      notes("Comparison bank", "Keep a live list of linkable extracts and themes."),
-    ],
-  },
-];
+const englishTopicBlueprints: SeedTopicBlueprint[] = [];
 
-const frenchTopicBlueprints: SeedTopicBlueprint[] = [
-  {
-    id: "french-theme-identities",
-    subjectId: "french-b-sl",
-    unitId: "french-theme-1",
-    unitTitle: "Prescribed theme - Identities",
-    title: "Identities",
-    subtopics: ["Personal identity", "Lifestyle", "Values and beliefs"],
-    estHours: 1.5,
-    difficulty: 2,
-    preferredBlockTypes: ["review", "recovery"],
-    sourceMaterials: [guide("Language B Guide 2020", "Prescribed theme: identities.")],
-  },
-  {
-    id: "french-theme-experiences",
-    subjectId: "french-b-sl",
-    unitId: "french-theme-2",
-    unitTitle: "Prescribed theme - Experiences",
-    title: "Experiences",
-    subtopics: ["Daily routine", "Leisure", "Life events"],
-    estHours: 1.5,
-    difficulty: 2,
-    preferredBlockTypes: ["review", "recovery"],
-    sourceMaterials: [guide("Language B Guide 2020", "Prescribed theme: experiences.")],
-  },
-  {
-    id: "french-theme-human-ingenuity",
-    subjectId: "french-b-sl",
-    unitId: "french-theme-3",
-    unitTitle: "Prescribed theme - Human ingenuity",
-    title: "Human ingenuity",
-    subtopics: ["Technology", "Communication", "Innovation vocabulary"],
-    estHours: 1.5,
-    difficulty: 2,
-    preferredBlockTypes: ["review", "recovery"],
-    sourceMaterials: [guide("Language B Guide 2020", "Prescribed theme: human ingenuity.")],
-  },
-  {
-    id: "french-theme-social-organization",
-    subjectId: "french-b-sl",
-    unitId: "french-theme-4",
-    unitTitle: "Prescribed theme - Social organization",
-    title: "Social organization",
-    subtopics: ["Community", "Education", "Work and society"],
-    estHours: 1.5,
-    difficulty: 2,
-    preferredBlockTypes: ["review", "recovery"],
-    sourceMaterials: [guide("Language B Guide 2020", "Prescribed theme: social organization.")],
-  },
-  {
-    id: "french-theme-sharing-planet",
-    subjectId: "french-b-sl",
-    unitId: "french-theme-5",
-    unitTitle: "Prescribed theme - Sharing the planet",
-    title: "Sharing the planet",
-    subtopics: ["Environment", "Global issues", "Sustainable futures"],
-    estHours: 1.5,
-    difficulty: 2,
-    preferredBlockTypes: ["review", "recovery"],
-    sourceMaterials: [guide("Language B Guide 2020", "Prescribed theme: sharing the planet.")],
-  },
-];
+const frenchTopicBlueprints: SeedTopicBlueprint[] = buildFrenchMaintenanceBlueprints();
 
 const geographyTopicBlueprints: SeedTopicBlueprint[] = [
   {

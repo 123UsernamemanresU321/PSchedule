@@ -30,6 +30,7 @@ const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-12-april-camp-roadmap-v1";
 const EXTENDED_GOALS_VERSION = "2026-03-14-post-syllabus-papers-v7";
+const LANGUAGE_MAINTENANCE_VERSION = "2026-03-19-languages-v1";
 
 function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreferences: Preferences) {
   const mergedWindows = new Map(
@@ -522,6 +523,57 @@ async function syncExtendedGoalSubjects(snapshot: PlannerSnapshot, referenceDate
   return refreshPlanningModel(migratedSnapshot, referenceDate);
 }
 
+async function syncLanguageMaintenanceSubjects(snapshot: PlannerSnapshot, referenceDate: Date) {
+  const syncedVersion = await db.meta.get("language-maintenance-version");
+  if (syncedVersion?.value === LANGUAGE_MAINTENANCE_VERSION) {
+    return snapshot;
+  }
+
+  const seedDataset = buildSeedDataset(referenceDate);
+  const syncedSubjectIds: SubjectId[] = ["english-a-sl", "french-b-sl"];
+  const existingTopicsById = new Map(snapshot.topics.map((topic) => [topic.id, topic]));
+  const seededSubjects = seedDataset.subjects.filter((subject) => syncedSubjectIds.includes(subject.id));
+  const seededTopicIds = new Set(
+    seedDataset.topics
+      .filter((topic) => syncedSubjectIds.includes(topic.subjectId as SubjectId))
+      .map((topic) => topic.id),
+  );
+  const mergedTopics = seedDataset.topics
+    .filter((topic) => syncedSubjectIds.includes(topic.subjectId as SubjectId))
+    .map((seededTopic) =>
+      mergeSeedTopicProgress(
+        seededTopic,
+        existingTopicsById.get(seededTopic.id),
+      ),
+    );
+  const obsoleteTopicIds = snapshot.topics
+    .filter((topic) => syncedSubjectIds.includes(topic.subjectId as SubjectId))
+    .filter((topic) => !seededTopicIds.has(topic.id))
+    .map((topic) => topic.id);
+
+  await db.transaction("rw", [db.subjects, db.topics, db.meta], async () => {
+    if (seededSubjects.length) {
+      await db.subjects.bulkPut(seededSubjects);
+    }
+
+    if (obsoleteTopicIds.length) {
+      await db.topics.bulkDelete(obsoleteTopicIds);
+    }
+
+    if (mergedTopics.length) {
+      await db.topics.bulkPut(mergedTopics);
+    }
+
+    await db.meta.put({
+      key: "language-maintenance-version",
+      value: LANGUAGE_MAINTENANCE_VERSION,
+    });
+  });
+
+  const migratedSnapshot = await loadPlannerSnapshot();
+  return refreshPlanningModel(migratedSnapshot, referenceDate);
+}
+
 async function writeSeedDataset(seed: SeedDataset) {
   await db.transaction(
     "rw",
@@ -540,6 +592,10 @@ async function writeSeedDataset(seed: SeedDataset) {
       await db.meta.put({ key: "planning-model-version", value: PLANNING_MODEL_VERSION });
       await db.meta.put({ key: "olympiad-roadmap-version", value: OLYMPIAD_ROADMAP_VERSION });
       await db.meta.put({ key: "extended-goals-version", value: EXTENDED_GOALS_VERSION });
+      await db.meta.put({
+        key: "language-maintenance-version",
+        value: LANGUAGE_MAINTENANCE_VERSION,
+      });
     },
   );
 }
@@ -604,6 +660,7 @@ export async function initializePlannerDatabase(referenceDate = new Date()) {
   snapshot = await migrateCppBookGoal(snapshot, referenceDate);
   snapshot = await migrateOlympiadRoadmap(snapshot, referenceDate);
   snapshot = await syncExtendedGoalSubjects(snapshot, referenceDate);
+  snapshot = await syncLanguageMaintenanceSubjects(snapshot, referenceDate);
   const planningModelVersion = await db.meta.get("planning-model-version");
   if (planningModelVersion?.value !== PLANNING_MODEL_VERSION) {
     snapshot = await refreshPlanningModel(snapshot, referenceDate);
