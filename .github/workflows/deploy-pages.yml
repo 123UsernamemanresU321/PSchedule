@@ -34,9 +34,6 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-
       - name: Compute Pages base path
         shell: bash
         run: |
@@ -64,10 +61,18 @@ jobs:
       - name: Disable Jekyll
         run: touch .next-pages/.nojekyll
 
+      - name: Package Pages artifact
+        run: |
+          tar -C .next-pages -cf "${RUNNER_TEMP}/github-pages.tar" .
+          gzip -f "${RUNNER_TEMP}/github-pages.tar"
+
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          path: ./.next-pages
+          name: github-pages
+          path: ${{ runner.temp }}/github-pages.tar.gz
+          retention-days: 1
+          if-no-files-found: error
 
   deploy:
     needs: build
