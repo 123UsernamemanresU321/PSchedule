@@ -1545,7 +1545,7 @@ const chemistryPaperReviewBlueprints: SeedTopicBlueprint[] = buildPastPaperRevie
   sourceLabel: "Chemistry HL past paper review",
 });
 
-const olympiadTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
+const olympiadNumberTheoryBlueprints = chainTopicSequence([
   {
     id: "olympiad-number-theory-divisibility",
     subjectId: "olympiad",
@@ -1622,6 +1622,9 @@ const olympiadTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
       pastPaper("Official anchor: IMO 2024 P2", "Reuse the classification standard as a write-up benchmark."),
     ],
   },
+], "Follow the seeded Olympiad roadmap order strictly before moving to the next topic.");
+
+const olympiadGeometryBlueprints = chainTopicSequence([
   {
     id: "olympiad-geometry-points-lines-polygons",
     subjectId: "olympiad",
@@ -1738,6 +1741,9 @@ const olympiadTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
       pastPaper("Official anchor: IMO 2019 P6", "Use to judge whether inversion actually simplifies the configuration."),
     ],
   },
+], "Follow the seeded Olympiad roadmap order strictly before moving to the next topic.");
+
+const olympiadAlgebraBlueprints = chainTopicSequence([
   {
     id: "olympiad-algebra-sequences-series",
     subjectId: "olympiad",
@@ -1836,6 +1842,9 @@ const olympiadTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
       pastPaper("Official anchor: IMO 2023 Problem 4", "Prefix-sum lower-bound benchmark."),
     ],
   },
+], "Follow the seeded Olympiad roadmap order strictly before moving to the next topic.");
+
+const olympiadCombinatoricsBlueprints = chainTopicSequence([
   {
     id: "olympiad-combinatorics-counting-induction",
     subjectId: "olympiad",
@@ -1915,6 +1924,13 @@ const olympiadTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
     ],
   },
 ], "Follow the seeded Olympiad roadmap order strictly before moving to the next topic.");
+
+const olympiadTopicBlueprints: SeedTopicBlueprint[] = [
+  ...olympiadNumberTheoryBlueprints,
+  ...olympiadGeometryBlueprints,
+  ...olympiadAlgebraBlueprints,
+  ...olympiadCombinatoricsBlueprints,
+];
 
 const olympiadGoldPhaseBlueprints: SeedTopicBlueprint[] = buildOlympiadGoldPhaseBlueprints();
 

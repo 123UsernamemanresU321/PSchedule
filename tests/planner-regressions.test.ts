@@ -195,6 +195,26 @@ test("maths, chemistry, olympiad, and c++ also follow seeded prerequisite order"
     "olympiad-number-theory-divisibility",
   );
   assert.equal(
+    dataset.topics.find((topic) => topic.id === "olympiad-number-theory-valuations")?.dependsOnTopicId,
+    "olympiad-number-theory-congruence",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "olympiad-geometry-points-lines-polygons")?.dependsOnTopicId ?? null,
+    null,
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "olympiad-geometry-coordinate-complex")?.dependsOnTopicId,
+    "olympiad-geometry-advanced-theorems",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "olympiad-algebra-sequences-series")?.dependsOnTopicId ?? null,
+    null,
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "olympiad-combinatorics-counting-induction")?.dependsOnTopicId ?? null,
+    null,
+  );
+  assert.equal(
     dataset.topics.find((topic) => topic.id === "cpp-book-ch1-hello-world")?.dependsOnTopicId,
     "cpp-book-ch0-notes-to-reader",
   );

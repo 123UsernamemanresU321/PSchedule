@@ -32,7 +32,7 @@ const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-12-april-camp-roadmap-v1";
 const EXTENDED_GOALS_VERSION = "2026-03-19-post-syllabus-papers-v8";
 const LANGUAGE_MAINTENANCE_VERSION = "2026-03-19-languages-v1";
-const SEED_TOPIC_ORDERING_VERSION = "2026-03-19-seed-ordering-v2";
+const SEED_TOPIC_ORDERING_VERSION = "2026-03-19-seed-ordering-v3";
 
 function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreferences: Preferences) {
   const mergedWindows = new Map(
