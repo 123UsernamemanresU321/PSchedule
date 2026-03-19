@@ -119,14 +119,14 @@ test("paired paper reviews retain their dependency scheduling window", () => {
   assert.equal(reviewCandidate?.latestAt?.slice(0, 10), "2026-09-29");
 });
 
-test("maths HL-book topics stay blocked until the SL book sequence is complete", () => {
+test("maths topics stay hard-gated in seeded order", () => {
   const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
   const hlBookTopic = dataset.topics.find(
     (topic) => topic.id === "maths-topic1-complex-numbers",
   );
 
   assert.ok(hlBookTopic, "expected a seeded HL-book maths topic");
-  assert.equal(hlBookTopic.dependsOnTopicId, "maths-topic5-integration-core");
+  assert.equal(hlBookTopic.dependsOnTopicId, "maths-topic1-proof");
 
   const blockedCandidates = buildTaskCandidates({
     topics: [hlBookTopic as Topic],
@@ -138,13 +138,13 @@ test("maths HL-book topics stay blocked until the SL book sequence is complete",
   assert.equal(blockedCandidates.length, 0);
 
   const slBoundaryBlock = createStudyBlock({
-    id: "integration-boundary",
+    id: "proof-boundary",
     subjectId: "maths-aa-hl",
-    topicId: "maths-topic5-integration-core",
-    title: "Core integration",
+    topicId: "maths-topic1-proof",
+    title: "Mathematical proof",
     start: "2026-06-01T08:00:00.000Z",
     end: "2026-06-01T09:30:00.000Z",
-    estimatedMinutes: 90,
+    estimatedMinutes: 300,
   });
 
   const unlockedCandidates = buildTaskCandidates({
@@ -170,6 +170,31 @@ test("physics topics are hard-gated in seeded syllabus order", () => {
   assert.equal(a2?.dependsOnTopicId, "physics-a1-kinematics");
   assert.equal(b1?.dependsOnTopicId, "physics-a5-relativity");
   assert.equal(e4?.dependsOnTopicId, "physics-e3-radioactive-decay");
+});
+
+test("maths, chemistry, olympiad, geography, and c++ also follow seeded prerequisite order", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-19T08:00:00"));
+
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "maths-topic1-sequences-series")?.dependsOnTopicId,
+    "maths-topic1-exponents-logs",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "chem-structure-1-2-nuclear-atom")?.dependsOnTopicId,
+    "chem-structure-1-1-particulate",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "olympiad-number-theory-congruence")?.dependsOnTopicId,
+    "olympiad-number-theory-divisibility",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "cpp-book-ch1-hello-world")?.dependsOnTopicId,
+    "cpp-book-ch0-notes-to-reader",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "geography-transition-optional-themes")?.dependsOnTopicId,
+    "geography-transition-core-global-change",
+  );
 });
 
 test("calendar completion forecast distinguishes impossible from simply underplanned", () => {

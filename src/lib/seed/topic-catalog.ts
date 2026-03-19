@@ -819,7 +819,8 @@ function gateMathsHlBookTopicsAfterSlBook(
   });
 }
 
-const mathsTopicBlueprints: SeedTopicBlueprint[] = gateMathsHlBookTopicsAfterSlBook([
+const mathsTopicBlueprints: SeedTopicBlueprint[] = gateMathsHlBookTopicsAfterSlBook(
+  chainTopicSequence([
   {
     id: "maths-topic1-exponents-logs",
     subjectId: "maths-aa-hl",
@@ -1137,9 +1138,10 @@ const mathsTopicBlueprints: SeedTopicBlueprint[] = gateMathsHlBookTopicsAfterSlB
       textbook("Hodder AA HL 2019", "Ch. 11D-11E Series and differential equations."),
     ],
   },
-]);
+  ], "Follow the seeded Maths AA HL syllabus order strictly before moving to the next topic."),
+);
 
-const chemistryTopicBlueprints: SeedTopicBlueprint[] = [
+const chemistryTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
   {
     id: "chem-structure-1-1-particulate",
     subjectId: "chemistry-hl",
@@ -1470,7 +1472,7 @@ const chemistryTopicBlueprints: SeedTopicBlueprint[] = [
       textbook("Pearson Chemistry HL 2023", "Use the section aligned to Reactivity 3.4."),
     ],
   },
-];
+], "Follow the seeded Chemistry HL syllabus order strictly before moving to the next topic.");
 
 const physicsPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperSessions({
   subjectId: "physics-hl",
@@ -1543,7 +1545,7 @@ const chemistryPaperReviewBlueprints: SeedTopicBlueprint[] = buildPastPaperRevie
   sourceLabel: "Chemistry HL past paper review",
 });
 
-const olympiadTopicBlueprints: SeedTopicBlueprint[] = [
+const olympiadTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
   {
     id: "olympiad-number-theory-divisibility",
     subjectId: "olympiad",
@@ -1912,7 +1914,7 @@ const olympiadTopicBlueprints: SeedTopicBlueprint[] = [
       worksheet("Error-log and rewrite protocol", "Rewrite one solution from memory and defend it orally without notes."),
     ],
   },
-];
+], "Follow the seeded Olympiad roadmap order strictly before moving to the next topic.");
 
 const olympiadGoldPhaseBlueprints: SeedTopicBlueprint[] = buildOlympiadGoldPhaseBlueprints();
 
@@ -1920,7 +1922,7 @@ const englishTopicBlueprints: SeedTopicBlueprint[] = [];
 
 const frenchTopicBlueprints: SeedTopicBlueprint[] = buildFrenchMaintenanceBlueprints();
 
-const geographyTopicBlueprints: SeedTopicBlueprint[] = [
+const geographyTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
   {
     id: "geography-transition-core-global-change",
     subjectId: "geography-transition",
@@ -1957,9 +1959,9 @@ const geographyTopicBlueprints: SeedTopicBlueprint[] = [
     preferredBlockTypes: ["review", "recovery"],
     sourceMaterials: [guide("Geography Guide 2019", "HL extension: global interactions.")],
   },
-];
+], "Follow the seeded Geography transition sequence strictly before moving to the next topic.");
 
-const programmingTopicBlueprints: SeedTopicBlueprint[] = [
+const programmingTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
   {
     id: "cpp-book-ch0-notes-to-reader",
     subjectId: "cpp-book",
@@ -2224,7 +2226,7 @@ const programmingTopicBlueprints: SeedTopicBlueprint[] = [
     preferredBlockTypes: ["deep_work", "standard_focus"],
     sourceMaterials: [pppChapter("Chapter 21, pp. 603-624.")],
   },
-];
+], "Follow the seeded C++ book chapter order strictly before moving to the next topic.");
 
 export const seedTopicBlueprints: SeedTopicBlueprint[] = [
   ...physicsTopicBlueprints,
