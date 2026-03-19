@@ -132,6 +132,8 @@ function getLatestScheduledBlockByTopic(existingPlannedBlocks: StudyBlock[]) {
 function resolveTopicTimingWindow(
   topic: Topic,
   latestScheduledBlockByTopic: Record<string, StudyBlock>,
+  plannedMinutesByTopic: Record<string, number>,
+  topicById: Map<string, Topic>,
 ) {
   let availableAt = topic.availableFrom ? fromDateKey(topic.availableFrom) : null;
   let reviewDue = topic.reviewDue;
@@ -140,6 +142,26 @@ function resolveTopicTimingWindow(
     const dependencyBlock = latestScheduledBlockByTopic[topic.dependsOnTopicId];
 
     if (!dependencyBlock) {
+      return {
+        blocked: true,
+        availableAt: null,
+        latestAt: null,
+        reviewDue,
+      };
+    }
+
+    const dependencyTopic = topicById.get(topic.dependsOnTopicId);
+    const requiresDependencyCompletion =
+      topic.minDaysAfterDependency == null && topic.maxDaysAfterDependency == null;
+    const coveredDependencyMinutes =
+      Math.round((dependencyTopic?.completedHours ?? 0) * 60) +
+      (plannedMinutesByTopic[topic.dependsOnTopicId] ?? 0);
+
+    if (
+      requiresDependencyCompletion &&
+      dependencyTopic &&
+      coveredDependencyMinutes < Math.round(dependencyTopic.estHours * 60)
+    ) {
       return {
         blocked: true,
         availableAt: null,
@@ -187,8 +209,25 @@ export function buildTaskCandidates(options: {
   const planningWeekEnd = endOfPlannerWeek(referenceDate);
   const weekEnd = addDays(endOfPlannerWeek(referenceDate), 3);
   const latestScheduledBlockByTopic = getLatestScheduledBlockByTopic(existingPlannedBlocks);
+  const topicById = new Map(topics.map((topic) => [topic.id, topic]));
+  const plannedMinutesByTopic = existingPlannedBlocks.reduce<Record<string, number>>(
+    (accumulator, block) => {
+      if (!block.topicId || !["planned", "rescheduled", "done", "partial"].includes(block.status)) {
+        return accumulator;
+      }
+
+      accumulator[block.topicId] = (accumulator[block.topicId] ?? 0) + block.estimatedMinutes;
+      return accumulator;
+    },
+    {},
+  );
   const activeTopicsBySubject = topics.reduce<Record<string, Topic[]>>((accumulator, topic) => {
-    const timingWindow = resolveTopicTimingWindow(topic, latestScheduledBlockByTopic);
+    const timingWindow = resolveTopicTimingWindow(
+      topic,
+      latestScheduledBlockByTopic,
+      plannedMinutesByTopic,
+      topicById,
+    );
 
     if (timingWindow.blocked || (timingWindow.availableAt && timingWindow.availableAt > planningWeekEnd)) {
       return accumulator;
@@ -209,18 +248,6 @@ export function buildTaskCandidates(options: {
     return accumulator;
   }, {});
 
-  const plannedMinutesByTopic = existingPlannedBlocks.reduce<Record<string, number>>(
-    (accumulator, block) => {
-      if (!block.topicId || !["planned", "rescheduled"].includes(block.status)) {
-        return accumulator;
-      }
-
-      accumulator[block.topicId] = (accumulator[block.topicId] ?? 0) + block.estimatedMinutes;
-      return accumulator;
-    },
-    {},
-  );
-
   const blockedByEarlierTopicsById = Object.values(activeTopicsBySubject).reduce<Record<string, number>>(
     (accumulator, subjectTopics) => {
       subjectTopics.forEach((topic, index) => {
@@ -240,7 +267,12 @@ export function buildTaskCandidates(options: {
   );
 
   return topics.flatMap<TaskCandidate>((topic) => {
-    const timingWindow = resolveTopicTimingWindow(topic, latestScheduledBlockByTopic);
+    const timingWindow = resolveTopicTimingWindow(
+      topic,
+      latestScheduledBlockByTopic,
+      plannedMinutesByTopic,
+      topicById,
+    );
 
     if (timingWindow.blocked || (timingWindow.availableAt && timingWindow.availableAt > planningWeekEnd)) {
       return [];

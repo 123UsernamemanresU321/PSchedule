@@ -447,6 +447,63 @@ function allocateTasksToSlots(options: {
       .sort((left, right) => new Date(right.end).getTime() - new Date(left.end).getTime())[0];
   }
 
+  function isTaskDependencySatisfied(task: TaskCandidate, slotStart: Date) {
+    if (!task.topicId) {
+      return true;
+    }
+
+    const topic = topicMap.get(task.topicId);
+
+    if (!topic?.dependsOnTopicId) {
+      return true;
+    }
+
+    const dependencyBlocks = [
+      ...(options.priorPlannedBlocks ?? []),
+      ...options.lockedBlocks,
+      ...scheduledBlocks,
+    ]
+      .filter((block) => block.topicId === topic.dependsOnTopicId)
+      .filter((block) => block.status !== "missed");
+    const dependencyBlock = dependencyBlocks
+      .sort((left, right) => new Date(right.end).getTime() - new Date(left.end).getTime())[0];
+
+    if (!dependencyBlock) {
+      return false;
+    }
+
+    const dependencyTopic = topicMap.get(topic.dependsOnTopicId);
+    const requiresDependencyCompletion =
+      topic.minDaysAfterDependency == null && topic.maxDaysAfterDependency == null;
+    const coveredDependencyMinutes =
+      Math.round((dependencyTopic?.completedHours ?? 0) * 60) +
+      dependencyBlocks.reduce((total, block) => total + block.estimatedMinutes, 0);
+
+    if (
+      requiresDependencyCompletion &&
+      dependencyTopic &&
+      coveredDependencyMinutes < Math.round(dependencyTopic.estHours * 60)
+    ) {
+      return false;
+    }
+
+    const dependencyEnd = new Date(dependencyBlock.end);
+    const earliestAllowed = addDays(dependencyEnd, topic.minDaysAfterDependency ?? 0);
+
+    if (slotStart < earliestAllowed) {
+      return false;
+    }
+
+    if (topic.maxDaysAfterDependency != null) {
+      const latestAllowed = addDays(dependencyEnd, topic.maxDaysAfterDependency);
+      if (slotStart > latestAllowed) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   options.lockedBlocks.forEach((block) => {
     const dateKey = block.date;
     dailyMinutes[dateKey] = (dailyMinutes[dateKey] ?? 0) + block.estimatedMinutes;
@@ -660,6 +717,7 @@ function allocateTasksToSlots(options: {
         .filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES)
         .filter((task) => !task.availableAt || new Date(task.availableAt) <= slotSlice.start)
         .filter((task) => !task.latestAt || new Date(task.latestAt) >= slotSlice.start)
+        .filter((task) => isTaskDependencySatisfied(task, slotSlice.start))
         .filter((task) => !hasReachedWeeklyTarget(task))
         .map((task) => {
           const blockOption = selectBlockOption(

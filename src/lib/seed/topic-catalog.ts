@@ -124,6 +124,27 @@ function buildFrenchMaintenanceBlueprints(): SeedTopicBlueprint[] {
   return sessions;
 }
 
+function chainTopicSequence(
+  blueprints: SeedTopicBlueprint[],
+  note: string,
+): SeedTopicBlueprint[] {
+  let previousTopicId: string | null = null;
+
+  return blueprints.map((blueprint) => {
+    const chainedBlueprint =
+      previousTopicId && !blueprint.dependsOnTopicId
+        ? {
+            ...blueprint,
+            dependsOnTopicId: previousTopicId,
+            notes: blueprint.notes ? `${blueprint.notes} ${note}` : note,
+          }
+        : blueprint;
+
+    previousTopicId = blueprint.id;
+    return chainedBlueprint;
+  });
+}
+
 function buildPastPaperSessions(options: {
   subjectId: SubjectId;
   unitIdPrefix: string;
@@ -403,7 +424,7 @@ export function hasLegacySeedTopics(topics: Array<{ id: string }>) {
   );
 }
 
-const physicsTopicBlueprints: SeedTopicBlueprint[] = [
+const physicsTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
   {
     id: "physics-a1-kinematics",
     subjectId: "physics-hl",
@@ -767,7 +788,7 @@ const physicsTopicBlueprints: SeedTopicBlueprint[] = [
       textbook("Pearson Physics HL 2023", "E.5 Fusion and stars."),
     ],
   },
-];
+], "Follow the seeded Physics HL syllabus order strictly before moving to the next topic.");
 
 const MATHS_SL_BOOK_FINISH_TOPIC_ID = "maths-topic5-integration-core";
 

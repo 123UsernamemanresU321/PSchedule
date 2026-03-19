@@ -158,6 +158,20 @@ test("maths HL-book topics stay blocked until the SL book sequence is complete",
   assert.equal(unlockedCandidates[0]?.topicId, "maths-topic1-complex-numbers");
 });
 
+test("physics topics are hard-gated in seeded syllabus order", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-19T08:00:00"));
+  const a2 = dataset.topics.find((topic) => topic.id === "physics-a2-forces-momentum");
+  const b1 = dataset.topics.find((topic) => topic.id === "physics-b1-thermal-transfers");
+  const e4 = dataset.topics.find((topic) => topic.id === "physics-e4-fission");
+
+  assert.ok(a2);
+  assert.ok(b1);
+  assert.ok(e4);
+  assert.equal(a2?.dependsOnTopicId, "physics-a1-kinematics");
+  assert.equal(b1?.dependsOnTopicId, "physics-a5-relativity");
+  assert.equal(e4?.dependsOnTopicId, "physics-e3-radioactive-decay");
+});
+
 test("calendar completion forecast distinguishes impossible from simply underplanned", () => {
   const dataset = buildSeedDataset(new Date("2026-03-13T08:00:00"));
   const subject = dataset.subjects.find((candidate) => candidate.id === "physics-hl");
