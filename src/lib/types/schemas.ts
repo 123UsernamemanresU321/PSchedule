@@ -179,6 +179,16 @@ export const timeWindowSchema = z.object({
   end: z.string(),
   days: z.array(z.number()),
   movable: z.boolean().optional(),
+  timeOverrides: z
+    .record(
+      z.string(),
+      z.object({
+        start: z.string(),
+        end: z.string(),
+      }),
+    )
+    .optional()
+    .default({}),
 });
 
 export const schoolTermSchema = z.object({
@@ -289,12 +299,14 @@ export const preferencesSchema = z.object({
         start: "08:00",
         end: "11:30",
         days: [0, 1, 2, 3, 4, 5, 6],
+        timeOverrides: {},
       },
       {
         label: "Holiday afternoon focus",
         start: "14:00",
         end: "17:00",
         days: [0, 1, 2, 3, 4, 5, 6],
+        timeOverrides: {},
       },
     ],
     maxStudyHoursPerDay: null,

@@ -117,6 +117,10 @@ interface PlannerCalendarProps {
     dateKey: string;
     ruleId: "piano-practice" | "term-homework";
   }) => void;
+  onManageRecoveryWindowDate: (options: {
+    dateKey: string;
+    label: "Lunch break" | "Dinner reset";
+  }) => void;
   onManageFocusDay: (dateKey: string) => void;
 }
 
@@ -132,6 +136,7 @@ export function PlannerCalendar({
   onEditFixedEvent,
   onSelectStudyBlock,
   onManageReservedCommitmentDate,
+  onManageRecoveryWindowDate,
   onManageFocusDay,
 }: PlannerCalendarProps) {
   const subjectMap = new Map(subjects.map((subject) => [subject.id, subject]));
@@ -346,9 +351,27 @@ export function PlannerCalendar({
             | "focused-day";
           if (
             kind === "recovery-window" ||
-            kind === "break" ||
             kind === "sick-day"
           ) {
+            if (kind === "recovery-window") {
+              const window = clickInfo.event.extendedProps.window as {
+                label: string;
+                dateKey: string;
+              };
+
+              if (window.label === "Lunch break" || window.label === "Dinner reset") {
+                onManageRecoveryWindowDate({
+                  dateKey: window.dateKey,
+                  label: window.label,
+                });
+              }
+              return;
+            }
+            if (kind === "sick-day") {
+              return;
+            }
+          }
+          if (kind === "break") {
             return;
           }
           if (kind === "focused-day") {

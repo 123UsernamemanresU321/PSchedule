@@ -27,6 +27,7 @@ import type {
 
 export interface RecoveryWindowOccurrence {
   id: string;
+  dateKey: string;
   title: string;
   start: string;
   end: string;
@@ -96,6 +97,17 @@ function createInterval(start: Date, end: Date): TimeInterval {
 
 function toLocalTimeString(date: Date) {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function getRecoveryWindowTimingForDate(
+  window: Preferences["lockedRecoveryWindows"][number],
+  dateKey: string,
+) {
+  const override = window.timeOverrides?.[dateKey];
+  return {
+    start: override?.start ?? window.start,
+    end: override?.end ?? window.end,
+  };
 }
 
 function getRecurringDurationMinutes(start: Date, end: Date) {
@@ -293,9 +305,11 @@ function resolveRecoveryWindowsForDay(options: {
         !(window.label === "Sunday recovery" && options.day.getDay() === 0 && !options.preferences.reserveSundayEvening),
     )
     .forEach((window) => {
+      const dateKey = toDateKey(options.day);
+      const timing = getRecoveryWindowTimingForDate(window, dateKey);
       const baseInterval = createInterval(
-        createDateAtTime(options.day, window.start),
-        createDateAtTime(options.day, window.end),
+        createDateAtTime(options.day, timing.start),
+        createDateAtTime(options.day, timing.end),
       );
       const shiftedInterval = shiftRecoveryInterval({
         day: options.day,
@@ -485,6 +499,7 @@ export function expandLockedRecoveryWindowsForWeek(
       skipMovableRecovery,
     }).map((window) => ({
       id: `${window.label}-${toDateKey(day)}`,
+      dateKey: toDateKey(day),
       title: window.label,
       start: window.start.toISOString(),
       end: window.end.toISOString(),

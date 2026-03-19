@@ -47,6 +47,20 @@ function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreference
   });
 
   return Array.from(mergedWindows.values()).map((window) => {
+    const normalizedTimeOverrides = Object.fromEntries(
+      Object.entries(window.timeOverrides ?? {})
+        .filter(
+          ([dateKey, override]) =>
+            typeof dateKey === "string" &&
+            !!override &&
+            typeof override.start === "string" &&
+            typeof override.end === "string" &&
+            override.start.length > 0 &&
+            override.end.length > 0,
+        )
+        .sort(([left], [right]) => left.localeCompare(right)),
+    );
+
     if (
       window.label === "Lunch break" &&
       window.start === "12:00" &&
@@ -56,6 +70,7 @@ function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreference
         ...window,
         days: [0, 1, 2, 3, 4, 5, 6],
         movable: false,
+        timeOverrides: normalizedTimeOverrides,
       };
     }
 
@@ -67,6 +82,7 @@ function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreference
       return {
         ...window,
         days: [0, 1, 2, 3, 4, 5, 6],
+        timeOverrides: normalizedTimeOverrides,
       };
     }
 
@@ -80,10 +96,14 @@ function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreference
       return {
         ...window,
         start: "20:00",
+        timeOverrides: normalizedTimeOverrides,
       };
     }
 
-    return window;
+    return {
+      ...window,
+      timeOverrides: normalizedTimeOverrides,
+    };
   });
 }
 

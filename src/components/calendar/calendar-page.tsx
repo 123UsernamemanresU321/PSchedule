@@ -10,6 +10,7 @@ import {
 } from "@/components/calendar/event-editor-dialog";
 import { CommitmentOverrideDialog } from "@/components/calendar/commitment-override-dialog";
 import { FocusDayDialog } from "@/components/calendar/focus-day-dialog";
+import { RecoveryWindowOverrideDialog } from "@/components/calendar/recovery-window-override-dialog";
 import { HorizonRoadmap } from "@/components/planner/horizon-roadmap";
 import { PlannerCalendar } from "@/components/calendar/planner-calendar";
 import { PageHeader } from "@/components/layout/page-header";
@@ -44,6 +45,10 @@ export function CalendarPage() {
     ruleId: "piano-practice" | "term-homework";
     date: string;
     mode: "add" | "remove";
+  } | null>(null);
+  const [recoveryOverrideDraft, setRecoveryOverrideDraft] = useState<{
+    label: "Lunch break" | "Dinner reset";
+    date: string;
   } | null>(null);
   const [focusDayDraftDate, setFocusDayDraftDate] = useState<string | null>(null);
   const hasConfiguredConstraints =
@@ -101,6 +106,30 @@ export function CalendarPage() {
               onClick={() => setCurrentWeekStart(todayWeekStart)}
             >
               Today
+            </Button>
+            <Button
+              data-testid="calendar-adjust-lunch"
+              variant="outline"
+              onClick={() =>
+                setRecoveryOverrideDraft({
+                  label: "Lunch break",
+                  date: defaultOverrideDate,
+                })
+              }
+            >
+              Adjust lunch
+            </Button>
+            <Button
+              data-testid="calendar-adjust-dinner"
+              variant="outline"
+              onClick={() =>
+                setRecoveryOverrideDraft({
+                  label: "Dinner reset",
+                  date: defaultOverrideDate,
+                })
+              }
+            >
+              Adjust dinner
             </Button>
             <Button
               data-testid="calendar-adjust-piano"
@@ -213,6 +242,12 @@ export function CalendarPage() {
               mode: ruleId === "term-homework" ? "add" : "remove",
             })
           }
+          onManageRecoveryWindowDate={({ dateKey, label }) =>
+            setRecoveryOverrideDraft({
+              label,
+              date: dateKey,
+            })
+          }
           onCreateEvent={({ start, end, allDay }) =>
             setEditorDraft({
               mode: "create",
@@ -269,6 +304,18 @@ export function CalendarPage() {
         onSave={async (nextPreferences) => {
           await updatePreferences(nextPreferences);
           setCommitmentOverrideDraft(null);
+        }}
+      />
+
+      <RecoveryWindowOverrideDialog
+        open={!!recoveryOverrideDraft}
+        label={recoveryOverrideDraft?.label ?? null}
+        defaultDate={recoveryOverrideDraft?.date ?? null}
+        preferences={preferences}
+        onClose={() => setRecoveryOverrideDraft(null)}
+        onSave={async (nextPreferences) => {
+          await updatePreferences(nextPreferences);
+          setRecoveryOverrideDraft(null);
         }}
       />
 

@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 
 import { buildSeedDataset } from "@/lib/seed";
 import { getCalendarCompletionForecast } from "@/lib/analytics/metrics";
-import { calculateFreeSlots, expandReservedCommitmentWindowsForWeek } from "@/lib/scheduler/free-slots";
+import { createDateAtTime, fromDateKey } from "@/lib/dates/helpers";
+import {
+  calculateFreeSlots,
+  expandLockedRecoveryWindowsForWeek,
+  expandReservedCommitmentWindowsForWeek,
+} from "@/lib/scheduler/free-slots";
 import {
   generateStudyPlanForWeek,
   generateStudyPlanHorizon,
@@ -809,6 +814,74 @@ test("homework duration overrides change the reserved commitment length for one 
       (new Date(commitment!.end).getTime() - new Date(commitment!.start).getTime()) / 60000,
     ),
     120,
+  );
+});
+
+test("lunch and dinner time overrides change the recovery windows for one date", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-16T08:00:00"));
+  const preferences = {
+    ...dataset.preferences,
+    lockedRecoveryWindows: dataset.preferences.lockedRecoveryWindows.map((window) => {
+      if (window.label === "Lunch break") {
+        return {
+          ...window,
+          timeOverrides: {
+            ...(window.timeOverrides ?? {}),
+            "2026-03-17": {
+              start: "12:30",
+              end: "14:00",
+            },
+          },
+        };
+      }
+
+      if (window.label === "Dinner reset") {
+        return {
+          ...window,
+          timeOverrides: {
+            ...(window.timeOverrides ?? {}),
+            "2026-03-17": {
+              start: "19:45",
+              end: "20:30",
+            },
+          },
+        };
+      }
+
+      return window;
+    }),
+  };
+
+  const windows = expandLockedRecoveryWindowsForWeek(
+    new Date("2026-03-16T00:00:00"),
+    preferences,
+    [],
+    [],
+    [],
+    false,
+  );
+  const lunch = windows.find(
+    (window) => window.label === "Lunch break" && window.dateKey === "2026-03-17",
+  );
+  const dinner = windows.find(
+    (window) => window.label === "Dinner reset" && window.dateKey === "2026-03-17",
+  );
+
+  assert.equal(
+    lunch?.start,
+    createDateAtTime(fromDateKey("2026-03-17"), "12:30").toISOString(),
+  );
+  assert.equal(
+    lunch?.end,
+    createDateAtTime(fromDateKey("2026-03-17"), "14:00").toISOString(),
+  );
+  assert.equal(
+    dinner?.start,
+    createDateAtTime(fromDateKey("2026-03-17"), "19:45").toISOString(),
+  );
+  assert.equal(
+    dinner?.end,
+    createDateAtTime(fromDateKey("2026-03-17"), "20:30").toISOString(),
   );
 });
 

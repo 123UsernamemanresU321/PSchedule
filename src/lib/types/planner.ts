@@ -200,6 +200,7 @@ export interface TimeWindow {
   end: string;
   days: number[];
   movable?: boolean;
+  timeOverrides?: Record<string, { start: string; end: string }>;
 }
 
 export interface SchoolTerm {
