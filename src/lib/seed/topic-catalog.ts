@@ -1922,44 +1922,7 @@ const englishTopicBlueprints: SeedTopicBlueprint[] = [];
 
 const frenchTopicBlueprints: SeedTopicBlueprint[] = buildFrenchMaintenanceBlueprints();
 
-const geographyTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
-  {
-    id: "geography-transition-core-global-change",
-    subjectId: "geography-transition",
-    unitId: "geography-core",
-    unitTitle: "Transition - SL/HL core",
-    title: "Global change core familiarization",
-    subtopics: ["Population change", "Resource consumption", "Global risks and resilience"],
-    estHours: 1.5,
-    difficulty: 2,
-    preferredBlockTypes: ["review", "recovery"],
-    sourceMaterials: [guide("Geography Guide 2019", "Core theme: global change.")],
-  },
-  {
-    id: "geography-transition-optional-themes",
-    subjectId: "geography-transition",
-    unitId: "geography-options",
-    unitTitle: "Transition - Optional themes",
-    title: "Optional theme orientation",
-    subtopics: ["Theme overview", "Case-study notebook", "Terminology refresh"],
-    estHours: 1.5,
-    difficulty: 2,
-    preferredBlockTypes: ["review", "recovery"],
-    sourceMaterials: [guide("Geography Guide 2019", "Optional themes for SL/HL geography.")],
-  },
-  {
-    id: "geography-transition-hl-extension",
-    subjectId: "geography-transition",
-    unitId: "geography-hl-extension",
-    unitTitle: "Transition - HL extension",
-    title: "Global interactions extension",
-    subtopics: ["Power and networks", "Cultural integration", "Global development links"],
-    estHours: 1.5,
-    difficulty: 2,
-    preferredBlockTypes: ["review", "recovery"],
-    sourceMaterials: [guide("Geography Guide 2019", "HL extension: global interactions.")],
-  },
-], "Follow the seeded Geography transition sequence strictly before moving to the next topic.");
+const geographyTopicBlueprints: SeedTopicBlueprint[] = [];
 
 const programmingTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
   {

@@ -144,7 +144,7 @@ export const subjectPrioritySeed: Record<string, number> = {
   "cpp-book": 0.45,
   "english-a-sl": 0,
   "french-b-sl": 0.15,
-  "geography-transition": 0.4,
+  "geography-transition": 0,
 };
 
 export const navigationItems = [

@@ -172,7 +172,7 @@ test("physics topics are hard-gated in seeded syllabus order", () => {
   assert.equal(e4?.dependsOnTopicId, "physics-e3-radioactive-decay");
 });
 
-test("maths, chemistry, olympiad, geography, and c++ also follow seeded prerequisite order", () => {
+test("maths, chemistry, olympiad, and c++ also follow seeded prerequisite order", () => {
   const dataset = buildSeedDataset(new Date("2026-03-19T08:00:00"));
 
   assert.equal(
@@ -192,8 +192,8 @@ test("maths, chemistry, olympiad, geography, and c++ also follow seeded prerequi
     "cpp-book-ch0-notes-to-reader",
   );
   assert.equal(
-    dataset.topics.find((topic) => topic.id === "geography-transition-optional-themes")?.dependsOnTopicId,
-    "geography-transition-core-global-change",
+    dataset.topics.filter((topic) => topic.subjectId === "geography-transition").length,
+    0,
   );
 });
 
