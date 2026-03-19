@@ -513,6 +513,9 @@ function allocateTasksToSlots(options: {
   const requiredMinutesBySubject = Object.fromEntries(
     Object.entries(requiredHoursBySubject).map(([key, value]) => [key, Math.round(value * 60)]),
   );
+  const subjectDeadlinesById = Object.fromEntries(
+    options.subjects.map((subject) => [subject.id, subject.deadline]),
+  );
   const assignedMinutesBySubject = recordFromKeys(subjectIds, () => 0);
   const dailyMinutes: Record<string, number> = {};
   const heavyBlocksPerDay: Record<string, number> = {};
@@ -708,9 +711,37 @@ function allocateTasksToSlots(options: {
     requiredMinutesBySubject,
   });
   let consumedStudyMinutes = 0;
-  const workingTasks = cloneTasks(options.tasks);
+  let workingTasks = cloneTasks(options.tasks);
   const scheduledBlocks: StudyBlock[] = [];
   let usedSundayMinutes = 0;
+
+  function syncWorkingTasks(restrictedSubjectIds?: string[]) {
+    const topics = restrictedSubjectIds?.length
+      ? options.topics.filter((topic) => restrictedSubjectIds.includes(topic.subjectId))
+      : options.topics;
+    const refreshedTasks = buildTaskCandidates({
+      topics,
+      existingPlannedBlocks: [
+        ...(options.priorPlannedBlocks ?? []),
+        ...options.lockedBlocks,
+        ...scheduledBlocks,
+      ],
+      referenceDate: options.referenceDate,
+      subjectDeadlinesById,
+    });
+
+    if (!restrictedSubjectIds?.length) {
+      workingTasks = refreshedTasks;
+      return;
+    }
+
+    workingTasks = [
+      ...workingTasks.filter(
+        (task) => !task.subjectId || !restrictedSubjectIds.includes(task.subjectId),
+      ),
+      ...refreshedTasks,
+    ];
+  }
 
   function getFocusedAssignedMinutes(dateKey: string) {
     const focusedSubjectIds = focusedSubjectsByDate[dateKey] ?? [];
@@ -851,6 +882,110 @@ function allocateTasksToSlots(options: {
     );
   }
 
+  function buildScoredOptionsForSlot(config: {
+    slot: CalendarSlot;
+    allowWeeklyTargetOverride?: boolean;
+    restrictedSubjectIds?: string[];
+    mustFillEndOfDaySlot?: boolean;
+  }) {
+    const {
+      slot,
+      allowWeeklyTargetOverride = false,
+      restrictedSubjectIds,
+      mustFillEndOfDaySlot = false,
+    } = config;
+    const allowedBlockTypes = getAllowedBlockTypesForSlot(slot);
+
+    return workingTasks
+      .filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES)
+      .filter((task) => !restrictedSubjectIds || (!!task.subjectId && restrictedSubjectIds.includes(task.subjectId)))
+      .filter((task) => !task.availableAt || new Date(task.availableAt) <= slot.start)
+      .filter((task) => !task.latestAt || new Date(task.latestAt) >= slot.start)
+      .filter((task) => isTaskDependencySatisfied(task, slot.start))
+      .filter((task) => allowWeeklyTargetOverride || !hasReachedWeeklyTarget(task, slot.dateKey))
+      .map((task) => {
+        const blockOption = selectBlockOption(
+          task,
+          slot,
+          options.preferences,
+          allowWeeklyTargetOverride || mustFillEndOfDaySlot
+            ? {
+                ...options.blockSelectionPolicy,
+                preferLongerBlocks: true,
+                allowLowEnergyHeavy: true,
+                allowLateNightDeepWork: true,
+              }
+            : options.blockSelectionPolicy,
+        );
+
+        if (!blockOption) {
+          return null;
+        }
+
+        if (allowedBlockTypes && !allowedBlockTypes.has(blockOption.blockType)) {
+          return null;
+        }
+
+        if (task.sessionMode === "exam") {
+          const lastExamBlock = getLastScheduledExamBlock(slot.dateKey);
+          if (
+            lastExamBlock &&
+            new Date(lastExamBlock.end).getTime() > slot.start.getTime() - 30 * 60 * 1000
+          ) {
+            return null;
+          }
+        }
+
+        if (
+          blockOption.intensity === "heavy" &&
+          !(
+            allowWeeklyTargetOverride &&
+            task.subjectId &&
+            isFocusedSubjectUnderTarget(slot.dateKey, task.subjectId)
+          ) &&
+          (heavyBlocksPerDay[slot.dateKey] ?? 0) >= Math.min(maxHeavySessionsPerDay, slot.maxHeavySessionsPerDay)
+        ) {
+          return null;
+        }
+
+        const scoreBreakdown = scoreTaskCandidate(task, slot, blockOption, {
+          subjectMap,
+          preferences: options.preferences,
+          requiredMinutesBySubject,
+          assignedMinutesBySubject,
+          focusedSubjectIdsByDate: focusedSubjectsByDate,
+          focusedTargetMinutesByDate,
+          focusedSubjectTargetMinutesByDate,
+          subjectMinutesByDate,
+          hasFocusDemandByDate: {
+            [slot.dateKey]: getUnmetFocusedSubjectIds(slot.dateKey).length > 0,
+          },
+          referenceDate: options.referenceDate,
+        });
+        const cadenceBonus = getCadenceBonus(task, slot.dateKey);
+        const cadencePenalty = getCadencePenalty(task, slot.dateKey);
+        const adjustedScoreBreakdown = {
+          ...scoreBreakdown,
+          total: Math.round((scoreBreakdown.total + cadenceBonus - cadencePenalty) * 10) / 10,
+        };
+
+        return {
+          task,
+          blockOption,
+          scoreBreakdown: adjustedScoreBreakdown,
+        };
+      })
+      .filter(Boolean)
+      .sort(
+        (left, right) =>
+          (right?.scoreBreakdown.total ?? 0) - (left?.scoreBreakdown.total ?? 0),
+      ) as Array<{
+      task: TaskCandidate;
+      blockOption: NonNullable<ReturnType<typeof selectBlockOption>>;
+      scoreBreakdown: StudyBlock["scoreBreakdown"];
+    }>;
+  }
+
   options.freeSlots.forEach((slot) => {
     const mustFillEndOfDaySlot =
       slot.durationMinutes >= MIN_ALLOCATABLE_MINUTES &&
@@ -875,12 +1010,12 @@ function allocateTasksToSlots(options: {
       remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES &&
       (consumedStudyMinutes < effectiveCapacityMinutes || mustFillEndOfDaySlot)
     ) {
+      syncWorkingTasks();
       const dailyBudget = slot.dayStudyCapMinutes + (options.dailyCapBoostMinutes ?? 0);
       const usedToday = dailyMinutes[slot.dateKey] ?? 0;
       const availableToday = mustFillEndOfDaySlot
         ? remainingSlotMinutes
         : dailyBudget - usedToday;
-      const slotHeavyLimit = Math.min(maxHeavySessionsPerDay, slot.maxHeavySessionsPerDay);
 
       if (availableToday < MIN_ALLOCATABLE_MINUTES) {
         if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)) {
@@ -902,108 +1037,39 @@ function allocateTasksToSlots(options: {
         end: addMinutes(cursor, Math.min(remainingSlotMinutes, availableToday)),
         durationMinutes: Math.min(remainingSlotMinutes, availableToday),
       };
-      const allowedBlockTypes = getAllowedBlockTypesForSlot(slotSlice);
-
-      const scoredOptions = workingTasks
-        .filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES)
-        .filter((task) => !task.availableAt || new Date(task.availableAt) <= slotSlice.start)
-        .filter((task) => !task.latestAt || new Date(task.latestAt) >= slotSlice.start)
-        .filter((task) => isTaskDependencySatisfied(task, slotSlice.start))
-        .filter((task) => !hasReachedWeeklyTarget(task, slot.dateKey))
-        .map((task) => {
-          const blockOption = selectBlockOption(
-            task,
-            slotSlice,
-            options.preferences,
-            mustFillEndOfDaySlot
-              ? {
-                  ...options.blockSelectionPolicy,
-                  preferLongerBlocks: true,
-                  allowLowEnergyHeavy: true,
-                  allowLateNightDeepWork: true,
-                }
-              : options.blockSelectionPolicy,
-          );
-          if (!blockOption) {
-            return null;
-          }
-
-          if (allowedBlockTypes && !allowedBlockTypes.has(blockOption.blockType)) {
-            return null;
-          }
-
-          if (task.sessionMode === "exam") {
-            const lastExamBlock = getLastScheduledExamBlock(slot.dateKey);
-            if (
-              lastExamBlock &&
-              new Date(lastExamBlock.end).getTime() > slotSlice.start.getTime() - 30 * 60 * 1000
-            ) {
-              return null;
-            }
-          }
-
-          if (
-            blockOption.intensity === "heavy" &&
-            !(
-              task.subjectId &&
-              isFocusedSubjectUnderTarget(slot.dateKey, task.subjectId)
-            ) &&
-            (heavyBlocksPerDay[slot.dateKey] ?? 0) >= slotHeavyLimit
-          ) {
-            return null;
-          }
-
-          const scoreBreakdown = scoreTaskCandidate(task, slotSlice, blockOption, {
-            subjectMap,
-            preferences: options.preferences,
-            requiredMinutesBySubject,
-            assignedMinutesBySubject,
-            focusedSubjectIdsByDate: focusedSubjectsByDate,
-            focusedTargetMinutesByDate,
-            focusedSubjectTargetMinutesByDate,
-            subjectMinutesByDate,
-            hasFocusDemandByDate: {
-              [slot.dateKey]: getUnmetFocusedSubjectIds(slot.dateKey).length > 0,
-            },
-            referenceDate: options.referenceDate,
-          });
-          const cadenceBonus = getCadenceBonus(task, slot.dateKey);
-          const cadencePenalty = getCadencePenalty(task, slot.dateKey);
-          const adjustedScoreBreakdown = {
-            ...scoreBreakdown,
-            total: Math.round((scoreBreakdown.total + cadenceBonus - cadencePenalty) * 10) / 10,
-          };
-
-          return {
-            task,
-            blockOption,
-            scoreBreakdown: adjustedScoreBreakdown,
-          };
-        })
-        .filter(Boolean)
-        .sort(
-          (left, right) =>
-            (right?.scoreBreakdown.total ?? 0) - (left?.scoreBreakdown.total ?? 0),
-        ) as Array<{
-        task: TaskCandidate;
-        blockOption: NonNullable<ReturnType<typeof selectBlockOption>>;
-        scoreBreakdown: StudyBlock["scoreBreakdown"];
-      }>;
-
       const focusedTargetMinutes = focusedTargetMinutesByDate[slot.dateKey] ?? 0;
       const unmetFocusedSubjectIds = getUnmetFocusedSubjectIds(slot.dateKey);
       const focusedTargetStillOpen =
         focusedTargetMinutes > 0 &&
         unmetFocusedSubjectIds.length > 0 &&
         getFocusedAssignedMinutes(slot.dateKey) + 14 < focusedTargetMinutes;
-      const focusedOptions = focusedTargetStillOpen
-        ? scoredOptions.filter(
-            (candidate) =>
-              !!candidate.task.subjectId &&
-              unmetFocusedSubjectIds.includes(candidate.task.subjectId),
-          )
+      let focusedOnlyOptions = focusedTargetStillOpen
+        ? buildScoredOptionsForSlot({
+            slot: slotSlice,
+            allowWeeklyTargetOverride: true,
+            restrictedSubjectIds: unmetFocusedSubjectIds,
+            mustFillEndOfDaySlot,
+          })
         : [];
-      const winner = focusedOptions[0] ?? scoredOptions[0];
+
+      if (focusedTargetStillOpen && focusedOnlyOptions.length === 0) {
+        syncWorkingTasks(unmetFocusedSubjectIds);
+        focusedOnlyOptions = buildScoredOptionsForSlot({
+          slot: slotSlice,
+          allowWeeklyTargetOverride: true,
+          restrictedSubjectIds: unmetFocusedSubjectIds,
+          mustFillEndOfDaySlot,
+        });
+      }
+
+      const scoredOptions =
+        focusedOnlyOptions.length > 0
+          ? focusedOnlyOptions
+          : buildScoredOptionsForSlot({
+              slot: slotSlice,
+              mustFillEndOfDaySlot,
+            });
+      const winner = scoredOptions[0];
       const allTargetsMet = allWeeklyTargetsSatisfied();
       const shouldProtectRecovery =
         mustFillEndOfDaySlot

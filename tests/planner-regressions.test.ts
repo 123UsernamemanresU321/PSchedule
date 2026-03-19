@@ -403,6 +403,46 @@ test("single-subject focused days reserve most of the day for that subject", () 
   assert.ok(physicsMinutes / totalMinutes >= 0.65);
 });
 
+test("focused days materially increase the chosen subject in the seeded schedule", () => {
+  const referenceDate = new Date("2026-03-19T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const focusedDate = "2026-03-25";
+
+  const withoutFocus = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T00:00:00"),
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    preferences: dataset.preferences,
+    focusedDays: [],
+  });
+  const withFocus = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T00:00:00"),
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    preferences: dataset.preferences,
+    focusedDays: [
+      {
+        id: "focus-physics-seeded",
+        date: focusedDate,
+        subjectIds: ["physics-hl"],
+      },
+    ],
+  });
+
+  const physicsMinutesWithoutFocus = withoutFocus.studyBlocks
+    .filter((block) => block.date === focusedDate && block.subjectId === "physics-hl")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+  const physicsMinutesWithFocus = withFocus.studyBlocks
+    .filter((block) => block.date === focusedDate && block.subjectId === "physics-hl")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+
+  assert.ok(physicsMinutesWithFocus >= physicsMinutesWithoutFocus + 120);
+});
+
 test("multi-subject focused days split work by pressure instead of equally", () => {
   const referenceDate = new Date("2026-03-16T08:00:00");
   const dataset = buildSeedDataset(referenceDate);

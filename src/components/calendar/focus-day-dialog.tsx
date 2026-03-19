@@ -53,9 +53,10 @@ export function FocusDayDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-2xl">
-        <Card data-testid="focus-day-dialog">
+    <div className="fixed inset-0 z-50 overflow-hidden bg-black/55 p-4 backdrop-blur-sm">
+      <div className="flex h-full items-center justify-center">
+        <div className="w-full max-w-2xl">
+        <Card data-testid="focus-day-dialog" className="flex max-h-[calc(100vh-2rem)] min-h-0 flex-col overflow-hidden">
           <CardHeader className="flex-row items-start justify-between">
             <div>
               <CardTitle>Set subject focus for one day</CardTitle>
@@ -68,7 +69,7 @@ export function FocusDayDialog({
               <X className="h-4 w-4" />
             </Button>
           </CardHeader>
-          <CardContent className="space-y-5">
+          <CardContent className="min-h-0 space-y-5 overflow-y-auto overscroll-y-contain">
             <div className="grid gap-4 md:grid-cols-[220px_1fr]">
               <div className="space-y-2">
                 <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Date</label>
@@ -179,6 +180,7 @@ export function FocusDayDialog({
             </div>
           </CardContent>
         </Card>
+        </div>
       </div>
     </div>
   );
