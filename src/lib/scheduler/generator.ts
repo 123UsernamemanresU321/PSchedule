@@ -128,6 +128,16 @@ function buildDayCapacityByDate(
   }, {});
 }
 
+function buildLastSlotEndByDate(freeSlots: CalendarSlot[]) {
+  return freeSlots.reduce<Record<string, number>>((accumulator, slot) => {
+    accumulator[slot.dateKey] = Math.max(
+      accumulator[slot.dateKey] ?? 0,
+      slot.end.getTime(),
+    );
+    return accumulator;
+  }, {});
+}
+
 function getReservedTargetMinutesForDay(options: {
   dayEntry: DayCapacityEntry;
   preferences: Preferences;
@@ -529,6 +539,7 @@ function allocateTasksToSlots(options: {
   const needsIntensityRamp = requiredMinutes > bufferedCapacityMinutes;
   const dailyCapBoostMinutes = options.dailyCapBoostMinutes ?? 0;
   const dayCapacityByDate = buildDayCapacityByDate(options.freeSlots, dailyCapBoostMinutes);
+  const lastSlotEndByDate = buildLastSlotEndByDate(options.freeSlots);
   const aggressiveStudyDayMinutes = Object.values(dayCapacityByDate).reduce((total, dayEntry) => {
     return total + getReservedTargetMinutesForDay({
       dayEntry,
@@ -670,11 +681,18 @@ function allocateTasksToSlots(options: {
   }
 
   options.freeSlots.forEach((slot) => {
-    if (consumedStudyMinutes >= effectiveCapacityMinutes) {
+    const mustFillEndOfDaySlot =
+      slot.durationMinutes >= MIN_ALLOCATABLE_MINUTES &&
+      lastSlotEndByDate[slot.dateKey] === slot.end.getTime() &&
+      slot.end.getHours() === 22 &&
+      slot.end.getMinutes() === 30 &&
+      workingTasks.some((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES);
+
+    if (consumedStudyMinutes >= effectiveCapacityMinutes && !mustFillEndOfDaySlot) {
       return;
     }
 
-    if (shouldHoldCapacityForLaterDays(slot.dateKey)) {
+    if (!mustFillEndOfDaySlot && shouldHoldCapacityForLaterDays(slot.dateKey)) {
       absorbTrailingGapIntoPreviousBlock(slot.dateKey, slot.start, slot.durationMinutes);
       return;
     }
@@ -684,11 +702,13 @@ function allocateTasksToSlots(options: {
 
     while (
       remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES &&
-      consumedStudyMinutes < effectiveCapacityMinutes
+      (consumedStudyMinutes < effectiveCapacityMinutes || mustFillEndOfDaySlot)
     ) {
       const dailyBudget = slot.dayStudyCapMinutes + (options.dailyCapBoostMinutes ?? 0);
       const usedToday = dailyMinutes[slot.dateKey] ?? 0;
-      const availableToday = dailyBudget - usedToday;
+      const availableToday = mustFillEndOfDaySlot
+        ? remainingSlotMinutes
+        : dailyBudget - usedToday;
       const slotHeavyLimit = Math.min(maxHeavySessionsPerDay, slot.maxHeavySessionsPerDay);
 
       if (availableToday < MIN_ALLOCATABLE_MINUTES) {
@@ -698,7 +718,7 @@ function allocateTasksToSlots(options: {
         break;
       }
 
-      if (shouldHoldCapacityForLaterDays(slot.dateKey)) {
+      if (!mustFillEndOfDaySlot && shouldHoldCapacityForLaterDays(slot.dateKey)) {
         if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)) {
           remainingSlotMinutes = 0;
         }
@@ -724,7 +744,14 @@ function allocateTasksToSlots(options: {
             task,
             slotSlice,
             options.preferences,
-            options.blockSelectionPolicy,
+            mustFillEndOfDaySlot
+              ? {
+                  ...options.blockSelectionPolicy,
+                  preferLongerBlocks: true,
+                  allowLowEnergyHeavy: true,
+                  allowLateNightDeepWork: true,
+                }
+              : options.blockSelectionPolicy,
           );
           if (!blockOption) {
             return null;
@@ -784,7 +811,9 @@ function allocateTasksToSlots(options: {
       const winner = scoredOptions[0];
       const allTargetsMet = allWeeklyTargetsSatisfied();
       const shouldProtectRecovery =
-        options.protectRecovery ?? (!needsIntensityRamp || allTargetsMet);
+        mustFillEndOfDaySlot
+          ? false
+          : options.protectRecovery ?? (!needsIntensityRamp || allTargetsMet);
 
       if (!winner) {
         if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)) {
