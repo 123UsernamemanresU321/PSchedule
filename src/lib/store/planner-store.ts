@@ -15,9 +15,8 @@ import {
   importPlannerData,
   initializePlannerDatabase,
   loadPlannerSnapshot,
-  purgeInvalidFutureOlympiadAdvancedBlocks,
+  repairOlympiadPlanningState,
   replacePlanningHorizon,
-  syncOlympiadRoadmapToSeed,
   deleteCompletionLogsByStudyBlockId,
   saveCompletionLog,
   saveFixedEvent,
@@ -96,10 +95,7 @@ interface PlannerState {
 
 async function recalculateCurrentWeek(options?: { preservedStudyBlockIds?: string[] }) {
   const referenceDate = new Date();
-  let snapshot = await loadPlannerSnapshot();
-  snapshot = await syncOlympiadRoadmapToSeed(snapshot, referenceDate);
-  await purgeInvalidFutureOlympiadAdvancedBlocks(referenceDate);
-  snapshot = await loadPlannerSnapshot();
+  const snapshot = await repairOlympiadPlanningState(referenceDate);
   const planningStartWeek = startOfPlannerWeek(referenceDate);
   const replanned = generateStudyPlanHorizon({
     startWeek: planningStartWeek,
