@@ -429,6 +429,21 @@ function buildRequiredHoursFromTasks(tasks: TaskCandidate[]) {
   }, {});
 }
 
+function buildFullCoverageHoursBySubject(subjects: Subject[], tasks: TaskCandidate[]) {
+  const requiredHoursBySubject = recordFromKeys(
+    subjects.map((subject) => subject.id),
+    () => 0,
+  );
+
+  Object.entries(buildRequiredHoursFromTasks(tasks)).forEach(([subjectId, requiredHours]) => {
+    if (subjectId in requiredHoursBySubject) {
+      requiredHoursBySubject[subjectId as keyof typeof requiredHoursBySubject] = requiredHours;
+    }
+  });
+
+  return requiredHoursBySubject;
+}
+
 interface AllocationPassPolicy {
   allowLowEnergyHeavy?: boolean;
   allowLateNightDeepWork?: boolean;
@@ -1420,15 +1435,20 @@ export function generateStudyPlanForWeek(options: {
     planningStart: referenceDate,
     skipMovableRecovery: true,
   });
-  const shouldFillAvailableStudyDays =
-    Object.values(deadlineTracks).some((track) => track.uncoveredGoalHours > 0.1) &&
-    initialFreeSlots.some(
-      (slot) =>
-        slot.scheduleRegime === "holiday" ||
-        slot.dayIndex === 6 ||
-        (slot.dayIndex === 0 && options.preferences.sundayStudy.enabled),
-    );
-  const requiredMinutes = sum(Object.values(requiredHoursBySubject).map((value) => value * 60));
+  const shouldFillAvailableStudyDays = true;
+  const fullCoverageTasks = buildTaskCandidates({
+    topics: options.topics,
+    existingPlannedBlocks,
+    referenceDate,
+    subjectDeadlinesById,
+  });
+  const allocationRequiredHoursBySubject = buildFullCoverageHoursBySubject(
+    options.subjects,
+    fullCoverageTasks,
+  );
+  const requiredMinutes = sum(
+    Object.values(allocationRequiredHoursBySubject).map((value) => value * 60),
+  );
   const automaticDailyCapBoostMinutes = buildAutomaticDailyCapBoost({
     freeSlots: initialFreeSlots,
     requiredMinutes,
@@ -1459,17 +1479,10 @@ export function generateStudyPlanForWeek(options: {
       referenceDate,
       subjectDeadlinesById,
     });
-    const assignedMinutesBySubject = sumAssignedMinutesBySubject([...lockedBlocks, ...scheduledBlocks]);
-    const remainingRequiredHoursBySubject = getRemainingRequiredHoursBySubject(
-      requiredHoursBySubject,
-      assignedMinutesBySubject,
-    );
-    const passRequiredHoursBySubject = shouldFillAvailableStudyDays
-      ? {
-          ...recordFromKeys(subjectIds, () => 0),
-          ...buildRequiredHoursFromTasks(tasks),
-        }
-      : remainingRequiredHoursBySubject;
+    const passRequiredHoursBySubject = {
+      ...recordFromKeys(subjectIds, () => 0),
+      ...buildFullCoverageHoursBySubject(options.subjects, tasks),
+    };
     const remainingRequiredMinutes = Math.round(
       sum(Object.values(passRequiredHoursBySubject).map((hours) => hours * 60)),
     );
@@ -1540,7 +1553,7 @@ export function generateStudyPlanForWeek(options: {
   });
   const finalAssignedMinutesBySubject = sumAssignedMinutesBySubject([...lockedBlocks, ...scheduledBlocks]);
   const remainingRequiredHoursBySubject = getRemainingRequiredHoursBySubject(
-    requiredHoursBySubject,
+    allocationRequiredHoursBySubject,
     finalAssignedMinutesBySubject,
   );
   const studyBlocks = [...lockedBlocks, ...scheduledBlocks].sort(

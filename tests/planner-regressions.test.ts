@@ -333,6 +333,75 @@ test("subject progress distinguishes already planned work from truly unscheduled
   assert.equal(progress.unscheduledHours < progress.remainingHours, true);
 });
 
+test("horizon generation fully places remaining topic hours when future capacity exists", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
+  const subject = dataset.subjects.find((candidate) => candidate.id === "physics-hl");
+
+  assert.ok(subject, "expected physics subject");
+
+  const customTopics: Topic[] = [
+    {
+      ...dataset.topics.find((topic) => topic.id === "physics-a1-kinematics")!,
+      estHours: 2,
+      completedHours: 0,
+      mastery: 1,
+      status: "not_started",
+      dependsOnTopicId: null,
+      availableFrom: null,
+    },
+    {
+      ...dataset.topics.find((topic) => topic.id === "physics-a2-forces-momentum")!,
+      estHours: 2,
+      completedHours: 0,
+      mastery: 1,
+      status: "not_started",
+      dependsOnTopicId: "physics-a1-kinematics",
+      availableFrom: null,
+    },
+    {
+      ...dataset.topics.find((topic) => topic.id === "physics-a3-work-energy-power")!,
+      estHours: 2,
+      completedHours: 0,
+      mastery: 1,
+      status: "not_started",
+      dependsOnTopicId: "physics-a2-forces-momentum",
+      availableFrom: null,
+    },
+  ];
+
+  const result = generateStudyPlanHorizon({
+    startWeek: new Date("2026-03-20T08:00:00"),
+    endWeek: new Date("2026-04-03T08:00:00"),
+    goals: [
+      {
+        id: "goal-physics-custom",
+        title: "Finish the custom physics subset",
+        subjectId: "physics-hl",
+        deadline: "2027-06-30",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [subject],
+    topics: customTopics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: [],
+    focusedDays: [],
+    preferences: dataset.preferences,
+    existingStudyBlocks: [],
+  });
+
+  const progress = getSubjectProgress(
+    subject,
+    customTopics,
+    result.studyBlocks,
+    new Date("2026-03-20T08:00:00"),
+  );
+
+  assert.equal(progress.scheduledFutureHours, 6);
+  assert.equal(progress.unscheduledHours, 0);
+});
+
 test("topics with remaining hours are still schedulable even if a stale status says strong", () => {
   const candidates = buildTaskCandidates({
     topics: [
