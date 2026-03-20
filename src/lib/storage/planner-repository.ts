@@ -164,12 +164,22 @@ function normalizeFixedEvent(event: PlannerExportPayload["fixedEvents"][number])
 
 function normalizeStudyBlock(block: StudyBlock) {
   const start = new Date(block.start);
+  const isLegacyManualReassignment = block.generatedReason.startsWith(
+    "Manually reassigned in the study-block drawer",
+  );
+  const normalizedGeneratedReason = isLegacyManualReassignment
+    ? block.generatedReason.replace(
+        "The rest of the horizon was rebuilt around this locked block.",
+        "The horizon was rebuilt around this change, but future regenerations can still move or retarget the block.",
+      )
+    : block.generatedReason;
 
   return {
     ...block,
     date: toDateKey(start),
     weekStart: toDateKey(startOfPlannerWeek(start)),
-    assignmentLocked: block.assignmentLocked ?? false,
+    generatedReason: normalizedGeneratedReason,
+    assignmentLocked: isLegacyManualReassignment ? false : block.assignmentLocked ?? false,
     assignmentEditedAt: block.assignmentEditedAt ?? null,
   } satisfies StudyBlock;
 }

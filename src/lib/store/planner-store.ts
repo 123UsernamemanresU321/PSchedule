@@ -477,7 +477,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       generatedReason: buildManualAssignmentReason(nextCandidate),
       scoreBreakdown: buildManualAssignmentScoreBreakdown(),
       notes: notes ?? block.notes,
-      assignmentLocked: true,
+      assignmentLocked: false,
       assignmentEditedAt: new Date().toISOString(),
     };
 
@@ -567,5 +567,5 @@ function buildManualAssignmentReason(task: {
   subjectId: string | null;
 }) {
   const unitLabel = task.unitTitle ? `${task.unitTitle}` : "the selected topic";
-  return `Manually reassigned in the study-block drawer to ${task.title.toLowerCase()} from ${unitLabel}. The rest of the horizon was rebuilt around this locked block.`;
+  return `Manually reassigned in the study-block drawer to ${task.title.toLowerCase()} from ${unitLabel}. The horizon was rebuilt around this change, but future regenerations can still move or retarget the block.`;
 }
