@@ -1329,6 +1329,80 @@ test("partial number theory foundations still get concrete future coverage befor
   }
 });
 
+test("number theory frontier top-off does not stretch into a giant overallocated block", () => {
+  const referenceDate = new Date("2026-03-20T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
+
+  assert.ok(olympiadSubject);
+
+  const topics = [
+    {
+      ...dataset.topics.find((topic) => topic.id === "olympiad-number-theory-divisibility")!,
+      completedHours: 6.5,
+      mastery: 5,
+      status: "strong" as const,
+    },
+    {
+      ...dataset.topics.find((topic) => topic.id === "olympiad-number-theory-congruence")!,
+      completedHours: 6.7,
+      mastery: 4,
+      status: "learning" as const,
+    },
+  ];
+
+  const result = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T00:00:00"),
+    goals: dataset.goals.filter((goal) => goal.subjectId === "olympiad"),
+    subjects: [olympiadSubject!],
+    topics,
+    fixedEvents: [],
+    preferences: dataset.preferences,
+    lockedBlocks: [],
+    existingPlannedBlocks: [],
+    horizonStartDate: referenceDate,
+  });
+
+  const congruenceMinutes = result.studyBlocks
+    .filter((block) => block.topicId === "olympiad-number-theory-congruence")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+
+  assert.equal(congruenceMinutes <= 30, true);
+});
+
+test("subject progress caps already-planned-later hours at the topic's true remaining hours", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
+  const olympiad = dataset.subjects.find((subject) => subject.id === "olympiad");
+  const congruence = dataset.topics.find((topic) => topic.id === "olympiad-number-theory-congruence");
+
+  assert.ok(olympiad);
+  assert.ok(congruence);
+
+  const oversizedPlannedBlock = createStudyBlock({
+    id: "oversized-congruence",
+    weekStart: "2026-03-23",
+    date: "2026-03-24",
+    start: "2026-03-24T08:00:00.000Z",
+    end: "2026-03-24T14:00:00.000Z",
+    subjectId: "olympiad",
+    topicId: congruence!.id,
+    title: congruence!.title,
+    estimatedMinutes: 360,
+  });
+
+  const progress = getSubjectProgress(
+    olympiad!,
+    dataset.topics,
+    [oversizedPlannedBlock],
+    new Date("2026-03-20T08:00:00"),
+  );
+
+  assert.equal(
+    progress.plannedFutureHoursByTopic[congruence!.id],
+    Number(Math.min(congruence!.estHours - congruence!.completedHours, 6).toFixed(1)),
+  );
+});
+
 test("number theory frontier status tracks the earliest unfinished foundation topic", () => {
   const topics: Topic[] = [
     {

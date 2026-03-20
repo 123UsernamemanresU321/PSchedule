@@ -599,6 +599,7 @@ function allocateTasksToSlots(options: {
   blockSelectionPolicy?: BlockSelectionPolicy;
   fillAvailableStudyDays?: boolean;
   focusedSubjectsByDate?: Record<string, string[]>;
+  allowLargeGapAbsorption?: boolean;
 }) {
   const weekStartKey = toDateKey(options.weekStart);
   const subjectMap = new Map(options.subjects.map((subject) => [subject.id, subject]));
@@ -1061,6 +1062,24 @@ function allocateTasksToSlots(options: {
     return dateKey >= "2026-07-01" && dateKey <= "2027-03-16";
   }
 
+  function getNumberTheoryFrontierTopicIdForSlot(slotStart: Date) {
+    const frontierStatus = getOlympiadNumberTheoryFrontierStatus({
+      topics: options.topics,
+      blocks: [
+        ...(options.priorPlannedBlocks ?? []),
+        ...options.lockedBlocks,
+        ...scheduledBlocks,
+      ],
+      cutoff: slotStart,
+    });
+
+    if (!frontierStatus.frontierTopicId || frontierStatus.remainingMinutes <= 0) {
+      return null;
+    }
+
+    return frontierStatus.frontierTopicId;
+  }
+
   function getCadenceBonus(task: TaskCandidate, dateKey: string) {
     if (!task.subjectId) {
       return 0;
@@ -1174,10 +1193,18 @@ function allocateTasksToSlots(options: {
       mustFillEndOfDaySlot = false,
     } = config;
     const allowedBlockTypes = getAllowedBlockTypesForSlot(slot);
+    const requiredNumberTheoryFrontierTopicId = getNumberTheoryFrontierTopicIdForSlot(slot.start);
     return workingTasks
       .filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES)
       .filter((task) => !restrictedSubjectIds || (!!task.subjectId && restrictedSubjectIds.includes(task.subjectId)))
       .filter((task) => !restrictedTopicIds || (!!task.topicId && restrictedTopicIds.includes(task.topicId)))
+      .filter((task) => {
+        if (!requiredNumberTheoryFrontierTopicId || task.subjectId !== "olympiad") {
+          return true;
+        }
+
+        return task.topicId === requiredNumberTheoryFrontierTopicId;
+      })
       .filter((task) => !task.availableAt || new Date(task.availableAt) <= slot.start)
       .filter((task) => !task.latestAt || new Date(task.latestAt) >= slot.start)
       .filter((task) => isTaskDependencySatisfied(task, slot.start))
@@ -1279,7 +1306,9 @@ function allocateTasksToSlots(options: {
     }
 
     if (!mustFillEndOfDaySlot && shouldHoldCapacityForLaterDays(slot.dateKey)) {
-      absorbTrailingGapIntoPreviousBlock(slot.dateKey, slot.start, slot.durationMinutes);
+      if (options.allowLargeGapAbsorption !== false) {
+        absorbTrailingGapIntoPreviousBlock(slot.dateKey, slot.start, slot.durationMinutes);
+      }
       return;
     }
 
@@ -1299,14 +1328,20 @@ function allocateTasksToSlots(options: {
           : dailyBudget - usedToday;
 
       if (availableToday < MIN_ALLOCATABLE_MINUTES) {
-        if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)) {
+        if (
+          options.allowLargeGapAbsorption !== false &&
+          absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)
+        ) {
           remainingSlotMinutes = 0;
         }
         break;
       }
 
       if (!mustFillEndOfDaySlot && shouldHoldCapacityForLaterDays(slot.dateKey)) {
-        if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)) {
+        if (
+          options.allowLargeGapAbsorption !== false &&
+          absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)
+        ) {
           remainingSlotMinutes = 0;
         }
         break;
@@ -1420,7 +1455,10 @@ function allocateTasksToSlots(options: {
           continue;
         }
 
-        if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)) {
+        if (
+          options.allowLargeGapAbsorption !== false &&
+          absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)
+        ) {
           remainingSlotMinutes = 0;
           break;
         }
@@ -1465,7 +1503,10 @@ function allocateTasksToSlots(options: {
         shouldProtectRecovery &&
         (slotSlice.energy === "low" || allTargetsMet)
       ) {
-        if (absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)) {
+        if (
+          options.allowLargeGapAbsorption !== false &&
+          absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)
+        ) {
           remainingSlotMinutes = 0;
           break;
         }
@@ -1845,6 +1886,7 @@ export function generateStudyPlanForWeek(options: {
       },
       fillAvailableStudyDays: false,
       focusedSubjectsByDate,
+      allowLargeGapAbsorption: false,
     });
 
     if (!frontierResult.scheduledBlocks.length) {

@@ -104,10 +104,14 @@ export function getSubjectProgress(
     scheduledFutureHours: Number(scheduledFutureHours.toFixed(1)),
     unscheduledHours: Number(unscheduledHours.toFixed(1)),
     plannedFutureHoursByTopic: Object.fromEntries(
-      Object.entries(plannedFutureMinutesByTopic).map(([topicId, minutes]) => [
-        topicId,
-        Number((minutes / 60).toFixed(1)),
-      ]),
+      subjectTopics.map((topic) => {
+        const plannedFutureHours = (plannedFutureMinutesByTopic[topic.id] ?? 0) / 60;
+        const remainingHoursForTopic = Math.max(topic.estHours - topic.completedHours, 0);
+        return [
+          topic.id,
+          Number(Math.min(remainingHoursForTopic, plannedFutureHours).toFixed(1)),
+        ];
+      }),
     ),
     totalHours: Number(totalHours.toFixed(1)),
     unitCount: units.size,
