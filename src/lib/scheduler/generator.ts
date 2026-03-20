@@ -1061,13 +1061,7 @@ function allocateTasksToSlots(options: {
     return dateKey >= "2026-07-01" && dateKey <= "2027-03-16";
   }
 
-  function getNumberTheoryFrontierTopicIdForDate(dateKey: string, slotStart: Date) {
-    const olympiadAssignedMinutes = subjectMinutesByDate[dateKey]?.olympiad ?? 0;
-
-    if (olympiadAssignedMinutes > 0) {
-      return null;
-    }
-
+  function getNumberTheoryFrontierTopicIdForSlot(slotStart: Date) {
     const frontierStatus = getOlympiadNumberTheoryFrontierStatus({
       topics: options.topics,
       blocks: [
@@ -1078,40 +1072,11 @@ function allocateTasksToSlots(options: {
       cutoff: slotStart,
     });
 
-    if (!frontierStatus.frontierTopicId || frontierStatus.remainingMinutes < MIN_ALLOCATABLE_MINUTES) {
+    if (!frontierStatus.frontierTopicId || frontierStatus.remainingMinutes <= 0) {
       return null;
     }
 
     return frontierStatus.frontierTopicId;
-  }
-
-  function buildNumberTheoryFrontierOptionsForSlot(slot: CalendarSlot, mustFillEndOfDaySlot: boolean) {
-    const frontierTopicId = getNumberTheoryFrontierTopicIdForDate(slot.dateKey, slot.start);
-
-    if (!frontierTopicId) {
-      return [];
-    }
-
-    let frontierOnlyOptions = buildScoredOptionsForSlot({
-      slot,
-      allowWeeklyTargetOverride: true,
-      restrictedSubjectIds: ["olympiad"],
-      restrictedTopicIds: [frontierTopicId],
-      mustFillEndOfDaySlot,
-    });
-
-    if (frontierOnlyOptions.length === 0) {
-      syncWorkingTasks(["olympiad"]);
-      frontierOnlyOptions = buildScoredOptionsForSlot({
-        slot,
-        allowWeeklyTargetOverride: true,
-        restrictedSubjectIds: ["olympiad"],
-        restrictedTopicIds: [frontierTopicId],
-        mustFillEndOfDaySlot,
-      });
-    }
-
-    return frontierOnlyOptions;
   }
 
   function getCadenceBonus(task: TaskCandidate, dateKey: string) {
@@ -1227,11 +1192,19 @@ function allocateTasksToSlots(options: {
       mustFillEndOfDaySlot = false,
     } = config;
     const allowedBlockTypes = getAllowedBlockTypesForSlot(slot);
+    const requiredNumberTheoryFrontierTopicId = getNumberTheoryFrontierTopicIdForSlot(slot.start);
 
     return workingTasks
       .filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES)
       .filter((task) => !restrictedSubjectIds || (!!task.subjectId && restrictedSubjectIds.includes(task.subjectId)))
       .filter((task) => !restrictedTopicIds || (!!task.topicId && restrictedTopicIds.includes(task.topicId)))
+      .filter((task) => {
+        if (!requiredNumberTheoryFrontierTopicId || task.subjectId !== "olympiad") {
+          return true;
+        }
+
+        return task.topicId === requiredNumberTheoryFrontierTopicId;
+      })
       .filter((task) => !task.availableAt || new Date(task.availableAt) <= slot.start)
       .filter((task) => !task.latestAt || new Date(task.latestAt) >= slot.start)
       .filter((task) => isTaskDependencySatisfied(task, slot.start))
@@ -1399,11 +1372,6 @@ function allocateTasksToSlots(options: {
         });
       }
 
-      const numberTheoryFrontierOptions = buildNumberTheoryFrontierOptionsForSlot(
-        slotSlice,
-        mustFillEndOfDaySlot,
-      );
-
       let cadenceOnlyOptions =
         cadenceReservedSubjectIds.length > 0
           ? buildScoredOptionsForSlot({
@@ -1427,8 +1395,6 @@ function allocateTasksToSlots(options: {
       const scoredOptions =
         focusedOnlyOptions.length > 0
           ? focusedOnlyOptions
-          : numberTheoryFrontierOptions.length > 0
-            ? numberTheoryFrontierOptions
           : cadenceOnlyOptions.length > 0
             ? cadenceOnlyOptions
           : buildScoredOptionsForSlot({

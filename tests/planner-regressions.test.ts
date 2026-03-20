@@ -1129,6 +1129,133 @@ test("the first olympiad block of the day follows the current number theory fron
   assert.equal(firstOlympiadBlock?.topicId, "olympiad-number-theory-divisibility");
 });
 
+test("unfinished number theory frontier keeps olympiad on number theory until that strand is covered", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
+
+  assert.ok(olympiadSubject);
+
+  const olympiadTopics: Topic[] = [
+    {
+      id: "olympiad-number-theory-divisibility",
+      subjectId: "olympiad",
+      unitId: "olympiad-number-theory-1",
+      unitTitle: "Olympiad - Number Theory Foundations",
+      title: "gcd structure, Euclidean algorithm, and divisibility control",
+      order: 1,
+      estHours: 6.5,
+      completedHours: 3.9,
+      mastery: 4,
+      status: "learning",
+      reviewDue: null,
+      lastStudiedAt: null,
+      dependsOnTopicId: null,
+      availableFrom: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      subtopics: [],
+      sourceMaterials: [],
+      preferredBlockTypes: ["standard_focus"],
+      difficulty: 4,
+      sequenceGroup: "olympiad-nt",
+      sequenceStage: "foundation",
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      paperCode: null,
+      notes: "",
+    },
+    {
+      id: "olympiad-number-theory-congruence",
+      subjectId: "olympiad",
+      unitId: "olympiad-number-theory-1",
+      unitTitle: "Olympiad - Number Theory Foundations",
+      title: "Modular arithmetic, inverses, orders, and CRT",
+      order: 2,
+      estHours: 7,
+      completedHours: 0,
+      mastery: 2,
+      status: "not_started",
+      reviewDue: null,
+      lastStudiedAt: null,
+      dependsOnTopicId: "olympiad-number-theory-divisibility",
+      availableFrom: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      subtopics: [],
+      sourceMaterials: [],
+      preferredBlockTypes: ["deep_work"],
+      difficulty: 5,
+      sequenceGroup: "olympiad-nt",
+      sequenceStage: "foundation",
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      paperCode: null,
+      notes: "",
+    },
+    {
+      id: "olympiad-geometry-points-lines-polygons",
+      subjectId: "olympiad",
+      unitId: "olympiad-geometry-1",
+      unitTitle: "Olympiad - Geometry Foundations",
+      title: "Directed angles, cyclicity, similarity, and clean angle chase",
+      order: 3,
+      estHours: 6.5,
+      completedHours: 0,
+      mastery: 1,
+      status: "not_started",
+      reviewDue: null,
+      lastStudiedAt: null,
+      dependsOnTopicId: null,
+      availableFrom: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      subtopics: [],
+      sourceMaterials: [],
+      preferredBlockTypes: ["deep_work"],
+      difficulty: 5,
+      sequenceGroup: "olympiad-geo",
+      sequenceStage: "foundation",
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      paperCode: null,
+      notes: "",
+    },
+  ];
+
+  const result = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T00:00:00"),
+    goals: [
+      {
+        id: "goal-olympiad",
+        title: "Olympiad frontier goal",
+        subjectId: "olympiad",
+        deadline: "2027-06-30",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [olympiadSubject!],
+    topics: olympiadTopics,
+    fixedEvents: [],
+    preferences: dataset.preferences,
+  });
+
+  const olympiadBlocks = result.studyBlocks.filter((block) => block.subjectId === "olympiad");
+  const firstNonNumberTheoryIndex = olympiadBlocks.findIndex(
+    (block) => !block.topicId?.startsWith("olympiad-number-theory-"),
+  );
+
+  assert.equal(olympiadBlocks.length > 0, true);
+  assert.notEqual(firstNonNumberTheoryIndex, -1);
+  assert.equal(
+    olympiadBlocks
+      .slice(0, firstNonNumberTheoryIndex)
+      .every((block) => block.topicId?.startsWith("olympiad-number-theory-")),
+    true,
+  );
+});
+
 test("number theory frontier status tracks the earliest unfinished foundation topic", () => {
   const topics: Topic[] = [
     {
