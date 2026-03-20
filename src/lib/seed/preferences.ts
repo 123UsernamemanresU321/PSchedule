@@ -59,6 +59,7 @@ export function buildSeedPreferences(): Preferences {
         days: [0, 2, 3, 4, 5, 6],
         appliesDuring: "all",
         preferredStart: "18:00",
+        timeOverrides: {},
       },
       {
         id: "term-homework",
@@ -67,6 +68,7 @@ export function buildSeedPreferences(): Preferences {
         days: [0, 1, 2, 3, 4, 5, 6],
         appliesDuring: "school-term",
         preferredStart: "16:00",
+        timeOverrides: {},
       },
     ],
     maxHeavySessionsPerDay: 2,

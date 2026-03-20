@@ -157,6 +157,7 @@ export function CommitmentOverrideDialog({
   const [dateKey, setDateKey] = useState(initialDate);
   const [mode, setMode] = useState<"add" | "remove">(defaultMode);
   const [durationMinutes, setDurationMinutes] = useState(90);
+  const [startTime, setStartTime] = useState("18:00");
 
   useEffect(() => {
     setDateKey(initialDate);
@@ -177,11 +178,13 @@ export function CommitmentOverrideDialog({
     }
 
     setDurationMinutes(nextRule.durationOverrides?.[dateKey] ?? nextRule.durationMinutes);
+    setStartTime(nextRule.timeOverrides?.[dateKey]?.start ?? nextRule.preferredStart);
   }, [dateKey, preferences, ruleId]);
 
   const rule = getCommitmentRule(preferences, ruleId);
   const copy = ruleId ? commitmentCopy[ruleId] : null;
   const supportsDurationOverride = ruleId === "term-homework";
+  const supportsTimeOverride = ruleId === "piano-practice";
   const statusDescription = useMemo(() => {
     if (!ruleId) {
       return "";
@@ -275,6 +278,24 @@ export function CommitmentOverrideDialog({
               </div>
             ) : null}
 
+            {supportsTimeOverride && mode === "add" ? (
+              <div className="space-y-2">
+                <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                  Piano start time
+                </label>
+                <Input
+                  data-testid="commitment-override-start-time"
+                  type="time"
+                  step={900}
+                  value={startTime}
+                  onChange={(event) => setStartTime(event.target.value)}
+                />
+                <p className="text-sm text-muted-foreground">
+                  Piano will take this slot first, and the planner will move overlapping study later in the day or into the next day when needed.
+                </p>
+              </div>
+            ) : null}
+
             <div className="rounded-sm border border-white/6 bg-white/4 px-4 py-3">
               <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Current status</p>
               <p className="mt-2 text-sm text-foreground">{statusDescription}</p>
@@ -294,6 +315,7 @@ export function CommitmentOverrideDialog({
                       dateKey,
                       mode,
                       supportsDurationOverride ? durationMinutes : null,
+                      supportsTimeOverride ? startTime : null,
                     ),
                   )
                 }
@@ -314,23 +336,9 @@ function applyCommitmentOverrideWithDuration(
   dateKey: string,
   mode: "add" | "remove",
   durationMinutes: number | null,
+  startTime: string | null,
 ) {
   const nextPreferences = applyCommitmentOverride(preferences, ruleId, dateKey, mode);
-  if (!durationMinutes || ruleId !== "term-homework" || mode !== "add") {
-    return {
-      ...nextPreferences,
-      reservedCommitmentRules: nextPreferences.reservedCommitmentRules.map((rule) =>
-        rule.id === ruleId
-          ? {
-              ...rule,
-              durationOverrides: Object.fromEntries(
-                Object.entries(rule.durationOverrides ?? {}).filter(([key]) => key !== dateKey),
-              ),
-            }
-          : rule,
-      ),
-    };
-  }
 
   return {
     ...nextPreferences,
@@ -338,10 +346,26 @@ function applyCommitmentOverrideWithDuration(
       rule.id === ruleId
         ? {
             ...rule,
-            durationOverrides: {
-              ...(rule.durationOverrides ?? {}),
-              [dateKey]: Math.max(30, Math.round(durationMinutes / 15) * 15),
-            },
+            durationOverrides:
+              ruleId === "term-homework" && durationMinutes && mode === "add"
+                ? {
+                    ...(rule.durationOverrides ?? {}),
+                    [dateKey]: Math.max(30, Math.round(durationMinutes / 15) * 15),
+                  }
+                : Object.fromEntries(
+                    Object.entries(rule.durationOverrides ?? {}).filter(([key]) => key !== dateKey),
+                  ),
+            timeOverrides:
+              ruleId === "piano-practice" && startTime && mode === "add" && startTime !== rule.preferredStart
+                ? {
+                    ...(rule.timeOverrides ?? {}),
+                    [dateKey]: {
+                      start: startTime,
+                    },
+                  }
+                : Object.fromEntries(
+                    Object.entries(rule.timeOverrides ?? {}).filter(([key]) => key !== dateKey),
+                  ),
           }
         : rule,
     ),

@@ -239,7 +239,7 @@ export function CalendarPage() {
             setCommitmentOverrideDraft({
               ruleId,
               date: dateKey,
-              mode: ruleId === "term-homework" ? "add" : "remove",
+              mode: "add",
             })
           }
           onManageRecoveryWindowDate={({ dateKey, label }) =>

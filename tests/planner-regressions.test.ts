@@ -2027,6 +2027,45 @@ test("homework duration overrides change the reserved commitment length for one 
   );
 });
 
+test("piano time overrides move the reserved commitment to the selected one-day start time", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-16T08:00:00"));
+  const preferences = {
+    ...dataset.preferences,
+    reservedCommitmentRules: dataset.preferences.reservedCommitmentRules.map((rule) =>
+      rule.id === "piano-practice"
+        ? {
+            ...rule,
+            timeOverrides: {
+              ...(rule.timeOverrides ?? {}),
+              "2026-03-17": {
+                start: "16:30",
+              },
+            },
+          }
+        : rule,
+    ),
+  };
+
+  const commitment = expandReservedCommitmentWindowsForWeek(
+    new Date("2026-03-16T00:00:00"),
+    preferences,
+    [],
+    [],
+  ).find(
+    (window) => window.label === "Piano" && window.start.startsWith("2026-03-17"),
+  );
+
+  assert.ok(commitment);
+  assert.equal(
+    commitment?.start,
+    createDateAtTime(fromDateKey("2026-03-17"), "16:30").toISOString(),
+  );
+  assert.equal(
+    commitment?.end,
+    createDateAtTime(fromDateKey("2026-03-17"), "17:30").toISOString(),
+  );
+});
+
 test("lunch and dinner time overrides change the recovery windows for one date", () => {
   const dataset = buildSeedDataset(new Date("2026-03-16T08:00:00"));
   const preferences = {

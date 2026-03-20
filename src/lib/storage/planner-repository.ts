@@ -138,6 +138,17 @@ function normalizeReservedCommitmentRules(preferences: Preferences, seedPreferen
         .filter(([, minutes]) => Number.isFinite(minutes) && minutes >= 0)
         .sort(([left], [right]) => left.localeCompare(right)),
     ),
+    timeOverrides: Object.fromEntries(
+      Object.entries(rule.timeOverrides ?? {})
+        .filter(
+          ([dateKey, override]) =>
+            typeof dateKey === "string" &&
+            !!override &&
+            typeof override.start === "string" &&
+            override.start.length > 0,
+        )
+        .sort(([left], [right]) => left.localeCompare(right)),
+    ),
   }));
 }
 

@@ -340,6 +340,13 @@ function resolveReservedCommitmentStart(options: {
   rule: Preferences["reservedCommitmentRules"][number];
   inSchoolTerm: boolean;
 }) {
+  const dateKey = toDateKey(options.day);
+  const overriddenStart = options.rule.timeOverrides?.[dateKey]?.start;
+
+  if (overriddenStart) {
+    return createDateAtTime(options.day, overriddenStart);
+  }
+
   if (
     options.rule.id === "term-homework" &&
     options.inSchoolTerm &&
