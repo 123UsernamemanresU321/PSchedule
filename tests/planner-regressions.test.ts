@@ -2725,6 +2725,63 @@ test("lunch and dinner time overrides change the recovery windows for one date",
   );
 });
 
+test("dinner stays exclusive and pushes overlapping sunday recovery out of its slot", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-16T08:00:00"));
+  const preferences = {
+    ...dataset.preferences,
+    lockedRecoveryWindows: dataset.preferences.lockedRecoveryWindows.map((window) => {
+      if (window.label === "Dinner reset") {
+        return {
+          ...window,
+          timeOverrides: {
+            ...(window.timeOverrides ?? {}),
+            "2026-03-22": {
+              start: "19:45",
+              end: "20:30",
+            },
+          },
+        };
+      }
+
+      return window;
+    }),
+  };
+
+  const windows = expandLockedRecoveryWindowsForWeek(
+    new Date("2026-03-16T00:00:00"),
+    preferences,
+    [],
+    [],
+    [],
+    false,
+  );
+  const dinner = windows.find(
+    (window) => window.label === "Dinner reset" && window.dateKey === "2026-03-22",
+  );
+  const sundayRecovery = windows.find(
+    (window) => window.label === "Sunday recovery" && window.dateKey === "2026-03-22",
+  );
+
+  assert.ok(dinner);
+  assert.ok(sundayRecovery);
+  assert.equal(
+    dinner?.start,
+    createDateAtTime(fromDateKey("2026-03-22"), "19:45").toISOString(),
+  );
+  assert.equal(
+    dinner?.end,
+    createDateAtTime(fromDateKey("2026-03-22"), "20:30").toISOString(),
+  );
+  assert.equal(
+    sundayRecovery?.start,
+    createDateAtTime(fromDateKey("2026-03-22"), "20:30").toISOString(),
+  );
+  assert.equal(
+    sundayRecovery?.end,
+    createDateAtTime(fromDateKey("2026-03-22"), "22:30").toISOString(),
+  );
+});
+
 test("fixed events do not carve out an extra pre-event buffer from the free slots", () => {
   const dataset = buildSeedDataset(new Date("2026-03-16T08:00:00"));
   const preferences = {

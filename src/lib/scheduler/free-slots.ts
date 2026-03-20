@@ -285,6 +285,62 @@ function shiftRecoveryInterval(options: {
   return options.interval;
 }
 
+function resolveRecoveryWindowAgainstDinner(options: {
+  day: Date;
+  interval: TimeInterval;
+  dinnerIntervals: Array<TimeInterval & { label: string; movable: boolean }>;
+  preferences: Preferences;
+  sickDays?: SickDay[];
+}) {
+  const overlappingDinner = options.dinnerIntervals.find(
+    (dinnerInterval) =>
+      options.interval.start < dinnerInterval.end && options.interval.end > dinnerInterval.start,
+  );
+
+  if (!overlappingDinner) {
+    return options.interval;
+  }
+
+  const durationMinutes = minutesBetween(options.interval.start, options.interval.end);
+  const scheduleProfile = resolveDailyScheduleProfile(
+    options.day,
+    options.preferences,
+    options.sickDays,
+  );
+  const dayWindowStart = createDateAtTime(options.day, scheduleProfile.dailyStudyWindow.start);
+  const dayWindowEnd = createDateAtTime(options.day, scheduleProfile.dailyStudyWindow.end);
+
+  const shiftedAfterDinnerStart = new Date(overlappingDinner.end);
+  const shiftedAfterDinnerEnd = addMinutes(shiftedAfterDinnerStart, durationMinutes);
+
+  if (shiftedAfterDinnerEnd <= dayWindowEnd) {
+    return createInterval(shiftedAfterDinnerStart, shiftedAfterDinnerEnd);
+  }
+
+  const shiftedBeforeDinnerEnd = new Date(overlappingDinner.start);
+  const shiftedBeforeDinnerStart = addMinutes(shiftedBeforeDinnerEnd, -durationMinutes);
+
+  if (shiftedBeforeDinnerStart >= dayWindowStart) {
+    return createInterval(shiftedBeforeDinnerStart, shiftedBeforeDinnerEnd);
+  }
+
+  const trimmedAfterDinnerStart = new Date(
+    Math.max(options.interval.start.getTime(), overlappingDinner.end.getTime()),
+  );
+  if (trimmedAfterDinnerStart < options.interval.end) {
+    return createInterval(trimmedAfterDinnerStart, options.interval.end);
+  }
+
+  const trimmedBeforeDinnerEnd = new Date(
+    Math.min(options.interval.end.getTime(), overlappingDinner.start.getTime()),
+  );
+  if (options.interval.start < trimmedBeforeDinnerEnd) {
+    return createInterval(options.interval.start, trimmedBeforeDinnerEnd);
+  }
+
+  return null;
+}
+
 function resolveRecoveryWindowsForDay(options: {
   day: Date;
   fixedEvents: FixedEvent[];
@@ -323,9 +379,25 @@ function resolveRecoveryWindowsForDay(options: {
         preferences: options.preferences,
         sickDays: options.sickDays,
       });
+      const dinnerSafeInterval =
+        window.label === "Dinner reset"
+          ? shiftedInterval
+          : resolveRecoveryWindowAgainstDinner({
+              day: options.day,
+              interval: shiftedInterval,
+              dinnerIntervals: resolvedIntervals.filter(
+                (resolvedInterval) => resolvedInterval.label === "Dinner reset",
+              ),
+              preferences: options.preferences,
+              sickDays: options.sickDays,
+            });
+
+      if (!dinnerSafeInterval) {
+        return;
+      }
 
       resolvedIntervals.push({
-        ...shiftedInterval,
+        ...dinnerSafeInterval,
         label: window.label,
         movable: window.movable ?? false,
       });

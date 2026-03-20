@@ -84,6 +84,7 @@ function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreference
       return {
         ...window,
         days: [0, 1, 2, 3, 4, 5, 6],
+        movable: true,
         timeOverrides: normalizedTimeOverrides,
       };
     }
