@@ -711,21 +711,9 @@ function allocateTasksToSlots(options: {
   const dailyCapBoostMinutes = options.dailyCapBoostMinutes ?? 0;
   const dayCapacityByDate = buildDayCapacityByDate(options.freeSlots, dailyCapBoostMinutes);
   const lastSlotEndByDate = buildLastSlotEndByDate(options.freeSlots);
-  const aggressiveStudyDayMinutes = Object.values(dayCapacityByDate).reduce((total, dayEntry) => {
-    return total + getReservedTargetMinutesForDay({
-      dayEntry,
-      preferences: options.preferences,
-      fillAvailableStudyDays: true,
-    });
-  }, 0);
   const effectiveCapacityMinutes = clamp(
     options.fillAvailableStudyDays
-      ? Math.max(
-          needsIntensityRamp
-            ? Math.min(totalFreeSlotMinutes, requiredMinutes)
-            : bufferedCapacityMinutes,
-          aggressiveStudyDayMinutes,
-        )
+      ? totalFreeSlotMinutes
       : needsIntensityRamp
         ? Math.min(totalFreeSlotMinutes, requiredMinutes)
         : bufferedCapacityMinutes,

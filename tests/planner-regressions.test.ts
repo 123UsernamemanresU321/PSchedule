@@ -402,6 +402,67 @@ test("horizon generation fully places remaining topic hours when future capacity
   assert.equal(progress.unscheduledHours, 0);
 });
 
+test("weekly allocation keeps filling after sequential topics unlock midweek", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
+  const subject = dataset.subjects.find((candidate) => candidate.id === "physics-hl");
+
+  assert.ok(subject, "expected physics subject");
+
+  const sequentialTopics: Topic[] = [
+    {
+      ...dataset.topics.find((topic) => topic.id === "physics-a1-kinematics")!,
+      estHours: 6,
+      completedHours: 0,
+      mastery: 1,
+      status: "not_started",
+      dependsOnTopicId: null,
+      availableFrom: null,
+    },
+    {
+      ...dataset.topics.find((topic) => topic.id === "physics-a2-forces-momentum")!,
+      estHours: 6,
+      completedHours: 0,
+      mastery: 1,
+      status: "not_started",
+      dependsOnTopicId: "physics-a1-kinematics",
+      availableFrom: null,
+    },
+  ];
+
+  const result = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T08:00:00"),
+    goals: [
+      {
+        id: "goal-physics-sequential",
+        title: "Finish sequential physics topics",
+        subjectId: "physics-hl",
+        deadline: "2027-06-30",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [subject],
+    topics: sequentialTopics,
+    fixedEvents: [],
+    sickDays: [],
+    focusedDays: [],
+    preferences: dataset.preferences,
+    lockedBlocks: [],
+    existingPlannedBlocks: [],
+    horizonStartDate: new Date("2026-03-20T08:00:00"),
+  });
+
+  const scheduledHours = result.studyBlocks
+    .filter((block) => block.subjectId === "physics-hl")
+    .reduce((total, block) => total + block.estimatedMinutes, 0) / 60;
+
+  assert.equal(scheduledHours >= 12, true);
+  assert.equal(
+    result.studyBlocks.some((block) => block.topicId === "physics-a2-forces-momentum"),
+    true,
+  );
+});
+
 test("topics with remaining hours are still schedulable even if a stale status says strong", () => {
   const candidates = buildTaskCandidates({
     topics: [
