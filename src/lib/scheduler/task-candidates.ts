@@ -75,6 +75,10 @@ function inferIntensity(topic: Topic): TaskCandidate["intensity"] {
   return topic.preferredBlockTypes.includes("drill") ? "moderate" : "light";
 }
 
+function isDedicatedReviewTopic(topic: Topic) {
+  return topic.id.endsWith("-review");
+}
+
 function createReviewCandidate(
   topic: Topic,
   timingWindow: {
@@ -263,6 +267,21 @@ export function buildTaskCandidates(options: {
     },
     {},
   );
+  const existingReviewMinutesByTopic = existingPlannedBlocks.reduce<Record<string, number>>(
+    (accumulator, block) => {
+      if (
+        !block.topicId ||
+        !["planned", "rescheduled", "done", "partial"].includes(block.status) ||
+        block.blockType !== "review"
+      ) {
+        return accumulator;
+      }
+
+      accumulator[block.topicId] = (accumulator[block.topicId] ?? 0) + block.estimatedMinutes;
+      return accumulator;
+    },
+    {},
+  );
   const activeTopicsBySubject = topics.reduce<Record<string, Topic[]>>((accumulator, topic) => {
     const timingWindow = resolveTopicTimingWindow(
       topic,
@@ -330,6 +349,8 @@ export function buildTaskCandidates(options: {
       0,
     );
     const shouldSpawnReview =
+      !isDedicatedReviewTopic(topic) &&
+      (existingReviewMinutesByTopic[topic.id] ?? 0) < 45 &&
       !!timingWindow.reviewDue &&
       new Date(timingWindow.reviewDue) <= weekEnd &&
       (topic.status === "reviewed" || topic.status === "strong" || rawRemainingMinutes < 30);

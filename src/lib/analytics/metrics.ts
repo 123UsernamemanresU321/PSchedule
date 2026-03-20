@@ -45,12 +45,21 @@ export function getSubjectProgress(
   referenceDate = new Date(),
 ) {
   const subjectTopics = topics.filter((topic) => topic.subjectId === subject.id);
+  const topicById = new Map(subjectTopics.map((topic) => [topic.id, topic]));
   const plannedFutureMinutesByTopic = studyBlocks.reduce<Record<string, number>>((accumulator, block) => {
+    const topic = block.topicId ? topicById.get(block.topicId) : null;
+    const isSyntheticReviewFollowUp =
+      !!topic &&
+      !topic.id.endsWith("-review") &&
+      block.blockType === "review" &&
+      block.title === `${topic.title} review`;
+
     if (
       block.subjectId !== subject.id ||
       !block.topicId ||
       (block.status !== "planned" && block.status !== "rescheduled") ||
-      new Date(block.end) <= referenceDate
+      new Date(block.end) <= referenceDate ||
+      isSyntheticReviewFollowUp
     ) {
       return accumulator;
     }

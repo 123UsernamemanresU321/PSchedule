@@ -133,6 +133,37 @@ test("paired paper reviews retain their dependency scheduling window", () => {
   assert.equal(reviewCandidate?.latestAt?.slice(0, 10), "2026-09-29");
 });
 
+test("dedicated past-paper review topics do not spawn extra review-of-review candidates", () => {
+  const dataset = buildSeedDataset(new Date("2026-09-21T08:00:00"));
+  const reviewTopic = dataset.topics.find(
+    (topic) => topic.id === "physics-past-papers-week-8-paper-2-review",
+  );
+
+  assert.ok(reviewTopic, "expected seeded review topic");
+
+  const existingReviewBlock = createStudyBlock({
+    id: "review-1",
+    weekStart: "2026-09-21",
+    date: "2026-09-24",
+    start: "2026-09-24T08:00:00.000Z",
+    end: "2026-09-24T09:15:00.000Z",
+    subjectId: "physics-hl",
+    topicId: "physics-past-papers-week-8-paper-2-review",
+    title: "Physics HL Week 8 - Paper 2 review",
+    blockType: "review",
+    estimatedMinutes: 75,
+  });
+
+  const candidates = buildTaskCandidates({
+    topics: [reviewTopic as Topic],
+    existingPlannedBlocks: [existingReviewBlock],
+    referenceDate: new Date("2026-09-24T10:00:00"),
+    subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+  });
+
+  assert.equal(candidates.length, 0);
+});
+
 test("maths topics stay hard-gated in seeded order", () => {
   const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
   const hlBookTopic = dataset.topics.find(
@@ -331,6 +362,38 @@ test("subject progress distinguishes already planned work from truly unscheduled
 
   assert.equal(progress.plannedFutureHoursByTopic["olympiad-number-theory-congruence"], 2);
   assert.equal(progress.unscheduledHours < progress.remainingHours, true);
+});
+
+test("subject progress does not count synthetic follow-up review blocks as core topic coverage", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
+  const olympiad = dataset.subjects.find((subject) => subject.id === "olympiad");
+  const topic = dataset.topics.find((candidate) => candidate.id === "olympiad-number-theory-congruence");
+
+  assert.ok(olympiad, "expected olympiad subject");
+  assert.ok(topic, "expected seeded topic");
+
+  const reviewBlock = createStudyBlock({
+    id: "synthetic-review",
+    weekStart: "2026-03-23",
+    date: "2026-03-24",
+    start: "2026-03-24T08:00:00.000Z",
+    end: "2026-03-24T08:45:00.000Z",
+    subjectId: "olympiad",
+    topicId: topic.id,
+    title: `${topic.title} review`,
+    blockType: "review",
+    estimatedMinutes: 45,
+  });
+
+  const progress = getSubjectProgress(
+    olympiad,
+    dataset.topics,
+    [reviewBlock],
+    new Date("2026-03-20T08:00:00"),
+  );
+
+  assert.equal(progress.plannedFutureHoursByTopic[topic.id] ?? 0, 0);
+  assert.equal(progress.unscheduledHours, progress.remainingHours);
 });
 
 test("horizon generation fully places remaining topic hours when future capacity exists", () => {
