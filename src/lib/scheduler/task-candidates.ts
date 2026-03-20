@@ -387,37 +387,96 @@ export function getAssignableTaskCandidatesForBlock(options: {
   subjectDeadlinesById?: Record<string, string>;
 }) {
   const existingPlannedBlocks = options.existingPlannedBlocks ?? [];
-  const referenceDate = new Date(options.block.start);
-  const candidates = buildTaskCandidates({
-    topics: options.topics,
-    existingPlannedBlocks,
-    referenceDate,
-    subjectDeadlinesById: options.subjectDeadlinesById,
-  });
   const blockStart = new Date(options.block.start);
   const blockDurationMinutes = options.block.estimatedMinutes;
+  const latestScheduledBlockByTopic = getLatestScheduledBlockByTopic(existingPlannedBlocks);
+  const topicById = new Map(options.topics.map((topic) => [topic.id, topic]));
+  const plannedMinutesByTopic = existingPlannedBlocks.reduce<Record<string, number>>(
+    (accumulator, block) => {
+      if (!block.topicId || !["planned", "rescheduled", "done", "partial"].includes(block.status)) {
+        return accumulator;
+      }
 
-  return candidates.filter((candidate) => {
-    if (!candidate.subjectId || !candidate.topicId || candidate.kind !== "topic") {
-      return false;
+      accumulator[block.topicId] = (accumulator[block.topicId] ?? 0) + block.estimatedMinutes;
+      return accumulator;
+    },
+    {},
+  );
+
+  return options.topics.flatMap<TaskCandidate>((topic) => {
+    const timingWindow = resolveTopicTimingWindow(
+      topic,
+      latestScheduledBlockByTopic,
+      existingPlannedBlocks,
+      plannedMinutesByTopic,
+      options.topics,
+      topicById,
+    );
+
+    if (timingWindow.blocked) {
+      return [];
     }
 
-    if (candidate.availableAt && new Date(candidate.availableAt).getTime() > blockStart.getTime()) {
-      return false;
+    const totalRemainingMinutes = Math.max(
+      Math.round((topic.estHours - topic.completedHours) * 60),
+      0,
+    );
+
+    if (totalRemainingMinutes < MIN_ALLOCATABLE_MINUTES) {
+      return [];
     }
 
-    if (candidate.latestAt && new Date(candidate.latestAt).getTime() < blockStart.getTime()) {
-      return false;
+    if (timingWindow.availableAt && new Date(timingWindow.availableAt).getTime() > blockStart.getTime()) {
+      return [];
     }
+
+    if (timingWindow.latestAt && new Date(timingWindow.latestAt).getTime() < blockStart.getTime()) {
+      return [];
+    }
+
+    const sessionMode = topic.sessionMode ?? "flexible";
+    const exactSessionMinutes = topic.exactSessionMinutes ?? null;
 
     if (
-      candidate.sessionMode === "exam" &&
-      candidate.exactSessionMinutes != null &&
-      candidate.exactSessionMinutes !== blockDurationMinutes
+      sessionMode === "exam" &&
+      exactSessionMinutes != null &&
+      exactSessionMinutes !== blockDurationMinutes
     ) {
-      return false;
+      return [];
     }
 
-    return true;
+    return [
+      {
+        id: topic.id,
+        subjectId: topic.subjectId,
+        topicId: topic.id,
+        title: topic.title,
+        sessionSummary: buildSessionSummary(topic),
+        paperCode: topic.paperCode ?? derivePaperCode(topic),
+        unitTitle: topic.unitTitle,
+        sourceMaterials: topic.sourceMaterials,
+        remainingMinutes:
+          sessionMode === "exam"
+            ? exactSessionMinutes ?? totalRemainingMinutes
+            : Math.max(totalRemainingMinutes, MIN_ALLOCATABLE_MINUTES),
+        sessionMode,
+        exactSessionMinutes,
+        availableAt: timingWindow.availableAt ? timingWindow.availableAt.toISOString() : null,
+        latestAt: timingWindow.latestAt,
+        difficulty: topic.difficulty,
+        mastery: topic.mastery,
+        order: topic.order,
+        blockedByEarlierTopics: 0,
+        reviewDue: timingWindow.reviewDue,
+        deadline:
+          timingWindow.reviewDue ??
+          options.subjectDeadlinesById?.[topic.subjectId] ??
+          blockStart.toISOString().slice(0, 10),
+        lastStudiedAt: topic.lastStudiedAt,
+        preferredBlockTypes: topic.preferredBlockTypes,
+        intensity: inferIntensity(topic),
+        kind: "topic",
+      },
+    ];
   });
 }

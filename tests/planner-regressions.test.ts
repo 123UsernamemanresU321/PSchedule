@@ -1000,6 +1000,96 @@ test("manual block reassignment only offers topics valid for the fixed slot", ()
   );
 });
 
+test("manual block reassignment can target a valid topic even when it is already fully planned later", () => {
+  const block = createStudyBlock({
+    id: "manual-slot-rebalance",
+    subjectId: "physics-hl",
+    topicId: "physics-current",
+    estimatedMinutes: 120,
+    start: "2026-09-22T08:00:00.000Z",
+    end: "2026-09-22T10:00:00.000Z",
+  });
+  const topics: Topic[] = [
+    {
+      id: "physics-current",
+      subjectId: "physics-hl",
+      unitId: "physics-foundations",
+      unitTitle: "Physics foundations",
+      title: "Current physics topic",
+      subtopics: [],
+      availableFrom: null,
+      dependsOnTopicId: null,
+      sequenceGroup: null,
+      sequenceStage: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      estHours: 5,
+      completedHours: 1,
+      difficulty: 3,
+      status: "learning",
+      mastery: 2,
+      reviewDue: null,
+      lastStudiedAt: null,
+      sourceMaterials: [],
+      preferredBlockTypes: ["standard_focus"],
+      order: 1,
+      paperCode: null,
+      notes: "",
+    },
+    {
+      id: "physics-target-fully-planned",
+      subjectId: "physics-hl",
+      unitId: "physics-advanced",
+      unitTitle: "Physics advanced",
+      title: "Already planned later topic",
+      subtopics: [],
+      availableFrom: null,
+      dependsOnTopicId: null,
+      sequenceGroup: null,
+      sequenceStage: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      estHours: 2,
+      completedHours: 0,
+      difficulty: 4,
+      status: "learning",
+      mastery: 2,
+      reviewDue: null,
+      lastStudiedAt: null,
+      sourceMaterials: [],
+      preferredBlockTypes: ["standard_focus"],
+      order: 2,
+      paperCode: null,
+      notes: "",
+    },
+  ];
+  const laterPlannedBlock = createStudyBlock({
+    id: "later-block",
+    subjectId: "physics-hl",
+    topicId: "physics-target-fully-planned",
+    title: "Already planned later topic",
+    estimatedMinutes: 120,
+    start: "2026-09-23T08:00:00.000Z",
+    end: "2026-09-23T10:00:00.000Z",
+  });
+
+  const candidates = getAssignableTaskCandidatesForBlock({
+    block,
+    topics,
+    existingPlannedBlocks: [laterPlannedBlock],
+    subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+  });
+
+  assert.equal(
+    candidates.some((candidate) => candidate.topicId === "physics-target-fully-planned"),
+    true,
+  );
+});
+
 test("generated horizon passes core validation checks for a short seeded window", () => {
   const referenceDate = new Date("2026-03-13T08:00:00");
   const dataset = buildSeedDataset(referenceDate);
