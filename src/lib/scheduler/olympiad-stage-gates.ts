@@ -1,5 +1,7 @@
 import type { StudyBlock, Topic } from "@/lib/types/planner";
 
+const FOUNDATION_FRONTIER_BLOCK_STATUSES = new Set(["planned", "rescheduled", "done", "partial"]);
+
 export function inferOlympiadSequenceGroup(topic: Topic | null | undefined) {
   if (!topic || topic.subjectId !== "olympiad") {
     return null;
@@ -93,7 +95,7 @@ function computeOlympiadFoundationCoverageState(options: {
   let availableAt: Date | null = null;
   const relevantBlocks = options.blocks
     .filter((block) => block.topicId && remainingMinutesByTopicId[block.topicId] != null)
-    .filter((block) => ["planned", "rescheduled"].includes(block.status))
+    .filter((block) => FOUNDATION_FRONTIER_BLOCK_STATUSES.has(block.status))
     .filter(
       (block) =>
         !options.cutoff ||
@@ -111,7 +113,12 @@ function computeOlympiadFoundationCoverageState(options: {
       continue;
     }
 
-    const appliedMinutes = Math.min(remainingMinutes, block.estimatedMinutes);
+    const appliedMinutes = Math.min(
+      remainingMinutes,
+      block.status === "done" || block.status === "partial"
+        ? block.actualMinutes ?? block.estimatedMinutes
+        : block.estimatedMinutes,
+    );
     remainingMinutesByTopicId[block.topicId] = remainingMinutes - appliedMinutes;
     totalRemainingMinutes = Math.max(0, totalRemainingMinutes - appliedMinutes);
 

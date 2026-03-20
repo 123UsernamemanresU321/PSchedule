@@ -536,6 +536,132 @@ test("olympiad advanced and gold-phase candidates unlock once foundations are fu
   );
 });
 
+test("horizon generation places olympiad advanced only after the foundation frontier is scheduled earlier", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
+  const olympiad = dataset.subjects.find((subject) => subject.id === "olympiad");
+
+  assert.ok(olympiad, "expected olympiad subject");
+
+  const customTopics: Topic[] = [
+    {
+      id: "olympiad-foundation-a",
+      subjectId: "olympiad",
+      unitId: "olympiad-number-theory-1",
+      unitTitle: "Olympiad Foundations",
+      title: "Foundation A",
+      subtopics: [],
+      availableFrom: null,
+      dependsOnTopicId: null,
+      sequenceGroup: "olympiad-nt",
+      sequenceStage: "foundation",
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      estHours: 1.5,
+      completedHours: 0,
+      difficulty: 3,
+      status: "learning",
+      mastery: 3,
+      reviewDue: null,
+      lastStudiedAt: null,
+      sourceMaterials: [],
+      preferredBlockTypes: ["standard_focus"],
+      order: 1,
+      paperCode: null,
+      notes: "",
+    },
+    {
+      id: "olympiad-foundation-b",
+      subjectId: "olympiad",
+      unitId: "olympiad-geometry-1",
+      unitTitle: "Olympiad Foundations",
+      title: "Foundation B",
+      subtopics: [],
+      availableFrom: null,
+      dependsOnTopicId: "olympiad-foundation-a",
+      sequenceGroup: "olympiad-geo",
+      sequenceStage: "foundation",
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      estHours: 1.5,
+      completedHours: 0,
+      difficulty: 3,
+      status: "learning",
+      mastery: 2,
+      reviewDue: null,
+      lastStudiedAt: null,
+      sourceMaterials: [],
+      preferredBlockTypes: ["standard_focus"],
+      order: 2,
+      paperCode: null,
+      notes: "",
+    },
+    {
+      id: "olympiad-advanced-a",
+      subjectId: "olympiad",
+      unitId: "olympiad-number-theory-2",
+      unitTitle: "Olympiad Advanced",
+      title: "Advanced A",
+      subtopics: [],
+      availableFrom: null,
+      dependsOnTopicId: "olympiad-foundation-b",
+      sequenceGroup: "olympiad-nt",
+      sequenceStage: "advanced",
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      estHours: 1.5,
+      completedHours: 0,
+      difficulty: 4,
+      status: "not_started",
+      mastery: 1,
+      reviewDue: null,
+      lastStudiedAt: null,
+      sourceMaterials: [],
+      preferredBlockTypes: ["deep_work"],
+      order: 3,
+      paperCode: null,
+      notes: "",
+    },
+  ];
+
+  const result = generateStudyPlanHorizon({
+    startWeek: new Date("2026-03-20T08:00:00"),
+    endWeek: new Date("2026-04-13T08:00:00"),
+    goals: [
+      {
+        id: "goal-olympiad-custom",
+        title: "Finish custom olympiad frontier",
+        subjectId: "olympiad",
+        deadline: "2026-06-30",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [olympiad],
+    topics: customTopics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: [],
+    focusedDays: [],
+    preferences: dataset.preferences,
+    existingStudyBlocks: [],
+  });
+
+  const advancedBlock = result.studyBlocks.find((block) => block.topicId === "olympiad-advanced-a");
+  const lastFoundationEnd = result.studyBlocks
+    .filter((block) => block.topicId === "olympiad-foundation-a" || block.topicId === "olympiad-foundation-b")
+    .map((block) => new Date(block.end).getTime())
+    .sort((left, right) => right - left)[0];
+
+  assert.ok(advancedBlock, "expected advanced Olympiad work to appear later in the horizon");
+  assert.ok(lastFoundationEnd, "expected foundation blocks to be scheduled");
+  assert.equal(new Date(advancedBlock.start).getTime() >= lastFoundationEnd, true);
+});
+
 test("stale future olympiad advanced blocks are purged when same-strand foundations are still incomplete", () => {
   const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
   const invalidAdvancedBlock = createStudyBlock({
