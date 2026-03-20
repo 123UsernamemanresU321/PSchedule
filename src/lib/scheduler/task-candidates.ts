@@ -3,8 +3,6 @@ import { addDays } from "date-fns";
 import { endOfPlannerWeek, fromDateKey } from "@/lib/dates/helpers";
 import {
   getOlympiadStageGateStatus,
-  inferOlympiadSequenceStage,
-  isOlympiadFoundationComplete,
 } from "@/lib/scheduler/olympiad-stage-gates";
 import type { StudyBlock, TaskCandidate, Topic } from "@/lib/types/planner";
 
@@ -254,12 +252,6 @@ export function buildTaskCandidates(options: {
   const weekEnd = addDays(endOfPlannerWeek(referenceDate), 3);
   const latestScheduledBlockByTopic = getLatestScheduledBlockByTopic(existingPlannedBlocks);
   const topicById = new Map(topics.map((topic) => [topic.id, topic]));
-  const anyIncompleteOlympiadFoundation = topics.some(
-    (topic) =>
-      topic.subjectId === "olympiad" &&
-      inferOlympiadSequenceStage(topic) === "foundation" &&
-      !isOlympiadFoundationComplete(topic),
-  );
   const plannedMinutesByTopic = existingPlannedBlocks.reduce<Record<string, number>>(
     (accumulator, block) => {
       if (!block.topicId || !["planned", "rescheduled", "done", "partial"].includes(block.status)) {
@@ -282,14 +274,6 @@ export function buildTaskCandidates(options: {
     );
 
     if (timingWindow.blocked || (timingWindow.availableAt && timingWindow.availableAt > planningWeekEnd)) {
-      return accumulator;
-    }
-
-    if (
-      anyIncompleteOlympiadFoundation &&
-      topic.subjectId === "olympiad" &&
-      inferOlympiadSequenceStage(topic) !== "foundation"
-    ) {
       return accumulator;
     }
 
@@ -337,14 +321,6 @@ export function buildTaskCandidates(options: {
     );
 
     if (timingWindow.blocked || (timingWindow.availableAt && timingWindow.availableAt > planningWeekEnd)) {
-      return [];
-    }
-
-    if (
-      anyIncompleteOlympiadFoundation &&
-      topic.subjectId === "olympiad" &&
-      inferOlympiadSequenceStage(topic) !== "foundation"
-    ) {
       return [];
     }
 
@@ -401,5 +377,47 @@ export function buildTaskCandidates(options: {
     }
 
     return candidates;
+  });
+}
+
+export function getAssignableTaskCandidatesForBlock(options: {
+  block: StudyBlock;
+  topics: Topic[];
+  existingPlannedBlocks?: StudyBlock[];
+  subjectDeadlinesById?: Record<string, string>;
+}) {
+  const existingPlannedBlocks = options.existingPlannedBlocks ?? [];
+  const referenceDate = new Date(options.block.start);
+  const candidates = buildTaskCandidates({
+    topics: options.topics,
+    existingPlannedBlocks,
+    referenceDate,
+    subjectDeadlinesById: options.subjectDeadlinesById,
+  });
+  const blockStart = new Date(options.block.start);
+  const blockDurationMinutes = options.block.estimatedMinutes;
+
+  return candidates.filter((candidate) => {
+    if (!candidate.subjectId || !candidate.topicId || candidate.kind !== "topic") {
+      return false;
+    }
+
+    if (candidate.availableAt && new Date(candidate.availableAt).getTime() > blockStart.getTime()) {
+      return false;
+    }
+
+    if (candidate.latestAt && new Date(candidate.latestAt).getTime() < blockStart.getTime()) {
+      return false;
+    }
+
+    if (
+      candidate.sessionMode === "exam" &&
+      candidate.exactSessionMinutes != null &&
+      candidate.exactSessionMinutes !== blockDurationMinutes
+    ) {
+      return false;
+    }
+
+    return true;
   });
 }

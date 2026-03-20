@@ -28,7 +28,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-20-olympiad-stage-gates-v26";
+const PLANNING_MODEL_VERSION = "2026-03-20-olympiad-frontier-v27";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v5";
@@ -158,6 +158,8 @@ function normalizeStudyBlock(block: StudyBlock) {
     ...block,
     date: toDateKey(start),
     weekStart: toDateKey(startOfPlannerWeek(start)),
+    assignmentLocked: block.assignmentLocked ?? false,
+    assignmentEditedAt: block.assignmentEditedAt ?? null,
   } satisfies StudyBlock;
 }
 
@@ -338,7 +340,8 @@ async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Da
       (block) =>
         block.subjectId === OLYMPIAD_SUBJECT_ID &&
         new Date(block.end).getTime() >= weekStart.getTime() &&
-        !["done", "partial", "missed"].includes(block.status),
+        !["done", "partial", "missed"].includes(block.status) &&
+        !shouldPreserveStudyBlockOnRegeneration(block),
     )
     .delete();
 
@@ -528,8 +531,6 @@ export async function syncOlympiadRoadmapToSeed(snapshot: PlannerSnapshot, refer
     .filter((topic) => topic.subjectId === OLYMPIAD_SUBJECT_ID)
     .filter((topic) => !seededTopicIds.has(topic.id))
     .map((topic) => topic.id);
-  const currentWeekStart = startOfPlannerWeek(referenceDate);
-
   await db.transaction("rw", [db.subjects, db.goals, db.topics, db.studyBlocks, db.meta], async () => {
     await db.subjects.put(seededSubject);
     await db.goals.bulkPut(seededGoals);
@@ -546,15 +547,6 @@ export async function syncOlympiadRoadmapToSeed(snapshot: PlannerSnapshot, refer
         )
         .delete();
     }
-
-    await db.studyBlocks
-      .filter(
-        (block) =>
-          block.subjectId === OLYMPIAD_SUBJECT_ID &&
-          new Date(block.end).getTime() >= currentWeekStart.getTime() &&
-          !["done", "partial", "missed"].includes(block.status),
-      )
-      .delete();
     await db.meta.put({ key: "olympiad-roadmap-version", value: OLYMPIAD_ROADMAP_VERSION });
   });
 

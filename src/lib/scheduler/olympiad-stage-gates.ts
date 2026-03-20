@@ -53,47 +53,82 @@ export function inferOlympiadSequenceStage(topic: Topic | null | undefined) {
     return "foundation";
   }
 
-  if (
-    topic.unitId.startsWith("olympiad-number-theory-") ||
-    topic.unitId.startsWith("olympiad-geometry-") ||
-    topic.unitId.startsWith("olympiad-algebra-") ||
-    topic.unitId.startsWith("olympiad-combinatorics-")
-  ) {
-    return "advanced";
-  }
-
-  return null;
+  return "advanced";
 }
 
-function isOlympiadAdvancedStageTopic(topic: Topic | null | undefined) {
+export function isOlympiadFoundationTopic(topic: Topic | null | undefined) {
   return (
     !!topic &&
     topic.subjectId === "olympiad" &&
-    inferOlympiadSequenceStage(topic) === "advanced" &&
-    !!inferOlympiadSequenceGroup(topic)
+    inferOlympiadSequenceStage(topic) === "foundation"
   );
 }
 
-function getOlympiadFoundationTopics(topic: Topic, topics: Iterable<Topic>) {
-  if (!isOlympiadAdvancedStageTopic(topic)) {
-    return [];
-  }
+function isOlympiadGatedTopic(topic: Topic | null | undefined) {
+  return !!topic && topic.subjectId === "olympiad" && !isOlympiadFoundationTopic(topic);
+}
 
+function getOlympiadFoundationTopics(topics: Iterable<Topic>) {
   return [...topics]
-    .filter((candidate) => candidate.subjectId === "olympiad")
-    .filter((candidate) => inferOlympiadSequenceGroup(candidate) === inferOlympiadSequenceGroup(topic))
-    .filter((candidate) => inferOlympiadSequenceStage(candidate) === "foundation")
+    .filter((candidate) => isOlympiadFoundationTopic(candidate))
     .sort((left, right) => left.order - right.order);
 }
 
-export function isOlympiadFoundationComplete(topic: Topic | null | undefined) {
-  return (
-    !!topic &&
-    topic.subjectId === "olympiad" &&
-    inferOlympiadSequenceStage(topic) === "foundation" &&
-    topic.completedHours >= topic.estHours - 0.001 &&
-    topic.mastery >= 5
+function computeOlympiadFoundationCoverageState(options: {
+  topics: Iterable<Topic>;
+  blocks: StudyBlock[];
+  cutoff?: Date;
+}) {
+  const foundationTopics = getOlympiadFoundationTopics(options.topics);
+  const remainingMinutesByTopicId = Object.fromEntries(
+    foundationTopics.map((topic) => [
+      topic.id,
+      Math.max(Math.round((topic.estHours - topic.completedHours) * 60), 0),
+    ]),
   );
+  let totalRemainingMinutes = foundationTopics.reduce(
+    (total, topic) => total + (remainingMinutesByTopicId[topic.id] ?? 0),
+    0,
+  );
+  let availableAt: Date | null = null;
+  const relevantBlocks = options.blocks
+    .filter((block) => block.topicId && remainingMinutesByTopicId[block.topicId] != null)
+    .filter((block) => ["planned", "rescheduled"].includes(block.status))
+    .filter(
+      (block) =>
+        !options.cutoff ||
+        new Date(block.end).getTime() <= options.cutoff.getTime(),
+    )
+    .sort((left, right) => new Date(left.end).getTime() - new Date(right.end).getTime());
+
+  for (const block of relevantBlocks) {
+    if (!block.topicId) {
+      continue;
+    }
+
+    const remainingMinutes = remainingMinutesByTopicId[block.topicId] ?? 0;
+    if (remainingMinutes <= 0) {
+      continue;
+    }
+
+    const appliedMinutes = Math.min(remainingMinutes, block.estimatedMinutes);
+    remainingMinutesByTopicId[block.topicId] = remainingMinutes - appliedMinutes;
+    totalRemainingMinutes = Math.max(0, totalRemainingMinutes - appliedMinutes);
+
+    if (totalRemainingMinutes === 0) {
+      availableAt = new Date(block.end);
+      break;
+    }
+  }
+
+  return {
+    foundationTopicIds: foundationTopics.map((topic) => topic.id),
+    missingTopicIds: foundationTopics
+      .filter((topic) => (remainingMinutesByTopicId[topic.id] ?? 0) > 0)
+      .map((topic) => topic.id),
+    blocked: totalRemainingMinutes > 0,
+    availableAt,
+  };
 }
 
 export function getOlympiadStageGateStatus(options: {
@@ -109,7 +144,7 @@ export function getOlympiadStageGateStatus(options: {
 } {
   const topic = options.topic;
 
-  if (!isOlympiadAdvancedStageTopic(topic)) {
+  if (!isOlympiadGatedTopic(topic)) {
     return {
       blocked: false,
       availableAt: null,
@@ -118,25 +153,13 @@ export function getOlympiadStageGateStatus(options: {
     };
   }
 
-  const foundationTopics = getOlympiadFoundationTopics(topic as Topic, options.topics);
-  const missingTopicIds: string[] = [];
-
-  foundationTopics.forEach((foundationTopic) => {
-    const isFoundationComplete =
-      foundationTopic.completedHours >= foundationTopic.estHours - 0.001 &&
-      foundationTopic.mastery >= 5;
-
-    if (!isFoundationComplete) {
-      missingTopicIds.push(foundationTopic.id);
-    }
+  const coverageState = computeOlympiadFoundationCoverageState({
+    topics: options.topics,
+    blocks: options.blocks,
+    cutoff: options.cutoff,
   });
 
-  return {
-    blocked: missingTopicIds.length > 0,
-    availableAt: null,
-    foundationTopicIds: foundationTopics.map((topic) => topic.id),
-    missingTopicIds,
-  };
+  return coverageState;
 }
 
 export function collectInvalidFutureOlympiadAdvancedBlockIds(options: {
@@ -161,7 +184,7 @@ export function collectInvalidFutureOlympiadAdvancedBlockIds(options: {
       block.status !== "done" &&
       block.status !== "partial" &&
       block.status !== "missed" &&
-      isOlympiadAdvancedStageTopic(topic);
+      isOlympiadGatedTopic(topic);
 
     if (!isRemovableFutureOlympiadBlock) {
       retainedBlocks.push(block);

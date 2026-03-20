@@ -160,6 +160,8 @@ export interface StudyBlock {
   actualMinutes: number | null;
   notes: string;
   rescheduleCount: number;
+  assignmentLocked: boolean;
+  assignmentEditedAt: string | null;
 }
 
 export interface CompletionLog {

@@ -77,7 +77,7 @@ export function validateGeneratedHorizon(options: {
         blockId: block.id,
         topicId: block.topicId,
         subjectId: block.subjectId ?? undefined,
-        message: `Block ${block.id} starts before the ${topic?.sequenceGroup} foundations are fully completed at 5/5 mastery.`,
+        message: `Block ${block.id} starts before Olympiad foundations are fully covered earlier on the calendar.`,
       });
       return;
     }

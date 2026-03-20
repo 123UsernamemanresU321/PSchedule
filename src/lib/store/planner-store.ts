@@ -4,6 +4,7 @@ import { create } from "zustand";
 
 import { fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import { generateStudyPlanHorizon } from "@/lib/scheduler/generator";
+import { getAssignableTaskCandidatesForBlock } from "@/lib/scheduler/task-candidates";
 import {
   deleteFixedEventById,
   deleteFocusedDayById as deleteFocusedDayRecordById,
@@ -81,6 +82,11 @@ interface PlannerState {
   requestMorePractice: (options: {
     blockId: string;
     extraMinutes?: number;
+    notes?: string;
+  }) => Promise<void>;
+  reassignStudyBlock: (options: {
+    blockId: string;
+    topicId: string;
     notes?: string;
   }) => Promise<void>;
   exportToJson: () => Promise<string>;
@@ -428,6 +434,65 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     });
     get().setCurrentWeekStart(toDateKey(startOfPlannerWeek(new Date(block.start))));
   },
+  reassignStudyBlock: async ({ blockId, topicId, notes }) => {
+    const snapshot = await loadPlannerSnapshot();
+    const block = snapshot.studyBlocks.find((candidate) => candidate.id === blockId);
+
+    if (!block || !block.subjectId || !block.topicId) {
+      return;
+    }
+
+    if (!["planned", "rescheduled"].includes(block.status)) {
+      return;
+    }
+
+    if (new Date(block.end).getTime() <= Date.now()) {
+      return;
+    }
+
+    const subjectDeadlinesById = Object.fromEntries(
+      snapshot.subjects.map((subject) => [subject.id, subject.deadline]),
+    );
+    const assignableCandidates = getAssignableTaskCandidatesForBlock({
+      block,
+      topics: snapshot.topics,
+      existingPlannedBlocks: snapshot.studyBlocks.filter((candidate) => candidate.id !== block.id),
+      subjectDeadlinesById,
+    });
+    const nextCandidate = assignableCandidates.find((candidate) => candidate.topicId === topicId);
+
+    if (!nextCandidate?.subjectId || !nextCandidate.topicId) {
+      return;
+    }
+
+    const updatedBlock: StudyBlock = {
+      ...block,
+      subjectId: nextCandidate.subjectId,
+      topicId: nextCandidate.topicId,
+      title: nextCandidate.title,
+      sessionSummary: nextCandidate.sessionSummary,
+      paperCode: nextCandidate.paperCode,
+      unitTitle: nextCandidate.unitTitle,
+      sourceMaterials: nextCandidate.sourceMaterials,
+      generatedReason: buildManualAssignmentReason(nextCandidate),
+      scoreBreakdown: buildManualAssignmentScoreBreakdown(),
+      notes: notes ?? block.notes,
+      assignmentLocked: true,
+      assignmentEditedAt: new Date().toISOString(),
+    };
+
+    await updateStudyBlock(updatedBlock);
+
+    const nextSnapshot = await recalculateCurrentWeek({
+      preservedStudyBlockIds: [block.id],
+    });
+    set({
+      ...nextSnapshot,
+      loading: false,
+      error: null,
+    });
+    get().setCurrentWeekStart(toDateKey(startOfPlannerWeek(new Date(block.start))));
+  },
   exportToJson: async () => {
     const payload = await exportPlannerData();
     return JSON.stringify(payload, null, 2);
@@ -478,4 +543,29 @@ function appendMorePracticeNote(
   const baseNotes = existingNotes?.trim();
   const morePracticeLine = `More practice requested on ${options.sourceDate}: +${options.addedMinutes} min${options.extraNotes?.trim() ? ` (${options.extraNotes.trim()})` : ""}`;
   return baseNotes ? `${baseNotes}\n${morePracticeLine}` : morePracticeLine;
+}
+
+function buildManualAssignmentScoreBreakdown(): StudyBlock["scoreBreakdown"] {
+  return {
+    priorityWeight: 0,
+    deadlineUrgency: 0,
+    remainingWorkloadPressure: 0,
+    lowMasteryBonus: 0,
+    reviewDueBonus: 0,
+    neglectedSubjectBonus: 0,
+    olympiadSlotBonus: 0,
+    focusDayBonus: 0,
+    badSlotFitPenalty: 0,
+    fragmentationPenalty: 0,
+    total: 0,
+  };
+}
+
+function buildManualAssignmentReason(task: {
+  title: string;
+  unitTitle: string | null;
+  subjectId: string | null;
+}) {
+  const unitLabel = task.unitTitle ? `${task.unitTitle}` : "the selected topic";
+  return `Manually reassigned in the study-block drawer to ${task.title.toLowerCase()} from ${unitLabel}. The rest of the horizon was rebuilt around this locked block.`;
 }

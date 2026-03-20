@@ -139,6 +139,8 @@ export const studyBlockSchema = z.object({
   actualMinutes: z.number().nullable(),
   notes: z.string(),
   rescheduleCount: z.number(),
+  assignmentLocked: z.boolean().optional().default(false),
+  assignmentEditedAt: z.string().nullable().optional().default(null),
 });
 
 export const completionLogSchema = z.object({
