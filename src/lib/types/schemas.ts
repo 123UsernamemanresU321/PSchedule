@@ -51,6 +51,8 @@ export const topicSchema = z.object({
   subtopics: z.array(z.string()),
   availableFrom: z.string().nullable().optional(),
   dependsOnTopicId: z.string().nullable().optional().default(null),
+  sequenceGroup: z.string().nullable().optional().default(null),
+  sequenceStage: z.enum(["foundation", "advanced"]).nullable().optional().default(null),
   minDaysAfterDependency: z.number().nullable().optional().default(null),
   maxDaysAfterDependency: z.number().nullable().optional().default(null),
   sessionMode: z.enum(["flexible", "exam"]).optional().default("flexible"),

@@ -1,6 +1,7 @@
 import { addDays } from "date-fns";
 
 import { endOfPlannerWeek, fromDateKey } from "@/lib/dates/helpers";
+import { getOlympiadStageGateStatus } from "@/lib/scheduler/olympiad-stage-gates";
 import type { StudyBlock, TaskCandidate, Topic } from "@/lib/types/planner";
 
 const MIN_ALLOCATABLE_MINUTES = 30;
@@ -132,11 +133,36 @@ function getLatestScheduledBlockByTopic(existingPlannedBlocks: StudyBlock[]) {
 function resolveTopicTimingWindow(
   topic: Topic,
   latestScheduledBlockByTopic: Record<string, StudyBlock>,
+  existingPlannedBlocks: StudyBlock[],
   plannedMinutesByTopic: Record<string, number>,
+  topics: Topic[],
   topicById: Map<string, Topic>,
 ) {
-  let availableAt = topic.availableFrom ? fromDateKey(topic.availableFrom) : null;
+  let availableAt: Date | null = topic.availableFrom ? fromDateKey(topic.availableFrom) : null;
   let reviewDue = topic.reviewDue;
+
+  const stageGateStatus = getOlympiadStageGateStatus({
+    topic,
+    topics,
+    blocks: existingPlannedBlocks,
+  });
+
+  if (stageGateStatus.blocked) {
+    return {
+      blocked: true,
+      availableAt: null,
+      latestAt: null,
+      reviewDue,
+    };
+  }
+
+  if (stageGateStatus.availableAt) {
+    const stageGateAvailableAt = stageGateStatus.availableAt;
+
+    if (!availableAt || stageGateAvailableAt.getTime() > availableAt.getTime()) {
+      availableAt = stageGateAvailableAt;
+    }
+  }
 
   if (topic.dependsOnTopicId) {
     const dependencyBlock = latestScheduledBlockByTopic[topic.dependsOnTopicId];
@@ -225,7 +251,9 @@ export function buildTaskCandidates(options: {
     const timingWindow = resolveTopicTimingWindow(
       topic,
       latestScheduledBlockByTopic,
+      existingPlannedBlocks,
       plannedMinutesByTopic,
+      topics,
       topicById,
     );
 
@@ -270,7 +298,9 @@ export function buildTaskCandidates(options: {
     const timingWindow = resolveTopicTimingWindow(
       topic,
       latestScheduledBlockByTopic,
+      existingPlannedBlocks,
       plannedMinutesByTopic,
+      topics,
       topicById,
     );
 

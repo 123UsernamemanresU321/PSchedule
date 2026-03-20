@@ -9,6 +9,8 @@ export interface SeedTopicBlueprint {
   subtopics: string[];
   availableFrom?: string | null;
   dependsOnTopicId?: string | null;
+  sequenceGroup?: string | null;
+  sequenceStage?: "foundation" | "advanced" | null;
   minDaysAfterDependency?: number | null;
   maxDaysAfterDependency?: number | null;
   sessionMode?: "flexible" | "exam";
@@ -143,6 +145,22 @@ function chainTopicSequence(
     previousTopicId = blueprint.id;
     return chainedBlueprint;
   });
+}
+
+function assignOlympiadSequenceStage(
+  blueprints: SeedTopicBlueprint[],
+  sequenceGroup: string,
+  foundationUnitIds: string[],
+): SeedTopicBlueprint[] {
+  const foundationUnitIdSet = new Set(foundationUnitIds);
+
+  return blueprints.map((blueprint) => ({
+    ...blueprint,
+    sequenceGroup,
+    sequenceStage: foundationUnitIdSet.has(blueprint.unitId)
+      ? ("foundation" as const)
+      : ("advanced" as const),
+  }));
 }
 
 function buildPastPaperSessions(options: {
@@ -1545,7 +1563,7 @@ const chemistryPaperReviewBlueprints: SeedTopicBlueprint[] = buildPastPaperRevie
   sourceLabel: "Chemistry HL past paper review",
 });
 
-const olympiadNumberTheoryBlueprints = chainTopicSequence([
+const olympiadNumberTheoryBlueprints = assignOlympiadSequenceStage(chainTopicSequence([
   {
     id: "olympiad-number-theory-divisibility",
     subjectId: "olympiad",
@@ -1622,9 +1640,11 @@ const olympiadNumberTheoryBlueprints = chainTopicSequence([
       pastPaper("Official anchor: IMO 2024 P2", "Reuse the classification standard as a write-up benchmark."),
     ],
   },
-], "Follow the seeded Olympiad roadmap order strictly before moving to the next topic.");
+], "Follow the seeded Olympiad roadmap order strictly before moving to the next topic."), "olympiad-nt", [
+  "olympiad-number-theory-1",
+]);
 
-const olympiadGeometryBlueprints = chainTopicSequence([
+const olympiadGeometryBlueprints = assignOlympiadSequenceStage(chainTopicSequence([
   {
     id: "olympiad-geometry-points-lines-polygons",
     subjectId: "olympiad",
@@ -1741,9 +1761,11 @@ const olympiadGeometryBlueprints = chainTopicSequence([
       pastPaper("Official anchor: IMO 2019 P6", "Use to judge whether inversion actually simplifies the configuration."),
     ],
   },
-], "Follow the seeded Olympiad roadmap order strictly before moving to the next topic.");
+], "Follow the seeded Olympiad roadmap order strictly before moving to the next topic."), "olympiad-geo", [
+  "olympiad-geometry-1",
+]);
 
-const olympiadAlgebraBlueprints = chainTopicSequence([
+const olympiadAlgebraBlueprints = assignOlympiadSequenceStage(chainTopicSequence([
   {
     id: "olympiad-algebra-sequences-series",
     subjectId: "olympiad",
@@ -1842,9 +1864,11 @@ const olympiadAlgebraBlueprints = chainTopicSequence([
       pastPaper("Official anchor: IMO 2023 Problem 4", "Prefix-sum lower-bound benchmark."),
     ],
   },
-], "Follow the seeded Olympiad roadmap order strictly before moving to the next topic.");
+], "Follow the seeded Olympiad roadmap order strictly before moving to the next topic."), "olympiad-alg", [
+  "olympiad-algebra-1",
+]);
 
-const olympiadCombinatoricsBlueprints = chainTopicSequence([
+const olympiadCombinatoricsBlueprints = assignOlympiadSequenceStage(chainTopicSequence([
   {
     id: "olympiad-combinatorics-counting-induction",
     subjectId: "olympiad",
@@ -1923,7 +1947,9 @@ const olympiadCombinatoricsBlueprints = chainTopicSequence([
       worksheet("Error-log and rewrite protocol", "Rewrite one solution from memory and defend it orally without notes."),
     ],
   },
-], "Follow the seeded Olympiad roadmap order strictly before moving to the next topic.");
+], "Follow the seeded Olympiad roadmap order strictly before moving to the next topic."), "olympiad-combi", [
+  "olympiad-combinatorics-1",
+]);
 
 const olympiadTopicBlueprints: SeedTopicBlueprint[] = [
   ...olympiadNumberTheoryBlueprints,

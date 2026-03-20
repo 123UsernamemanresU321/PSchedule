@@ -72,6 +72,8 @@ export interface Topic {
   subtopics: string[];
   availableFrom?: string | null;
   dependsOnTopicId?: string | null;
+  sequenceGroup?: string | null;
+  sequenceStage?: "foundation" | "advanced" | null;
   minDaysAfterDependency?: number | null;
   maxDaysAfterDependency?: number | null;
   sessionMode?: "flexible" | "exam";

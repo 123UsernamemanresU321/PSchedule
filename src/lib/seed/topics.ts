@@ -13,6 +13,8 @@ function topicFactory() {
     subtopics: string[];
     availableFrom?: string | null;
     dependsOnTopicId?: string | null;
+    sequenceGroup?: string | null;
+    sequenceStage?: Topic["sequenceStage"];
     minDaysAfterDependency?: number | null;
     maxDaysAfterDependency?: number | null;
     sessionMode?: Topic["sessionMode"];
@@ -33,6 +35,8 @@ function topicFactory() {
       subtopics: blueprint.subtopics,
       availableFrom: blueprint.availableFrom ?? null,
       dependsOnTopicId: blueprint.dependsOnTopicId ?? null,
+      sequenceGroup: blueprint.sequenceGroup ?? null,
+      sequenceStage: blueprint.sequenceStage ?? null,
       minDaysAfterDependency: blueprint.minDaysAfterDependency ?? null,
       maxDaysAfterDependency: blueprint.maxDaysAfterDependency ?? null,
       sessionMode: blueprint.sessionMode ?? "flexible",

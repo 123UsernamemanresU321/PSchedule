@@ -1,5 +1,6 @@
 import { differenceInCalendarDays } from "date-fns";
 
+import { getOlympiadStageGateStatus } from "@/lib/scheduler/olympiad-stage-gates";
 import type { StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
 
 export interface PlannerValidationIssue {
@@ -61,6 +62,25 @@ export function validateGeneratedHorizon(options: {
     }
 
     const topic = topicById.get(block.topicId);
+
+    const stageGateStatus = getOlympiadStageGateStatus({
+      topic,
+      topics: options.topics,
+      blocks: options.studyBlocks,
+      cutoff: new Date(block.start),
+    });
+
+    if (stageGateStatus.blocked) {
+      issues.push({
+        code: "dependency-coverage-order-violation",
+        severity: "error",
+        blockId: block.id,
+        topicId: block.topicId,
+        subjectId: block.subjectId ?? undefined,
+        message: `Block ${block.id} starts before the ${topic?.sequenceGroup} foundations are fully covered earlier on the calendar.`,
+      });
+      return;
+    }
 
     if (!topic?.dependsOnTopicId) {
       return;

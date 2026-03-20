@@ -26,10 +26,10 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-20-dependency-order-v22";
+const PLANNING_MODEL_VERSION = "2026-03-20-olympiad-stage-gates-v23";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
-const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v3";
+const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v4";
 const EXTENDED_GOALS_VERSION = "2026-03-19-post-syllabus-papers-v8";
 const LANGUAGE_MAINTENANCE_VERSION = "2026-03-19-languages-v1";
 const SEED_TOPIC_ORDERING_VERSION = "2026-03-19-seed-ordering-v3";

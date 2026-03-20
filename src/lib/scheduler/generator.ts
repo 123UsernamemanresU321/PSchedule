@@ -7,6 +7,7 @@ import {
   computeSubjectDeadlineTracks,
 } from "@/lib/scheduler/feasibility";
 import { calculateFreeSlots } from "@/lib/scheduler/free-slots";
+import { getOlympiadStageGateStatus } from "@/lib/scheduler/olympiad-stage-gates";
 import { scoreTaskCandidate, buildGeneratedReason } from "@/lib/scheduler/scoring";
 import type { BlockSelectionPolicy } from "@/lib/scheduler/slot-classifier";
 import { selectBlockOption } from "@/lib/scheduler/slot-classifier";
@@ -590,6 +591,21 @@ function allocateTasksToSlots(options: {
     }
 
     const topic = topicMap.get(task.topicId);
+
+    const stageGateStatus = getOlympiadStageGateStatus({
+      topic,
+      topics: options.topics,
+      blocks: [
+        ...(options.priorPlannedBlocks ?? []),
+        ...options.lockedBlocks,
+        ...scheduledBlocks,
+      ],
+      cutoff: slotStart,
+    });
+
+    if (stageGateStatus.blocked) {
+      return false;
+    }
 
     if (!topic?.dependsOnTopicId) {
       return true;

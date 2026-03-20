@@ -195,24 +195,64 @@ test("maths, chemistry, olympiad, and c++ also follow seeded prerequisite order"
     "olympiad-number-theory-divisibility",
   );
   assert.equal(
+    dataset.topics.find((topic) => topic.id === "olympiad-number-theory-divisibility")?.sequenceGroup,
+    "olympiad-nt",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "olympiad-number-theory-divisibility")?.sequenceStage,
+    "foundation",
+  );
+  assert.equal(
     dataset.topics.find((topic) => topic.id === "olympiad-number-theory-valuations")?.dependsOnTopicId,
     "olympiad-number-theory-congruence",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "olympiad-number-theory-valuations")?.sequenceStage,
+    "advanced",
   );
   assert.equal(
     dataset.topics.find((topic) => topic.id === "olympiad-geometry-points-lines-polygons")?.dependsOnTopicId ?? null,
     null,
   );
   assert.equal(
+    dataset.topics.find((topic) => topic.id === "olympiad-geometry-points-lines-polygons")?.sequenceGroup,
+    "olympiad-geo",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "olympiad-geometry-points-lines-polygons")?.sequenceStage,
+    "foundation",
+  );
+  assert.equal(
     dataset.topics.find((topic) => topic.id === "olympiad-geometry-coordinate-complex")?.dependsOnTopicId,
     "olympiad-geometry-advanced-theorems",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "olympiad-geometry-coordinate-complex")?.sequenceStage,
+    "advanced",
   );
   assert.equal(
     dataset.topics.find((topic) => topic.id === "olympiad-algebra-sequences-series")?.dependsOnTopicId ?? null,
     null,
   );
   assert.equal(
+    dataset.topics.find((topic) => topic.id === "olympiad-algebra-sequences-series")?.sequenceGroup,
+    "olympiad-alg",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "olympiad-algebra-sequences-series")?.sequenceStage,
+    "foundation",
+  );
+  assert.equal(
     dataset.topics.find((topic) => topic.id === "olympiad-combinatorics-counting-induction")?.dependsOnTopicId ?? null,
     null,
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "olympiad-combinatorics-counting-induction")?.sequenceGroup,
+    "olympiad-combi",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "olympiad-combinatorics-graph-theory")?.sequenceStage,
+    "advanced",
   );
   assert.equal(
     dataset.topics.find((topic) => topic.id === "cpp-book-ch1-hello-world")?.dependsOnTopicId,
@@ -284,6 +324,61 @@ test("subject progress distinguishes already planned work from truly unscheduled
 
   assert.equal(progress.plannedFutureHoursByTopic["olympiad-number-theory-congruence"], 2);
   assert.equal(progress.unscheduledHours < progress.remainingHours, true);
+});
+
+test("olympiad advanced candidates stay blocked until same-strand foundations are fully covered", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
+  const olympiadTopics = dataset.topics.filter((topic) => topic.subjectId === "olympiad");
+
+  const blockedCandidates = buildTaskCandidates({
+    topics: olympiadTopics,
+    existingPlannedBlocks: [],
+    referenceDate: new Date("2026-03-20T08:00:00"),
+    subjectDeadlinesById: { olympiad: "2027-06-30" },
+  });
+
+  assert.equal(
+    blockedCandidates.some((candidate) => candidate.topicId === "olympiad-number-theory-valuations"),
+    false,
+  );
+
+  const foundationBlocks = [
+    createStudyBlock({
+      id: "nt-div-1",
+      subjectId: "olympiad",
+      topicId: "olympiad-number-theory-divisibility",
+      title: "gcd structure, Euclidean algorithm, and divisibility control",
+      weekStart: "2026-03-16",
+      date: "2026-03-20",
+      start: "2026-03-20T08:00:00.000Z",
+      end: "2026-03-20T14:30:00.000Z",
+      estimatedMinutes: 390,
+    }),
+    createStudyBlock({
+      id: "nt-cong-1",
+      subjectId: "olympiad",
+      topicId: "olympiad-number-theory-congruence",
+      title: "Modular arithmetic, inverses, orders, and CRT",
+      weekStart: "2026-03-16",
+      date: "2026-03-20",
+      start: "2026-03-20T15:00:00.000Z",
+      end: "2026-03-20T22:00:00.000Z",
+      estimatedMinutes: 420,
+    }),
+  ];
+
+  const unlockedCandidates = buildTaskCandidates({
+    topics: olympiadTopics,
+    existingPlannedBlocks: foundationBlocks,
+    referenceDate: new Date("2026-03-20T08:00:00"),
+    subjectDeadlinesById: { olympiad: "2027-06-30" },
+  });
+  const advancedCandidate = unlockedCandidates.find(
+    (candidate) => candidate.topicId === "olympiad-number-theory-valuations",
+  );
+
+  assert.ok(advancedCandidate, "expected number theory advanced candidate once foundations are covered");
+  assert.equal(advancedCandidate?.availableAt?.slice(0, 16), "2026-03-20T22:00");
 });
 
 test("validator flags dependent blocks that start before the prerequisite is fully covered", () => {
@@ -363,6 +458,122 @@ test("validator flags dependent blocks that start before the prerequisite is ful
 
   assert.equal(
     issues.some((issue) => issue.code === "dependency-coverage-order-violation"),
+    true,
+  );
+});
+
+test("validator flags olympiad advanced blocks before same-strand foundations are fully covered", () => {
+  const issues = validateGeneratedHorizon({
+    topics: [
+      {
+        id: "nt-foundation-1",
+        subjectId: "olympiad",
+        unitId: "nt-1",
+        unitTitle: "Olympiad - Number Theory Foundations",
+        title: "NT Foundations 1",
+        order: 1,
+        estHours: 2,
+        completedHours: 0,
+        mastery: 2,
+        status: "learning",
+        reviewDue: null,
+        lastStudiedAt: null,
+        dependsOnTopicId: null,
+        sequenceGroup: "olympiad-nt",
+        sequenceStage: "foundation",
+        availableFrom: null,
+        minDaysAfterDependency: null,
+        maxDaysAfterDependency: null,
+        subtopics: [],
+        sourceMaterials: [],
+        difficulty: 3,
+        preferredBlockTypes: ["standard_focus"],
+        paperCode: null,
+        sessionMode: "flexible",
+        exactSessionMinutes: null,
+      },
+      {
+        id: "nt-foundation-2",
+        subjectId: "olympiad",
+        unitId: "nt-1",
+        unitTitle: "Olympiad - Number Theory Foundations",
+        title: "NT Foundations 2",
+        order: 2,
+        estHours: 2,
+        completedHours: 0,
+        mastery: 2,
+        status: "learning",
+        reviewDue: null,
+        lastStudiedAt: null,
+        dependsOnTopicId: "nt-foundation-1",
+        sequenceGroup: "olympiad-nt",
+        sequenceStage: "foundation",
+        availableFrom: null,
+        minDaysAfterDependency: null,
+        maxDaysAfterDependency: null,
+        subtopics: [],
+        sourceMaterials: [],
+        difficulty: 3,
+        preferredBlockTypes: ["standard_focus"],
+        paperCode: null,
+        sessionMode: "flexible",
+        exactSessionMinutes: null,
+      },
+      {
+        id: "nt-advanced-1",
+        subjectId: "olympiad",
+        unitId: "nt-2",
+        unitTitle: "Olympiad - Number Theory Advanced",
+        title: "NT Advanced 1",
+        order: 3,
+        estHours: 2,
+        completedHours: 0,
+        mastery: 2,
+        status: "not_started",
+        reviewDue: null,
+        lastStudiedAt: null,
+        dependsOnTopicId: "nt-foundation-2",
+        sequenceGroup: "olympiad-nt",
+        sequenceStage: "advanced",
+        availableFrom: null,
+        minDaysAfterDependency: null,
+        maxDaysAfterDependency: null,
+        subtopics: [],
+        sourceMaterials: [],
+        difficulty: 4,
+        preferredBlockTypes: ["deep_work"],
+        paperCode: null,
+        sessionMode: "flexible",
+        exactSessionMinutes: null,
+      },
+    ],
+    studyBlocks: [
+      createStudyBlock({
+        id: "nt-foundation-block",
+        subjectId: "olympiad",
+        topicId: "nt-foundation-1",
+        estimatedMinutes: 120,
+        start: "2026-03-24T08:00:00.000Z",
+        end: "2026-03-24T10:00:00.000Z",
+      }),
+      createStudyBlock({
+        id: "nt-advanced-block",
+        subjectId: "olympiad",
+        topicId: "nt-advanced-1",
+        estimatedMinutes: 120,
+        start: "2026-03-24T10:30:00.000Z",
+        end: "2026-03-24T12:30:00.000Z",
+      }),
+    ],
+    weeklyPlans: [],
+  });
+
+  assert.equal(
+    issues.some(
+      (issue) =>
+        issue.code === "dependency-coverage-order-violation" &&
+        issue.topicId === "nt-advanced-1",
+    ),
     true,
   );
 });
