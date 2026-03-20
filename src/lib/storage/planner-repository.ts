@@ -29,7 +29,7 @@ import type {
 const PLANNING_MODEL_VERSION = "2026-03-19-focused-days-v21";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
-const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v2";
+const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v3";
 const EXTENDED_GOALS_VERSION = "2026-03-19-post-syllabus-papers-v8";
 const LANGUAGE_MAINTENANCE_VERSION = "2026-03-19-languages-v1";
 const SEED_TOPIC_ORDERING_VERSION = "2026-03-19-seed-ordering-v3";
@@ -492,10 +492,20 @@ async function migrateOlympiadRoadmap(snapshot: PlannerSnapshot, referenceDate: 
     ),
   );
 
-  await db.transaction("rw", [db.subjects, db.goals, db.topics, db.meta], async () => {
+  const currentWeekStartKey = toDateKey(startOfPlannerWeek(referenceDate));
+
+  await db.transaction("rw", [db.subjects, db.goals, db.topics, db.studyBlocks, db.meta], async () => {
     await db.subjects.put(seededSubject);
     await db.goals.bulkPut(seededGoals);
     await db.topics.bulkPut(mergedTopics);
+    await db.studyBlocks
+      .filter(
+        (block) =>
+          block.subjectId === OLYMPIAD_SUBJECT_ID &&
+          block.weekStart >= currentWeekStartKey &&
+          !["done", "partial", "missed"].includes(block.status),
+      )
+      .delete();
     await db.meta.put({ key: "olympiad-roadmap-version", value: OLYMPIAD_ROADMAP_VERSION });
   });
 
