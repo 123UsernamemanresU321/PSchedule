@@ -19,6 +19,14 @@ import { getActiveSickDaySeverity } from "@/lib/scheduler/schedule-regime";
 import { fromDateKey } from "@/lib/dates/helpers";
 import type { FixedEvent, FocusedDay, Preferences, SickDay, StudyBlock, Subject } from "@/lib/types/planner";
 
+function blockFallsInVisibleWeek(block: StudyBlock, weekStart: string) {
+  return (
+    block.weekStart === weekStart ||
+    toDateKey(fromDateKey(weekStart)) <= block.date &&
+      block.date <= toDateKey(addDays(fromDateKey(weekStart), 6))
+  );
+}
+
 function buildVisibleBreakEvents(options: {
   studyBlocks: StudyBlock[];
   weekStart: string;
@@ -27,7 +35,7 @@ function buildVisibleBreakEvents(options: {
 }) {
   const maxVisibleBreakMinutes = Math.max(options.minBreakMinutes * 2, 45);
   const blocks = options.studyBlocks
-    .filter((block) => block.weekStart === options.weekStart)
+    .filter((block) => blockFallsInVisibleWeek(block, options.weekStart))
     .sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime());
 
   return blocks.flatMap((block, index) => {
@@ -148,7 +156,7 @@ export function PlannerCalendar({
     preferences,
     fixedEvents,
     sickDays,
-    studyBlocks.filter((block) => block.weekStart === weekStart),
+    studyBlocks.filter((block) => blockFallsInVisibleWeek(block, weekStart)),
   );
   const visibleRecoveryWindows = recoveryWindows.filter((window) => {
     if (window.label !== "Lunch break") {
@@ -278,7 +286,7 @@ export function PlannerCalendar({
     })),
     ...breakEvents,
     ...studyBlocks
-      .filter((block) => block.weekStart === weekStart)
+      .filter((block) => blockFallsInVisibleWeek(block, weekStart))
       .map((block) => ({
         id: block.id,
         title: block.title,

@@ -378,7 +378,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       loading: false,
       error: null,
     });
-    get().setCurrentWeekStart(block.weekStart);
+    get().setCurrentWeekStart(toDateKey(startOfPlannerWeek(new Date(block.start))));
   },
   requestMorePractice: async ({ blockId, extraMinutes, notes = "" }) => {
     const snapshot = await loadPlannerSnapshot();
@@ -426,7 +426,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       loading: false,
       error: null,
     });
-    get().setCurrentWeekStart(block.weekStart);
+    get().setCurrentWeekStart(toDateKey(startOfPlannerWeek(new Date(block.start))));
   },
   exportToJson: async () => {
     const payload = await exportPlannerData();

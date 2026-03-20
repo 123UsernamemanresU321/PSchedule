@@ -1630,7 +1630,13 @@ export function generateStudyPlanHorizon(options: {
     currentWeek = addDays(currentWeek, 7)
   ) {
     const weekKey = toDateKey(currentWeek);
-    const lockedBlocks = preservedLockedBlocks.filter((block) => block.weekStart === weekKey);
+    const lockedBlocks = preservedLockedBlocks.filter((block) => {
+      if (block.weekStart === weekKey) {
+        return true;
+      }
+
+      return toDateKey(startOfPlannerWeek(new Date(block.start))) === weekKey;
+    });
     const result = generateStudyPlanForWeek({
       weekStart: currentWeek,
       goals: options.goals,

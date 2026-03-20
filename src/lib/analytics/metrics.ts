@@ -24,7 +24,11 @@ export function getWeeklyPlan(weeklyPlans: WeeklyPlan[], weekStart: string) {
 
 export function getWeekBlocks(studyBlocks: StudyBlock[], weekStart: string) {
   return studyBlocks
-    .filter((block) => block.weekStart === weekStart)
+    .filter(
+      (block) =>
+        block.weekStart === weekStart ||
+        toDateKey(startOfPlannerWeek(new Date(block.start))) === weekStart,
+    )
     .sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime());
 }
 
