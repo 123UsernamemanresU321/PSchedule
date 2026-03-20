@@ -833,6 +833,34 @@ test("seeded horizon keeps olympiad present week to week instead of dropping it 
   });
 });
 
+test("gold-phase olympiad sessions are distributed across the actual week instead of bunching at the start", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
+  const result = generateStudyPlanHorizon({
+    startWeek: new Date("2026-03-20T08:00:00"),
+    endWeek: new Date("2026-07-20T08:00:00"),
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    preferences: dataset.preferences,
+    existingStudyBlocks: [],
+  });
+
+  const julyDates = ["2026-07-15", "2026-07-16", "2026-07-17", "2026-07-18"];
+
+  julyDates.forEach((dateKey) => {
+    assert.equal(
+      result.studyBlocks.some(
+        (block) => block.date === dateKey && block.subjectId === "olympiad",
+      ),
+      true,
+      `expected Olympiad work on ${dateKey} during the gold phase`,
+    );
+  });
+});
+
 test("stale future olympiad advanced blocks are purged when same-strand foundations are still incomplete", () => {
   const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
   const invalidAdvancedBlock = createStudyBlock({

@@ -74,6 +74,12 @@ function buildOlympiadGoldPhaseWeeks() {
 
 const olympiadGoldPhaseWeeks = buildOlympiadGoldPhaseWeeks();
 
+function addDaysToDateKey(dateKey: string, days: number) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function buildFrenchMaintenanceBlueprints(): SeedTopicBlueprint[] {
   const sessions: SeedTopicBlueprint[] = [];
   let cursor = new Date("2026-03-23T00:00:00");
@@ -267,7 +273,7 @@ function buildOlympiadGoldPhaseBlueprints(): SeedTopicBlueprint[] {
           "Write the solution in full proof format.",
           "Identify the key forcing step.",
         ],
-        availableFrom: week.availableFrom,
+        availableFrom: addDaysToDateKey(week.availableFrom, 0),
         estHours: 1.5,
         difficulty: 5,
         preferredBlockTypes: ["deep_work", "standard_focus"],
@@ -287,7 +293,7 @@ function buildOlympiadGoldPhaseBlueprints(): SeedTopicBlueprint[] {
           "Map the method family before reading any hint.",
           "Write the cleanest version of the proof.",
         ],
-        availableFrom: week.availableFrom,
+        availableFrom: addDaysToDateKey(week.availableFrom, 1),
         estHours: 1.5,
         difficulty: 5,
         preferredBlockTypes: ["deep_work", "standard_focus"],
@@ -307,7 +313,7 @@ function buildOlympiadGoldPhaseBlueprints(): SeedTopicBlueprint[] {
           "Practice triage under clock pressure.",
           "Log where full conversions failed.",
         ],
-        availableFrom: week.availableFrom,
+        availableFrom: addDaysToDateKey(week.availableFrom, 2),
         estHours: 2,
         difficulty: 5,
         preferredBlockTypes: ["deep_work", "standard_focus"],
@@ -327,7 +333,7 @@ function buildOlympiadGoldPhaseBlueprints(): SeedTopicBlueprint[] {
           "Tighten lemma order and exposition.",
           "Correct presentation losses aggressively.",
         ],
-        availableFrom: week.availableFrom,
+        availableFrom: addDaysToDateKey(week.availableFrom, 3),
         estHours: 1.5,
         difficulty: 4,
         preferredBlockTypes: ["standard_focus", "review"],
@@ -347,7 +353,7 @@ function buildOlympiadGoldPhaseBlueprints(): SeedTopicBlueprint[] {
           "Practice when to use the tool and when not to.",
           "Connect the tool to one official anchor problem.",
         ],
-        availableFrom: week.availableFrom,
+        availableFrom: addDaysToDateKey(week.availableFrom, 4),
         estHours: 1.5,
         difficulty: 5,
         preferredBlockTypes: ["deep_work", "standard_focus"],
@@ -367,7 +373,7 @@ function buildOlympiadGoldPhaseBlueprints(): SeedTopicBlueprint[] {
           "Aim for full conversion on bankable problems and clean partials on harder ones.",
           "Score the script honestly afterward.",
         ],
-        availableFrom: week.availableFrom,
+        availableFrom: addDaysToDateKey(week.availableFrom, 5),
         estHours: stage === "Elite peak" ? 4.5 : stage === "Pre-IMO" ? 3.5 : 3,
         difficulty: 5,
         preferredBlockTypes: ["deep_work"],
@@ -387,7 +393,7 @@ function buildOlympiadGoldPhaseBlueprints(): SeedTopicBlueprint[] {
           "Classify unforced errors, theorem gaps, and time-loss patterns.",
           "Write one correction or re-solve from scratch.",
         ],
-        availableFrom: week.availableFrom,
+        availableFrom: addDaysToDateKey(week.availableFrom, 6),
         estHours: stage === "Elite peak" ? 2 : 1.5,
         difficulty: 4,
         preferredBlockTypes: ["review", "standard_focus"],
