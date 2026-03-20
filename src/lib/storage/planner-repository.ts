@@ -362,7 +362,7 @@ async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Da
         block.subjectId === OLYMPIAD_SUBJECT_ID &&
         new Date(block.end).getTime() >= weekStart.getTime() &&
         !["done", "partial", "missed"].includes(block.status) &&
-        !shouldPreserveStudyBlockOnRegeneration(block),
+        !shouldPreserveStudyBlockOnRegeneration(normalizeStudyBlock(block)),
     )
     .delete();
 
@@ -901,7 +901,7 @@ export async function replacePlanningHorizon(
         .filter(
           (block) =>
             new Date(block.start).getTime() >= horizonStartDate.getTime() &&
-            !shouldPreserveStudyBlockOnRegeneration(block),
+            !shouldPreserveStudyBlockOnRegeneration(normalizeStudyBlock(block)),
         )
         .delete();
       await db.weeklyPlans
