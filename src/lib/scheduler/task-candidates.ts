@@ -2,6 +2,7 @@ import { addDays } from "date-fns";
 
 import { endOfPlannerWeek, fromDateKey } from "@/lib/dates/helpers";
 import {
+  getOlympiadNumberTheoryEligibilityStatus,
   getOlympiadStageGateStatus,
 } from "@/lib/scheduler/olympiad-stage-gates";
 import type { StudyBlock, TaskCandidate, Topic } from "@/lib/types/planner";
@@ -167,6 +168,27 @@ function resolveTopicTimingWindow(
 
     if (!availableAt || stageGateAvailableAt.getTime() > availableAt.getTime()) {
       availableAt = stageGateAvailableAt;
+    }
+  }
+
+  const ntFrontierStatus = getOlympiadNumberTheoryEligibilityStatus({
+    topic,
+    topics,
+    blocks: existingPlannedBlocks,
+  });
+
+  if (ntFrontierStatus.blocked) {
+    return {
+      blocked: true,
+      availableAt: null,
+      latestAt: null,
+      reviewDue,
+    };
+  }
+
+  if (ntFrontierStatus.availableAt) {
+    if (!availableAt || ntFrontierStatus.availableAt.getTime() > availableAt.getTime()) {
+      availableAt = ntFrontierStatus.availableAt;
     }
   }
 

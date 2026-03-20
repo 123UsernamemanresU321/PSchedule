@@ -4,7 +4,7 @@ import {
   getPlanningHorizonEndWeek,
   shouldPreserveStudyBlockOnRegeneration,
 } from "@/lib/scheduler/generator";
-import { collectInvalidFutureOlympiadAdvancedBlockIds } from "@/lib/scheduler/olympiad-stage-gates";
+import { collectInvalidFutureOlympiadBlockIds } from "@/lib/scheduler/olympiad-stage-gates";
 import { buildSeedDataset } from "@/lib/seed";
 import { buildSeedPreferences } from "@/lib/seed/preferences";
 import {
@@ -28,7 +28,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-20-olympiad-frontier-v27";
+const PLANNING_MODEL_VERSION = "2026-03-20-olympiad-frontier-v28";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v8";
@@ -386,7 +386,7 @@ async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Da
 
 export async function purgeInvalidFutureOlympiadAdvancedBlocks(referenceDate = new Date()) {
   const [topics, studyBlocks] = await Promise.all([db.topics.toArray(), db.studyBlocks.toArray()]);
-  const invalidBlockIds = collectInvalidFutureOlympiadAdvancedBlockIds({
+  const invalidBlockIds = collectInvalidFutureOlympiadBlockIds({
     topics,
     blocks: studyBlocks,
     referenceDate,

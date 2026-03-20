@@ -8,6 +8,8 @@ import {
 } from "@/lib/scheduler/feasibility";
 import { calculateFreeSlots } from "@/lib/scheduler/free-slots";
 import {
+  getOlympiadNumberTheoryEligibilityStatus,
+  getOlympiadNumberTheoryFrontierStatus,
   getOlympiadStageGateStatus,
   isOlympiadFoundationTopic,
 } from "@/lib/scheduler/olympiad-stage-gates";
@@ -729,6 +731,25 @@ function allocateTasksToSlots(options: {
       return false;
     }
 
+    const ntFrontierStatus = getOlympiadNumberTheoryEligibilityStatus({
+      topic,
+      topics: options.topics,
+      blocks: [
+        ...(options.priorPlannedBlocks ?? []),
+        ...options.lockedBlocks,
+        ...scheduledBlocks,
+      ],
+      cutoff: slotStart,
+    });
+
+    if (ntFrontierStatus.blocked) {
+      return false;
+    }
+
+    if (ntFrontierStatus.availableAt && slotStart.getTime() < ntFrontierStatus.availableAt.getTime()) {
+      return false;
+    }
+
     if (!topic?.dependsOnTopicId) {
       return true;
     }
@@ -1040,6 +1061,30 @@ function allocateTasksToSlots(options: {
     return dateKey >= "2026-07-01" && dateKey <= "2027-03-16";
   }
 
+  function getNumberTheoryFrontierTopicIdForDate(dateKey: string, slotStart: Date) {
+    const olympiadAssignedMinutes = subjectMinutesByDate[dateKey]?.olympiad ?? 0;
+
+    if (olympiadAssignedMinutes > 0) {
+      return null;
+    }
+
+    const frontierStatus = getOlympiadNumberTheoryFrontierStatus({
+      topics: options.topics,
+      blocks: [
+        ...(options.priorPlannedBlocks ?? []),
+        ...options.lockedBlocks,
+        ...scheduledBlocks,
+      ],
+      cutoff: slotStart,
+    });
+
+    if (!frontierStatus.frontierTopicId || frontierStatus.remainingMinutes < MIN_ALLOCATABLE_MINUTES) {
+      return null;
+    }
+
+    return frontierStatus.frontierTopicId;
+  }
+
   function getCadenceBonus(task: TaskCandidate, dateKey: string) {
     if (!task.subjectId) {
       return 0;
@@ -1151,10 +1196,21 @@ function allocateTasksToSlots(options: {
       mustFillEndOfDaySlot = false,
     } = config;
     const allowedBlockTypes = getAllowedBlockTypesForSlot(slot);
+    const requiredNumberTheoryFrontierTopicId = getNumberTheoryFrontierTopicIdForDate(
+      slot.dateKey,
+      slot.start,
+    );
 
     return workingTasks
       .filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES)
       .filter((task) => !restrictedSubjectIds || (!!task.subjectId && restrictedSubjectIds.includes(task.subjectId)))
+      .filter((task) => {
+        if (!requiredNumberTheoryFrontierTopicId || task.subjectId !== "olympiad") {
+          return true;
+        }
+
+        return task.topicId === requiredNumberTheoryFrontierTopicId;
+      })
       .filter((task) => !task.availableAt || new Date(task.availableAt) <= slot.start)
       .filter((task) => !task.latestAt || new Date(task.latestAt) >= slot.start)
       .filter((task) => isTaskDependencySatisfied(task, slot.start))

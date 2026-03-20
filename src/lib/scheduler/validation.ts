@@ -1,6 +1,9 @@
 import { differenceInCalendarDays } from "date-fns";
 
-import { getOlympiadStageGateStatus } from "@/lib/scheduler/olympiad-stage-gates";
+import {
+  getOlympiadNumberTheoryEligibilityStatus,
+  getOlympiadStageGateStatus,
+} from "@/lib/scheduler/olympiad-stage-gates";
 import type { StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
 
 export interface PlannerValidationIssue {
@@ -78,6 +81,29 @@ export function validateGeneratedHorizon(options: {
         topicId: block.topicId,
         subjectId: block.subjectId ?? undefined,
         message: `Block ${block.id} starts before Olympiad foundations are fully covered earlier on the calendar.`,
+      });
+      return;
+    }
+
+    const ntFrontierStatus = getOlympiadNumberTheoryEligibilityStatus({
+      topic,
+      topics: options.topics,
+      blocks: options.studyBlocks,
+      cutoff: new Date(block.start),
+    });
+
+    if (
+      ntFrontierStatus.blocked ||
+      (ntFrontierStatus.availableAt &&
+        ntFrontierStatus.availableAt.getTime() > new Date(block.start).getTime())
+    ) {
+      issues.push({
+        code: "dependency-coverage-order-violation",
+        severity: "error",
+        blockId: block.id,
+        topicId: block.topicId,
+        subjectId: block.subjectId ?? undefined,
+        message: `Block ${block.id} starts before the current Number Theory foundation frontier is fully covered earlier on the calendar.`,
       });
       return;
     }

@@ -21,7 +21,10 @@ import {
   isReservedCommitmentRuleActiveOnDate,
   resolveDailyScheduleProfile,
 } from "@/lib/scheduler/schedule-regime";
-import { collectInvalidFutureOlympiadAdvancedBlockIds } from "@/lib/scheduler/olympiad-stage-gates";
+import {
+  collectInvalidFutureOlympiadBlockIds,
+  getOlympiadNumberTheoryFrontierStatus,
+} from "@/lib/scheduler/olympiad-stage-gates";
 import {
   buildTaskCandidates,
   getAssignableTaskCandidatesForBlock,
@@ -861,8 +864,19 @@ test("gold-phase olympiad sessions are distributed across the actual week instea
   });
 });
 
-test("stale future olympiad advanced blocks are purged when same-strand foundations are still incomplete", () => {
+test("stale future later number theory and advanced olympiad blocks are purged when the frontier is still incomplete", () => {
   const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
+  const invalidLaterFoundationBlock = createStudyBlock({
+    id: "nt-later-foundation-stale",
+    subjectId: "olympiad",
+    topicId: "olympiad-number-theory-congruence",
+    title: "Modular arithmetic, inverses, orders, and CRT",
+    weekStart: "2026-03-16",
+    date: "2026-03-20",
+    start: "2026-03-20T13:00:00.000Z",
+    end: "2026-03-20T15:00:00.000Z",
+    estimatedMinutes: 120,
+  });
   const invalidAdvancedBlock = createStudyBlock({
     id: "nt-advanced-stale",
     subjectId: "olympiad",
@@ -887,13 +901,302 @@ test("stale future olympiad advanced blocks are purged when same-strand foundati
     estimatedMinutes: 120,
   });
 
-  const invalidIds = collectInvalidFutureOlympiadAdvancedBlockIds({
+  const invalidIds = collectInvalidFutureOlympiadBlockIds({
     topics: dataset.topics,
-    blocks: [invalidAdvancedBlock, validFoundationBlock],
+    blocks: [invalidLaterFoundationBlock, invalidAdvancedBlock, validFoundationBlock],
     referenceDate: new Date("2026-03-20T08:00:00"),
   });
 
-  assert.deepEqual(invalidIds, ["nt-advanced-stale"]);
+  assert.deepEqual(invalidIds, ["nt-later-foundation-stale", "nt-advanced-stale"]);
+});
+
+test("number theory frontier keeps later number theory topics blocked until the current frontier is placed earlier", () => {
+  const topics: Topic[] = [
+    {
+      id: "olympiad-number-theory-divisibility",
+      subjectId: "olympiad",
+      unitId: "olympiad-number-theory-1",
+      unitTitle: "Olympiad - Number Theory Foundations",
+      title: "gcd structure, Euclidean algorithm, and divisibility control",
+      order: 1,
+      estHours: 6.5,
+      completedHours: 3.9,
+      mastery: 4,
+      status: "learning",
+      reviewDue: null,
+      lastStudiedAt: null,
+      dependsOnTopicId: null,
+      availableFrom: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      subtopics: [],
+      sourceMaterials: [],
+      preferredBlockTypes: ["standard_focus"],
+      difficulty: 4,
+      sequenceGroup: "olympiad-nt",
+      sequenceStage: "foundation",
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      paperCode: null,
+      notes: "",
+    },
+    {
+      id: "olympiad-number-theory-congruence",
+      subjectId: "olympiad",
+      unitId: "olympiad-number-theory-1",
+      unitTitle: "Olympiad - Number Theory Foundations",
+      title: "Modular arithmetic, inverses, orders, and CRT",
+      order: 2,
+      estHours: 7,
+      completedHours: 0,
+      mastery: 2,
+      status: "not_started",
+      reviewDue: null,
+      lastStudiedAt: null,
+      dependsOnTopicId: "olympiad-number-theory-divisibility",
+      availableFrom: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      subtopics: [],
+      sourceMaterials: [],
+      preferredBlockTypes: ["deep_work"],
+      difficulty: 5,
+      sequenceGroup: "olympiad-nt",
+      sequenceStage: "foundation",
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      paperCode: null,
+      notes: "",
+    },
+  ];
+
+  const beforeFrontierCandidates = buildTaskCandidates({
+    topics,
+    existingPlannedBlocks: [],
+    referenceDate: new Date("2026-03-23T08:00:00"),
+    subjectDeadlinesById: { olympiad: "2027-06-30" },
+  });
+
+  assert.equal(
+    beforeFrontierCandidates.some((candidate) => candidate.topicId === "olympiad-number-theory-divisibility"),
+    true,
+  );
+  assert.equal(
+    beforeFrontierCandidates.some((candidate) => candidate.topicId === "olympiad-number-theory-congruence"),
+    false,
+  );
+
+  const frontierCompletionBlock = createStudyBlock({
+    id: "nt-divisibility-frontier",
+    subjectId: "olympiad",
+    topicId: "olympiad-number-theory-divisibility",
+    title: "gcd structure, Euclidean algorithm, and divisibility control",
+    weekStart: "2026-03-23",
+    date: "2026-03-23",
+    start: "2026-03-23T08:00:00.000Z",
+    end: "2026-03-23T10:40:00.000Z",
+    estimatedMinutes: 160,
+  });
+
+  const afterFrontierCandidates = buildTaskCandidates({
+    topics,
+    existingPlannedBlocks: [frontierCompletionBlock],
+    referenceDate: new Date("2026-03-23T08:00:00"),
+    subjectDeadlinesById: { olympiad: "2027-06-30" },
+  });
+
+  assert.equal(
+    afterFrontierCandidates.some((candidate) => candidate.topicId === "olympiad-number-theory-congruence"),
+    true,
+  );
+});
+
+test("the first olympiad block of the day follows the current number theory frontier", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
+
+  assert.ok(olympiadSubject);
+
+  const olympiadTopics: Topic[] = [
+    {
+      id: "olympiad-number-theory-divisibility",
+      subjectId: "olympiad",
+      unitId: "olympiad-number-theory-1",
+      unitTitle: "Olympiad - Number Theory Foundations",
+      title: "gcd structure, Euclidean algorithm, and divisibility control",
+      order: 1,
+      estHours: 6.5,
+      completedHours: 3.9,
+      mastery: 4,
+      status: "learning",
+      reviewDue: null,
+      lastStudiedAt: null,
+      dependsOnTopicId: null,
+      availableFrom: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      subtopics: [],
+      sourceMaterials: [],
+      preferredBlockTypes: ["standard_focus"],
+      difficulty: 4,
+      sequenceGroup: "olympiad-nt",
+      sequenceStage: "foundation",
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      paperCode: null,
+      notes: "",
+    },
+    {
+      id: "olympiad-number-theory-congruence",
+      subjectId: "olympiad",
+      unitId: "olympiad-number-theory-1",
+      unitTitle: "Olympiad - Number Theory Foundations",
+      title: "Modular arithmetic, inverses, orders, and CRT",
+      order: 2,
+      estHours: 7,
+      completedHours: 0,
+      mastery: 2,
+      status: "not_started",
+      reviewDue: null,
+      lastStudiedAt: null,
+      dependsOnTopicId: "olympiad-number-theory-divisibility",
+      availableFrom: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      subtopics: [],
+      sourceMaterials: [],
+      preferredBlockTypes: ["deep_work"],
+      difficulty: 5,
+      sequenceGroup: "olympiad-nt",
+      sequenceStage: "foundation",
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      paperCode: null,
+      notes: "",
+    },
+    {
+      id: "olympiad-geometry-points-lines-polygons",
+      subjectId: "olympiad",
+      unitId: "olympiad-geometry-1",
+      unitTitle: "Olympiad - Geometry Foundations",
+      title: "Directed angles, cyclicity, similarity, and clean angle chase",
+      order: 3,
+      estHours: 6.5,
+      completedHours: 0,
+      mastery: 0,
+      status: "not_started",
+      reviewDue: null,
+      lastStudiedAt: null,
+      dependsOnTopicId: null,
+      availableFrom: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      subtopics: [],
+      sourceMaterials: [],
+      preferredBlockTypes: ["deep_work"],
+      difficulty: 5,
+      sequenceGroup: "olympiad-geo",
+      sequenceStage: "foundation",
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      paperCode: null,
+      notes: "",
+    },
+  ];
+
+  const result = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T00:00:00"),
+    goals: [
+      {
+        id: "goal-olympiad",
+        title: "Olympiad frontier goal",
+        subjectId: "olympiad",
+        deadline: "2027-06-30",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [olympiadSubject!],
+    topics: olympiadTopics,
+    fixedEvents: [],
+    preferences: dataset.preferences,
+  });
+
+  const firstOlympiadBlock = result.studyBlocks.find((block) => block.subjectId === "olympiad");
+
+  assert.ok(firstOlympiadBlock);
+  assert.equal(firstOlympiadBlock?.topicId, "olympiad-number-theory-divisibility");
+});
+
+test("number theory frontier status tracks the earliest unfinished foundation topic", () => {
+  const topics: Topic[] = [
+    {
+      id: "olympiad-number-theory-divisibility",
+      subjectId: "olympiad",
+      unitId: "olympiad-number-theory-1",
+      unitTitle: "Olympiad - Number Theory Foundations",
+      title: "Divisibility",
+      order: 1,
+      estHours: 6.5,
+      completedHours: 3.9,
+      mastery: 4,
+      status: "learning",
+      reviewDue: null,
+      lastStudiedAt: null,
+      dependsOnTopicId: null,
+      availableFrom: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      subtopics: [],
+      sourceMaterials: [],
+      preferredBlockTypes: ["standard_focus"],
+      difficulty: 4,
+      sequenceGroup: "olympiad-nt",
+      sequenceStage: "foundation",
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      paperCode: null,
+      notes: "",
+    },
+    {
+      id: "olympiad-number-theory-congruence",
+      subjectId: "olympiad",
+      unitId: "olympiad-number-theory-1",
+      unitTitle: "Olympiad - Number Theory Foundations",
+      title: "Congruence",
+      order: 2,
+      estHours: 7,
+      completedHours: 0,
+      mastery: 1,
+      status: "not_started",
+      reviewDue: null,
+      lastStudiedAt: null,
+      dependsOnTopicId: "olympiad-number-theory-divisibility",
+      availableFrom: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      subtopics: [],
+      sourceMaterials: [],
+      preferredBlockTypes: ["standard_focus"],
+      difficulty: 5,
+      sequenceGroup: "olympiad-nt",
+      sequenceStage: "foundation",
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      paperCode: null,
+      notes: "",
+    },
+  ];
+
+  const status = getOlympiadNumberTheoryFrontierStatus({
+    topics,
+    blocks: [],
+  });
+
+  assert.equal(status.frontierTopicId, "olympiad-number-theory-divisibility");
+  assert.equal(status.blocked, true);
+  assert.ok(status.remainingMinutes >= 150);
 });
 
 test("olympiad stage gating still works when legacy local topics are missing sequence metadata", () => {
