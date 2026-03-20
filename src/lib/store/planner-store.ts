@@ -14,6 +14,7 @@ import {
   importPlannerData,
   initializePlannerDatabase,
   loadPlannerSnapshot,
+  purgeInvalidFutureOlympiadAdvancedBlocks,
   replacePlanningHorizon,
   deleteCompletionLogsByStudyBlockId,
   saveCompletionLog,
@@ -107,6 +108,7 @@ function deriveTopicStatus(topic: Topic) {
 }
 
 async function recalculateCurrentWeek(options?: { preservedStudyBlockIds?: string[] }) {
+  await purgeInvalidFutureOlympiadAdvancedBlocks(new Date());
   const snapshot = await loadPlannerSnapshot();
   const planningStartWeek = startOfPlannerWeek(new Date());
   const replanned = generateStudyPlanHorizon({

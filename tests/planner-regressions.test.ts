@@ -20,6 +20,7 @@ import {
   isReservedCommitmentRuleActiveOnDate,
   resolveDailyScheduleProfile,
 } from "@/lib/scheduler/schedule-regime";
+import { collectInvalidFutureOlympiadAdvancedBlockIds } from "@/lib/scheduler/olympiad-stage-gates";
 import { buildTaskCandidates } from "@/lib/scheduler/task-candidates";
 import { validateGeneratedHorizon } from "@/lib/scheduler/validation";
 import type { StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
@@ -379,6 +380,41 @@ test("olympiad advanced candidates stay blocked until same-strand foundations ar
 
   assert.ok(advancedCandidate, "expected number theory advanced candidate once foundations are covered");
   assert.equal(advancedCandidate?.availableAt?.slice(0, 16), "2026-03-20T22:00");
+});
+
+test("stale future olympiad advanced blocks are purged when same-strand foundations are still uncovered", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
+  const invalidAdvancedBlock = createStudyBlock({
+    id: "nt-advanced-stale",
+    subjectId: "olympiad",
+    topicId: "olympiad-number-theory-valuations",
+    title: "p-adic valuations, LTE, and divisibility depth",
+    weekStart: "2026-03-16",
+    date: "2026-03-20",
+    start: "2026-03-20T16:00:00.000Z",
+    end: "2026-03-20T18:00:00.000Z",
+    estimatedMinutes: 120,
+  });
+
+  const validFoundationBlock = createStudyBlock({
+    id: "nt-foundation-preserved",
+    subjectId: "olympiad",
+    topicId: "olympiad-number-theory-divisibility",
+    title: "gcd structure, Euclidean algorithm, and divisibility control",
+    weekStart: "2026-03-16",
+    date: "2026-03-20",
+    start: "2026-03-20T08:00:00.000Z",
+    end: "2026-03-20T10:00:00.000Z",
+    estimatedMinutes: 120,
+  });
+
+  const invalidIds = collectInvalidFutureOlympiadAdvancedBlockIds({
+    topics: dataset.topics,
+    blocks: [invalidAdvancedBlock, validFoundationBlock],
+    referenceDate: new Date("2026-03-20T08:00:00"),
+  });
+
+  assert.deepEqual(invalidIds, ["nt-advanced-stale"]);
 });
 
 test("olympiad stage gating still works when legacy local topics are missing sequence metadata", () => {

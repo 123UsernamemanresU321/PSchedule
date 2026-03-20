@@ -157,3 +157,50 @@ export function getOlympiadStageGateStatus(options: {
     missingTopicIds,
   };
 }
+
+export function collectInvalidFutureOlympiadAdvancedBlockIds(options: {
+  topics: Iterable<Topic>;
+  blocks: StudyBlock[];
+  referenceDate: Date;
+}) {
+  const topicsById = new Map([...options.topics].map((topic) => [topic.id, topic]));
+  const invalidIds: string[] = [];
+  const retainedBlocks: StudyBlock[] = options.blocks
+    .filter((block) => new Date(block.end).getTime() <= options.referenceDate.getTime())
+    .sort((left, right) => new Date(left.end).getTime() - new Date(right.end).getTime());
+
+  const futureBlocks = options.blocks
+    .filter((block) => new Date(block.end).getTime() > options.referenceDate.getTime())
+    .sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime());
+
+  for (const block of futureBlocks) {
+    const topic = block.topicId ? topicsById.get(block.topicId) : null;
+    const isRemovableFutureOlympiadBlock =
+      block.subjectId === "olympiad" &&
+      block.status !== "done" &&
+      block.status !== "partial" &&
+      block.status !== "missed" &&
+      isOlympiadAdvancedStageTopic(topic);
+
+    if (!isRemovableFutureOlympiadBlock) {
+      retainedBlocks.push(block);
+      continue;
+    }
+
+    const stageGateStatus = getOlympiadStageGateStatus({
+      topic,
+      topics: topicsById.values(),
+      blocks: retainedBlocks,
+      cutoff: new Date(block.start),
+    });
+
+    if (stageGateStatus.blocked) {
+      invalidIds.push(block.id);
+      continue;
+    }
+
+    retainedBlocks.push(block);
+  }
+
+  return invalidIds;
+}

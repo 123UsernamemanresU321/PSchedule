@@ -4,6 +4,7 @@ import {
   getPlanningHorizonEndWeek,
   shouldPreserveStudyBlockOnRegeneration,
 } from "@/lib/scheduler/generator";
+import { collectInvalidFutureOlympiadAdvancedBlockIds } from "@/lib/scheduler/olympiad-stage-gates";
 import { buildSeedDataset } from "@/lib/seed";
 import { buildSeedPreferences } from "@/lib/seed/preferences";
 import {
@@ -346,6 +347,21 @@ async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Da
   await replacePlanningHorizon(replanned.studyBlocks, replanned.weeklyPlans, weekStartKey);
   await db.meta.put({ key: "planning-model-version", value: PLANNING_MODEL_VERSION });
   return loadPlannerSnapshot();
+}
+
+export async function purgeInvalidFutureOlympiadAdvancedBlocks(referenceDate = new Date()) {
+  const [topics, studyBlocks] = await Promise.all([db.topics.toArray(), db.studyBlocks.toArray()]);
+  const invalidBlockIds = collectInvalidFutureOlympiadAdvancedBlockIds({
+    topics,
+    blocks: studyBlocks,
+    referenceDate,
+  });
+
+  if (!invalidBlockIds.length) {
+    return;
+  }
+
+  await db.studyBlocks.bulkDelete(invalidBlockIds);
 }
 
 async function migrateLegacySeededFixedEvents(snapshot: PlannerSnapshot, referenceDate: Date) {
