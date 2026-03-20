@@ -8,10 +8,12 @@ import { SubjectBadge } from "@/components/planner/subject-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { getSubjectProgress } from "@/lib/analytics/metrics";
 import { mainSubjectIds, topicStatusLabels } from "@/lib/constants/planner";
 import { usePlannerStore } from "@/lib/store/planner-store";
+import type { Topic } from "@/lib/types/planner";
 import { groupBy } from "@/lib/utils";
 
 export function SubjectsPage() {
@@ -175,7 +177,7 @@ export function SubjectsPage() {
                           return (
                             <div
                               key={topic.id}
-                              className="grid gap-3 rounded-sm border border-white/6 bg-white/4 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_220px_120px]"
+                              className="grid gap-3 rounded-sm border border-white/6 bg-white/4 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_220px_220px_120px]"
                             >
                               <div>
                                 <p className="font-medium text-foreground">{topic.title}</p>
@@ -190,6 +192,10 @@ export function SubjectsPage() {
                                 </p>
                                 <p className="mt-1">Mastery {topic.mastery}/5</p>
                               </div>
+                              <TopicCompletedHoursEditor
+                                key={`${topic.id}:${topic.completedHours}`}
+                                topic={topic}
+                              />
                               <div className="flex items-center justify-end">
                                 <Badge
                                   variant={
@@ -217,4 +223,76 @@ export function SubjectsPage() {
       })}
     </div>
   );
+}
+
+function TopicCompletedHoursEditor({ topic }: { topic: Topic }) {
+  const loading = usePlannerStore((state) => state.loading);
+  const updateTopicCompletedHours = usePlannerStore((state) => state.updateTopicCompletedHours);
+  const [draftHours, setDraftHours] = useState(formatHoursInput(topic.completedHours));
+
+  const parsedHours = Number(draftHours);
+  const normalizedHours = Number.isFinite(parsedHours)
+    ? clampHours(parsedHours, topic.estHours)
+    : topic.completedHours;
+  const hasValidInput = draftHours.trim().length > 0 && Number.isFinite(parsedHours);
+  const hasChanges = hasValidInput && Math.abs(normalizedHours - topic.completedHours) > 0.001;
+
+  async function handleSave() {
+    if (!hasValidInput) {
+      setDraftHours(formatHoursInput(topic.completedHours));
+      return;
+    }
+
+    await updateTopicCompletedHours({
+      topicId: topic.id,
+      completedHours: normalizedHours,
+    });
+  }
+
+  return (
+    <div className="space-y-2 text-sm text-muted-foreground">
+      <p className="uppercase tracking-[0.2em] text-[11px]">Completed hours</p>
+      <div className="flex items-center gap-2">
+        <Input
+          type="number"
+          min={0}
+          max={topic.estHours}
+          step="0.1"
+          value={draftHours}
+          onChange={(event) => setDraftHours(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              void handleSave();
+            }
+          }}
+          className="h-9"
+        />
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={loading || !hasChanges}
+          onClick={() => void handleSave()}
+        >
+          Save
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        0 to {topic.estHours.toFixed(1)}h
+      </p>
+    </div>
+  );
+}
+
+function clampHours(value: number, maxHours: number) {
+  return Math.min(maxHours, Math.max(0, value));
+}
+
+function formatHoursInput(value: number) {
+  if (Number.isInteger(value)) {
+    return String(value);
+  }
+
+  return value.toFixed(2).replace(/\.?0+$/, "");
 }

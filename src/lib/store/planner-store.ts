@@ -71,6 +71,10 @@ interface PlannerState {
   deleteSickDay: (id: string) => Promise<void>;
   deleteFocusedDay: (id: string) => Promise<void>;
   updatePreferences: (patch: Partial<Preferences>) => Promise<void>;
+  updateTopicCompletedHours: (options: {
+    topicId: string;
+    completedHours: number;
+  }) => Promise<void>;
   updateStudyBlockStatus: (options: {
     blockId: string;
     status: Extract<StudyBlockStatus, "planned" | "done" | "partial" | "missed" | "rescheduled">;
@@ -262,6 +266,38 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
     await savePreferences(nextPreferences);
     await get().regenerateHorizon();
+  },
+  updateTopicCompletedHours: async ({ topicId, completedHours }) => {
+    set({ loading: true, error: null });
+
+    try {
+      const snapshot = await loadPlannerSnapshot();
+      const topic = snapshot.topics.find((candidate) => candidate.id === topicId);
+
+      if (!topic) {
+        set({ loading: false, error: "Topic not found." });
+        return;
+      }
+
+      const nextTopic: Topic = {
+        ...topic,
+        completedHours: clampCompletedHours(completedHours, topic.estHours),
+      };
+      nextTopic.status = deriveTopicStatus(nextTopic);
+      await updateTopic(nextTopic);
+
+      const nextSnapshot = await recalculateCurrentWeek();
+      set({
+        ...nextSnapshot,
+        loading: false,
+        error: null,
+      });
+    } catch (error) {
+      set({
+        loading: false,
+        error: error instanceof Error ? error.message : "Failed to update topic progress.",
+      });
+    }
   },
   updateStudyBlockStatus: async ({
     blockId,
