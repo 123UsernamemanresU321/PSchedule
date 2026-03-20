@@ -26,7 +26,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-20-olympiad-stage-gates-v24";
+const PLANNING_MODEL_VERSION = "2026-03-20-olympiad-stage-gates-v25";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v4";
@@ -319,19 +319,31 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
 
 async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Date) {
   const weekStart = startOfPlannerWeek(referenceDate);
+  const weekStartKey = toDateKey(weekStart);
+
+  await db.studyBlocks
+    .filter(
+      (block) =>
+        block.subjectId === OLYMPIAD_SUBJECT_ID &&
+        block.weekStart >= weekStartKey &&
+        !["done", "partial", "missed"].includes(block.status),
+    )
+    .delete();
+
+  const refreshedSnapshot = await loadPlannerSnapshot();
   const replanned = generateStudyPlanHorizon({
     startWeek: weekStart,
-    goals: snapshot.goals,
-    subjects: snapshot.subjects,
-    topics: snapshot.topics,
-    fixedEvents: snapshot.fixedEvents,
-    sickDays: snapshot.sickDays,
-    focusedDays: snapshot.focusedDays,
-    preferences: snapshot.preferences,
-    existingStudyBlocks: snapshot.studyBlocks,
+    goals: refreshedSnapshot.goals,
+    subjects: refreshedSnapshot.subjects,
+    topics: refreshedSnapshot.topics,
+    fixedEvents: refreshedSnapshot.fixedEvents,
+    sickDays: refreshedSnapshot.sickDays,
+    focusedDays: refreshedSnapshot.focusedDays,
+    preferences: refreshedSnapshot.preferences,
+    existingStudyBlocks: refreshedSnapshot.studyBlocks,
   });
 
-  await replacePlanningHorizon(replanned.studyBlocks, replanned.weeklyPlans, toDateKey(weekStart));
+  await replacePlanningHorizon(replanned.studyBlocks, replanned.weeklyPlans, weekStartKey);
   await db.meta.put({ key: "planning-model-version", value: PLANNING_MODEL_VERSION });
   return loadPlannerSnapshot();
 }
