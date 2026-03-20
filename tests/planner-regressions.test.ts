@@ -384,10 +384,7 @@ test("olympiad advanced candidates stay blocked until same-strand foundations ar
   );
 
   const completedFoundations = olympiadTopics.map((topic) => {
-    if (
-      topic.id === "olympiad-number-theory-divisibility" ||
-      topic.id === "olympiad-number-theory-congruence"
-    ) {
+    if (topic.sequenceStage === "foundation") {
       return {
         ...topic,
         completedHours: topic.estHours,
@@ -536,6 +533,47 @@ test("olympiad stage gating still works when legacy local topics are missing seq
 
   assert.equal(
     candidates.some((candidate) => candidate.topicId === "olympiad-number-theory-valuations"),
+    false,
+  );
+});
+
+test("any incomplete olympiad foundation suppresses all olympiad advanced candidates globally", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
+  const olympiadTopics = dataset.topics
+    .filter((topic) => topic.subjectId === "olympiad")
+    .map((topic) => {
+      if (
+        topic.id === "olympiad-geometry-points-lines-polygons" ||
+        topic.id === "olympiad-geometry-triangle-centers"
+      ) {
+        return {
+          ...topic,
+          completedHours: topic.estHours,
+          mastery: 5,
+          status: "strong" as const,
+        };
+      }
+
+      return topic;
+    });
+
+  const candidates = buildTaskCandidates({
+    topics: olympiadTopics,
+    existingPlannedBlocks: [],
+    referenceDate: new Date("2026-03-20T08:00:00"),
+    subjectDeadlinesById: { olympiad: "2027-06-30" },
+  });
+
+  assert.equal(
+    candidates.some((candidate) => candidate.topicId === "olympiad-geometry-quadrilaterals-circles"),
+    false,
+  );
+  assert.equal(
+    candidates.some((candidate) => candidate.topicId === "olympiad-algebra-polynomials"),
+    false,
+  );
+  assert.equal(
+    candidates.some((candidate) => candidate.topicId === "olympiad-combinatorics-graph-theory"),
     false,
   );
 });

@@ -1,6 +1,6 @@
 import type { StudyBlock, Topic } from "@/lib/types/planner";
 
-function inferOlympiadSequenceGroup(topic: Topic | null | undefined) {
+export function inferOlympiadSequenceGroup(topic: Topic | null | undefined) {
   if (!topic || topic.subjectId !== "olympiad") {
     return null;
   }
@@ -28,7 +28,7 @@ function inferOlympiadSequenceGroup(topic: Topic | null | undefined) {
   return null;
 }
 
-function inferOlympiadSequenceStage(topic: Topic | null | undefined) {
+export function inferOlympiadSequenceStage(topic: Topic | null | undefined) {
   if (!topic || topic.subjectId !== "olympiad") {
     return null;
   }
@@ -84,6 +84,16 @@ function getOlympiadFoundationTopics(topic: Topic, topics: Iterable<Topic>) {
     .filter((candidate) => inferOlympiadSequenceGroup(candidate) === inferOlympiadSequenceGroup(topic))
     .filter((candidate) => inferOlympiadSequenceStage(candidate) === "foundation")
     .sort((left, right) => left.order - right.order);
+}
+
+export function isOlympiadFoundationComplete(topic: Topic | null | undefined) {
+  return (
+    !!topic &&
+    topic.subjectId === "olympiad" &&
+    inferOlympiadSequenceStage(topic) === "foundation" &&
+    topic.completedHours >= topic.estHours - 0.001 &&
+    topic.mastery >= 5
+  );
 }
 
 export function getOlympiadStageGateStatus(options: {

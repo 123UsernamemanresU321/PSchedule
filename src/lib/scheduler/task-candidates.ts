@@ -1,7 +1,11 @@
 import { addDays } from "date-fns";
 
 import { endOfPlannerWeek, fromDateKey } from "@/lib/dates/helpers";
-import { getOlympiadStageGateStatus } from "@/lib/scheduler/olympiad-stage-gates";
+import {
+  getOlympiadStageGateStatus,
+  inferOlympiadSequenceStage,
+  isOlympiadFoundationComplete,
+} from "@/lib/scheduler/olympiad-stage-gates";
 import type { StudyBlock, TaskCandidate, Topic } from "@/lib/types/planner";
 
 const MIN_ALLOCATABLE_MINUTES = 30;
@@ -250,6 +254,12 @@ export function buildTaskCandidates(options: {
   const weekEnd = addDays(endOfPlannerWeek(referenceDate), 3);
   const latestScheduledBlockByTopic = getLatestScheduledBlockByTopic(existingPlannedBlocks);
   const topicById = new Map(topics.map((topic) => [topic.id, topic]));
+  const anyIncompleteOlympiadFoundation = topics.some(
+    (topic) =>
+      topic.subjectId === "olympiad" &&
+      inferOlympiadSequenceStage(topic) === "foundation" &&
+      !isOlympiadFoundationComplete(topic),
+  );
   const plannedMinutesByTopic = existingPlannedBlocks.reduce<Record<string, number>>(
     (accumulator, block) => {
       if (!block.topicId || !["planned", "rescheduled", "done", "partial"].includes(block.status)) {
@@ -272,6 +282,14 @@ export function buildTaskCandidates(options: {
     );
 
     if (timingWindow.blocked || (timingWindow.availableAt && timingWindow.availableAt > planningWeekEnd)) {
+      return accumulator;
+    }
+
+    if (
+      anyIncompleteOlympiadFoundation &&
+      topic.subjectId === "olympiad" &&
+      inferOlympiadSequenceStage(topic) !== "foundation"
+    ) {
       return accumulator;
     }
 
@@ -319,6 +337,14 @@ export function buildTaskCandidates(options: {
     );
 
     if (timingWindow.blocked || (timingWindow.availableAt && timingWindow.availableAt > planningWeekEnd)) {
+      return [];
+    }
+
+    if (
+      anyIncompleteOlympiadFoundation &&
+      topic.subjectId === "olympiad" &&
+      inferOlympiadSequenceStage(topic) !== "foundation"
+    ) {
       return [];
     }
 
