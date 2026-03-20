@@ -1061,24 +1061,6 @@ function allocateTasksToSlots(options: {
     return dateKey >= "2026-07-01" && dateKey <= "2027-03-16";
   }
 
-  function getNumberTheoryFrontierTopicIdForSlot(slotStart: Date) {
-    const frontierStatus = getOlympiadNumberTheoryFrontierStatus({
-      topics: options.topics,
-      blocks: [
-        ...(options.priorPlannedBlocks ?? []),
-        ...options.lockedBlocks,
-        ...scheduledBlocks,
-      ],
-      cutoff: slotStart,
-    });
-
-    if (!frontierStatus.frontierTopicId || frontierStatus.remainingMinutes <= 0) {
-      return null;
-    }
-
-    return frontierStatus.frontierTopicId;
-  }
-
   function getCadenceBonus(task: TaskCandidate, dateKey: string) {
     if (!task.subjectId) {
       return 0;
@@ -1192,19 +1174,10 @@ function allocateTasksToSlots(options: {
       mustFillEndOfDaySlot = false,
     } = config;
     const allowedBlockTypes = getAllowedBlockTypesForSlot(slot);
-    const requiredNumberTheoryFrontierTopicId = getNumberTheoryFrontierTopicIdForSlot(slot.start);
-
     return workingTasks
       .filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES)
       .filter((task) => !restrictedSubjectIds || (!!task.subjectId && restrictedSubjectIds.includes(task.subjectId)))
       .filter((task) => !restrictedTopicIds || (!!task.topicId && restrictedTopicIds.includes(task.topicId)))
-      .filter((task) => {
-        if (!requiredNumberTheoryFrontierTopicId || task.subjectId !== "olympiad") {
-          return true;
-        }
-
-        return task.topicId === requiredNumberTheoryFrontierTopicId;
-      })
       .filter((task) => !task.availableAt || new Date(task.availableAt) <= slot.start)
       .filter((task) => !task.latestAt || new Date(task.latestAt) >= slot.start)
       .filter((task) => isTaskDependencySatisfied(task, slot.start))
@@ -1796,6 +1769,92 @@ export function generateStudyPlanForWeek(options: {
   const scheduledBlocks: StudyBlock[] = [];
   let usedSundayMinutes = 0;
   let forcedCoverageMinutes = 0;
+
+  while (true) {
+    const plannedOlympiadBlocks = [
+      ...existingPlannedBlocks,
+      ...scheduledBlocks.filter((block) => block.subjectId === "olympiad"),
+    ];
+    const numberTheoryFrontierStatus = getOlympiadNumberTheoryFrontierStatus({
+      topics: options.topics,
+      blocks: plannedOlympiadBlocks,
+    });
+
+    if (
+      !numberTheoryFrontierStatus.frontierTopicId ||
+      numberTheoryFrontierStatus.remainingMinutes <= 0
+    ) {
+      break;
+    }
+
+    const numberTheoryFrontierTasks = buildTaskCandidates({
+      topics: options.topics,
+      existingPlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
+      referenceDate,
+      subjectDeadlinesById,
+    }).filter(
+      (task) =>
+        task.subjectId === "olympiad" &&
+        task.topicId === numberTheoryFrontierStatus.frontierTopicId,
+    );
+
+    if (!numberTheoryFrontierTasks.length) {
+      break;
+    }
+
+    const frontierFreeSlots = calculateFreeSlots({
+      weekStart,
+      fixedEvents: options.fixedEvents,
+      sickDays,
+      preferences: options.preferences,
+      blockedStudyBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
+      planningStart: referenceDate,
+      skipMovableRecovery: true,
+    });
+
+    if (!frontierFreeSlots.some((slot) => slot.durationMinutes >= MIN_ALLOCATABLE_MINUTES)) {
+      break;
+    }
+
+    const frontierResult = allocateTasksToSlots({
+      weekStart,
+      referenceDate,
+      freeSlots: frontierFreeSlots,
+      tasks: numberTheoryFrontierTasks,
+      subjects: options.subjects,
+      goals: options.goals,
+      topics: options.topics,
+      preferences: options.preferences,
+      lockedBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
+      priorPlannedBlocks: existingPlannedBlocks,
+      requiredHoursBySubject: {
+        ...recordFromKeys(subjectIds, () => 0),
+        olympiad: numberTheoryFrontierTasks.reduce(
+          (total, task) => total + task.remainingMinutes,
+          0,
+        ) / 60,
+      },
+      dailyCapBoostMinutes: Math.max(options.dailyCapBoostMinutes ?? 0, automaticDailyCapBoostMinutes) + 600,
+      heavySessionBoost: 2,
+      minBreakMinutes: 5,
+      protectRecovery: false,
+      blockSelectionPolicy: {
+        preferLongerBlocks: true,
+        allowLowEnergyHeavy: true,
+        allowLateNightDeepWork: true,
+      },
+      fillAvailableStudyDays: false,
+      focusedSubjectsByDate,
+    });
+
+    if (!frontierResult.scheduledBlocks.length) {
+      break;
+    }
+
+    scheduledBlocks.push(...frontierResult.scheduledBlocks);
+    usedSundayMinutes += frontierResult.usedSundayMinutes;
+    forcedCoverageMinutes += frontierResult.scheduledStudyMinutes;
+  }
 
   for (const passPolicy of passPolicies) {
     if (passPolicy.countAsForcedCoverage && scheduledBlocks.some((block) => !block.subjectId)) {

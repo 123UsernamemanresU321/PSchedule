@@ -1256,6 +1256,79 @@ test("unfinished number theory frontier keeps olympiad on number theory until th
   );
 });
 
+test("partial number theory foundations still get concrete future coverage before later olympiad strands", () => {
+  const referenceDate = new Date("2026-03-20T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
+
+  assert.ok(olympiadSubject);
+
+  const topics = dataset.topics.map((topic) => {
+    if (topic.id === "olympiad-number-theory-divisibility") {
+      return {
+        ...topic,
+        completedHours: 3.9,
+        mastery: 4,
+        status: "learning" as const,
+      };
+    }
+
+    if (topic.id === "olympiad-number-theory-congruence") {
+      return {
+        ...topic,
+        completedHours: 0,
+        mastery: 2,
+        status: "not_started" as const,
+      };
+    }
+
+    return topic;
+  });
+
+  const result = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-16T00:00:00"),
+    goals: dataset.goals.filter((goal) => goal.subjectId === "olympiad"),
+    subjects: [olympiadSubject!],
+    topics: topics.filter((topic) => topic.subjectId === "olympiad"),
+    fixedEvents: [],
+    preferences: dataset.preferences,
+    lockedBlocks: [],
+    existingPlannedBlocks: [],
+    horizonStartDate: referenceDate,
+  });
+
+  const divisibilityBlocks = result.studyBlocks.filter(
+    (block) => block.topicId === "olympiad-number-theory-divisibility",
+  );
+  const firstNonNumberTheoryBlock = result.studyBlocks.find(
+    (block) =>
+      block.subjectId === "olympiad" &&
+      !block.topicId?.startsWith("olympiad-number-theory-"),
+  );
+  const progress = getSubjectProgress(
+    olympiadSubject!,
+    topics.filter((topic) => topic.subjectId === "olympiad"),
+    result.studyBlocks,
+    referenceDate,
+  );
+
+  assert.equal(divisibilityBlocks.length > 0, true);
+  assert.equal(
+    (progress.plannedFutureHoursByTopic["olympiad-number-theory-divisibility"] ?? 0) > 0,
+    true,
+  );
+
+  if (firstNonNumberTheoryBlock) {
+    const lastDivisibilityBlock = divisibilityBlocks.at(-1);
+    assert.ok(lastDivisibilityBlock);
+    assert.equal(
+      new Date(lastDivisibilityBlock!.end).getTime() <=
+        new Date(firstNonNumberTheoryBlock.start).getTime(),
+      true,
+    );
+  }
+});
+
 test("number theory frontier status tracks the earliest unfinished foundation topic", () => {
   const topics: Topic[] = [
     {
