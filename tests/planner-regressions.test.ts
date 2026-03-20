@@ -2782,6 +2782,50 @@ test("dinner stays exclusive and pushes overlapping sunday recovery out of its s
   );
 });
 
+test("dinner still blocks study slots even in skip movable recovery passes", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-16T08:00:00"));
+  const preferences = {
+    ...dataset.preferences,
+    dailyStudyWindow: {
+      start: "18:00",
+      end: "21:30",
+    },
+    holidaySchedule: {
+      ...dataset.preferences.holidaySchedule,
+      dailyStudyWindow: {
+        start: "18:00",
+        end: "21:30",
+      },
+    },
+    reservedCommitmentRules: [],
+  };
+
+  const slots = calculateFreeSlots({
+    weekStart: new Date("2026-03-23T00:00:00"),
+    fixedEvents: [],
+    preferences,
+    skipMovableRecovery: true,
+  }).filter((slot) => slot.dateKey === "2026-03-24");
+
+  assert.equal(slots.length, 2);
+  assert.equal(
+    slots[0]?.start.toISOString(),
+    createDateAtTime(fromDateKey("2026-03-24"), "18:00").toISOString(),
+  );
+  assert.equal(
+    slots[0]?.end.toISOString(),
+    createDateAtTime(fromDateKey("2026-03-24"), "19:15").toISOString(),
+  );
+  assert.equal(
+    slots[1]?.start.toISOString(),
+    createDateAtTime(fromDateKey("2026-03-24"), "20:00").toISOString(),
+  );
+  assert.equal(
+    slots[1]?.end.toISOString(),
+    createDateAtTime(fromDateKey("2026-03-24"), "21:30").toISOString(),
+  );
+});
+
 test("fixed events do not carve out an extra pre-event buffer from the free slots", () => {
   const dataset = buildSeedDataset(new Date("2026-03-16T08:00:00"));
   const preferences = {

@@ -355,7 +355,10 @@ function resolveRecoveryWindowsForDay(options: {
 
   options.preferences.lockedRecoveryWindows
     .filter((window) => window.days.includes(options.day.getDay()))
-    .filter((window) => !(options.skipMovableRecovery && window.movable))
+    .filter(
+      (window) =>
+        !(options.skipMovableRecovery && window.movable && window.label !== "Dinner reset"),
+    )
     .filter(
       (window) =>
         !(window.label === "Sunday recovery" && options.day.getDay() === 0 && !options.preferences.reserveSundayEvening),
