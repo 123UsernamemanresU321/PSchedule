@@ -31,7 +31,7 @@ import type {
 const PLANNING_MODEL_VERSION = "2026-03-20-olympiad-frontier-v27";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
-const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v5";
+const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v7";
 const EXTENDED_GOALS_VERSION = "2026-03-19-post-syllabus-papers-v8";
 const LANGUAGE_MAINTENANCE_VERSION = "2026-03-19-languages-v1";
 const SEED_TOPIC_ORDERING_VERSION = "2026-03-19-seed-ordering-v3";

@@ -4,7 +4,7 @@ import { addDays } from "date-fns";
 
 import { buildSeedDataset } from "@/lib/seed";
 import { getCalendarCompletionForecast, getSubjectProgress } from "@/lib/analytics/metrics";
-import { createDateAtTime, fromDateKey } from "@/lib/dates/helpers";
+import { createDateAtTime, fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import {
   calculateFreeSlots,
   expandLockedRecoveryWindowsForWeek,
@@ -784,6 +784,53 @@ test("horizon generation places olympiad advanced only after the foundation fron
   assert.ok(advancedBlock, "expected advanced Olympiad work to appear later in the horizon");
   assert.ok(lastFoundationEnd, "expected foundation blocks to be scheduled");
   assert.equal(new Date(advancedBlock.start).getTime() >= lastFoundationEnd, true);
+});
+
+test("seeded horizon keeps olympiad present week to week instead of dropping it for long gaps", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
+  const result = generateStudyPlanHorizon({
+    startWeek: new Date("2026-03-20T08:00:00"),
+    endWeek: new Date("2026-06-29T08:00:00"),
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    preferences: dataset.preferences,
+    existingStudyBlocks: [],
+  });
+
+  const olympiadWeekStarts = new Set(
+    result.studyBlocks
+      .filter((block) => block.subjectId === "olympiad")
+      .map((block) => toDateKey(startOfPlannerWeek(new Date(block.start)))),
+  );
+
+  const expectedWeeks = [
+    "2026-03-30",
+    "2026-04-06",
+    "2026-04-13",
+    "2026-04-20",
+    "2026-04-27",
+    "2026-05-04",
+    "2026-05-11",
+    "2026-05-18",
+    "2026-05-25",
+    "2026-06-01",
+    "2026-06-08",
+    "2026-06-15",
+    "2026-06-22",
+    "2026-06-29",
+  ];
+
+  expectedWeeks.forEach((weekStart) => {
+    assert.equal(
+      olympiadWeekStarts.has(weekStart),
+      true,
+      `expected Olympiad work during week starting ${weekStart}`,
+    );
+  });
 });
 
 test("stale future olympiad advanced blocks are purged when same-strand foundations are still incomplete", () => {
