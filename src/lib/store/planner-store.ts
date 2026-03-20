@@ -16,6 +16,7 @@ import {
   loadPlannerSnapshot,
   purgeInvalidFutureOlympiadAdvancedBlocks,
   replacePlanningHorizon,
+  syncOlympiadRoadmapToSeed,
   deleteCompletionLogsByStudyBlockId,
   saveCompletionLog,
   saveFixedEvent,
@@ -36,6 +37,7 @@ import type {
   StudyBlockStatus,
   Topic,
 } from "@/lib/types/planner";
+import { deriveTopicStatus } from "@/lib/topics/status";
 import { createId } from "@/lib/utils";
 
 interface PlannerState {
@@ -86,31 +88,13 @@ interface PlannerState {
   selectStudyBlock: (id: string | null) => void;
 }
 
-function deriveTopicStatus(topic: Topic) {
-  const completionRatio = topic.completedHours / Math.max(topic.estHours, 0.25);
-  if (completionRatio >= 1 && topic.mastery >= 4) {
-    return "strong";
-  }
-
-  if (completionRatio >= 1) {
-    return "reviewed";
-  }
-
-  if (completionRatio >= 0.7) {
-    return "first_pass_done";
-  }
-
-  if (completionRatio > 0) {
-    return "learning";
-  }
-
-  return "not_started";
-}
-
 async function recalculateCurrentWeek(options?: { preservedStudyBlockIds?: string[] }) {
-  await purgeInvalidFutureOlympiadAdvancedBlocks(new Date());
-  const snapshot = await loadPlannerSnapshot();
-  const planningStartWeek = startOfPlannerWeek(new Date());
+  const referenceDate = new Date();
+  let snapshot = await loadPlannerSnapshot();
+  snapshot = await syncOlympiadRoadmapToSeed(snapshot, referenceDate);
+  await purgeInvalidFutureOlympiadAdvancedBlocks(referenceDate);
+  snapshot = await loadPlannerSnapshot();
+  const planningStartWeek = startOfPlannerWeek(referenceDate);
   const replanned = generateStudyPlanHorizon({
     startWeek: planningStartWeek,
     goals: snapshot.goals,

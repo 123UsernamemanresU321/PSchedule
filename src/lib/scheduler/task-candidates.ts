@@ -266,7 +266,7 @@ export function buildTaskCandidates(options: {
       0,
     );
 
-    if (remainingMinutes < MIN_ALLOCATABLE_MINUTES || topic.status === "strong") {
+    if (remainingMinutes < MIN_ALLOCATABLE_MINUTES) {
       return accumulator;
     }
 
@@ -320,7 +320,7 @@ export function buildTaskCandidates(options: {
 
     const candidates: TaskCandidate[] = [];
 
-    if (rawRemainingMinutes > 0 && topic.status !== "strong") {
+    if (rawRemainingMinutes > 0) {
       const sessionMode = topic.sessionMode ?? "flexible";
       const exactSessionMinutes = topic.exactSessionMinutes ?? null;
       candidates.push({

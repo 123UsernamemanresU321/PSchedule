@@ -327,6 +327,46 @@ test("subject progress distinguishes already planned work from truly unscheduled
   assert.equal(progress.unscheduledHours < progress.remainingHours, true);
 });
 
+test("topics with remaining hours are still schedulable even if a stale status says strong", () => {
+  const candidates = buildTaskCandidates({
+    topics: [
+      {
+        id: "nt-foundation-stale-strong",
+        subjectId: "olympiad",
+        unitId: "olympiad-number-theory-1",
+        unitTitle: "Olympiad - Number Theory Foundations",
+        title: "NT Foundations stale strong",
+        order: 1,
+        estHours: 5.4,
+        completedHours: 0,
+        mastery: 4,
+        status: "strong",
+        reviewDue: null,
+        lastStudiedAt: null,
+        dependsOnTopicId: null,
+        sequenceGroup: "olympiad-nt",
+        sequenceStage: "foundation",
+        availableFrom: null,
+        minDaysAfterDependency: null,
+        maxDaysAfterDependency: null,
+        subtopics: [],
+        sourceMaterials: [],
+        difficulty: 3,
+        preferredBlockTypes: ["standard_focus"],
+        paperCode: null,
+        sessionMode: "flexible",
+        exactSessionMinutes: null,
+      },
+    ],
+    existingPlannedBlocks: [],
+    referenceDate: new Date("2026-03-20T08:00:00"),
+    subjectDeadlinesById: { olympiad: "2027-06-30" },
+  });
+
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0]?.topicId, "nt-foundation-stale-strong");
+});
+
 test("olympiad advanced candidates stay blocked until same-strand foundations are fully covered", () => {
   const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
   const olympiadTopics = dataset.topics.filter((topic) => topic.subjectId === "olympiad");

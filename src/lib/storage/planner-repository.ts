@@ -14,6 +14,7 @@ import {
 import { hasLegacySeedTopics } from "@/lib/seed/topic-catalog";
 import { db } from "@/lib/storage/db";
 import { parsePlannerJson } from "@/lib/storage/json-transfer";
+import { normalizeTopicProgress } from "@/lib/topics/status";
 import { subjectIds } from "@/lib/constants/planner";
 import type {
   CompletionLog,
@@ -27,10 +28,10 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-20-olympiad-stage-gates-v25";
+const PLANNING_MODEL_VERSION = "2026-03-20-olympiad-stage-gates-v26";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
-const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v4";
+const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v5";
 const EXTENDED_GOALS_VERSION = "2026-03-19-post-syllabus-papers-v8";
 const LANGUAGE_MAINTENANCE_VERSION = "2026-03-19-languages-v1";
 const SEED_TOPIC_ORDERING_VERSION = "2026-03-19-seed-ordering-v3";
@@ -478,26 +479,20 @@ function mergeSeedTopicProgress<T extends PlannerSnapshot["topics"][number]>(
   existingTopic?: T,
 ) {
   if (!existingTopic) {
-    return seededTopic;
+    return normalizeTopicProgress(seededTopic);
   }
 
-  return {
+  return normalizeTopicProgress({
     ...seededTopic,
     completedHours: existingTopic.completedHours,
-    status: existingTopic.status,
     mastery: existingTopic.mastery,
     reviewDue: existingTopic.reviewDue,
     lastStudiedAt: existingTopic.lastStudiedAt,
     notes: existingTopic.notes ?? seededTopic.notes,
-  };
+  });
 }
 
-async function migrateOlympiadRoadmap(snapshot: PlannerSnapshot, referenceDate: Date) {
-  const roadmapVersion = await db.meta.get("olympiad-roadmap-version");
-  if (roadmapVersion?.value === OLYMPIAD_ROADMAP_VERSION) {
-    return snapshot;
-  }
-
+export async function syncOlympiadRoadmapToSeed(snapshot: PlannerSnapshot, referenceDate: Date) {
   const seedDataset = buildSeedDataset(referenceDate);
   const seededSubject = seedDataset.subjects.find((subject) => subject.id === OLYMPIAD_SUBJECT_ID);
   const seededGoals = seedDataset.goals.filter((goal) => goal.subjectId === OLYMPIAD_SUBJECT_ID);
@@ -512,20 +507,36 @@ async function migrateOlympiadRoadmap(snapshot: PlannerSnapshot, referenceDate: 
       .filter((topic) => topic.subjectId === OLYMPIAD_SUBJECT_ID)
       .map((topic) => [topic.id, topic]),
   );
-
+  const seededTopicIds = new Set(seededTopics.map((topic) => topic.id));
   const mergedTopics = seededTopics.map((seededTopic) =>
     mergeSeedTopicProgress(
       seededTopic,
       existingTopicsById.get(seededTopic.id),
     ),
   );
-
+  const obsoleteTopicIds = snapshot.topics
+    .filter((topic) => topic.subjectId === OLYMPIAD_SUBJECT_ID)
+    .filter((topic) => !seededTopicIds.has(topic.id))
+    .map((topic) => topic.id);
   const currentWeekStartKey = toDateKey(startOfPlannerWeek(referenceDate));
 
   await db.transaction("rw", [db.subjects, db.goals, db.topics, db.studyBlocks, db.meta], async () => {
     await db.subjects.put(seededSubject);
     await db.goals.bulkPut(seededGoals);
     await db.topics.bulkPut(mergedTopics);
+
+    if (obsoleteTopicIds.length) {
+      await db.topics.bulkDelete(obsoleteTopicIds);
+      await db.studyBlocks
+        .filter(
+          (block) =>
+            !!block.topicId &&
+            obsoleteTopicIds.includes(block.topicId) &&
+            !["done", "partial", "missed"].includes(block.status),
+        )
+        .delete();
+    }
+
     await db.studyBlocks
       .filter(
         (block) =>
@@ -537,7 +548,15 @@ async function migrateOlympiadRoadmap(snapshot: PlannerSnapshot, referenceDate: 
     await db.meta.put({ key: "olympiad-roadmap-version", value: OLYMPIAD_ROADMAP_VERSION });
   });
 
-  const migratedSnapshot = await loadPlannerSnapshot();
+  return loadPlannerSnapshot();
+}
+
+async function migrateOlympiadRoadmap(snapshot: PlannerSnapshot, referenceDate: Date) {
+  const roadmapVersion = await db.meta.get("olympiad-roadmap-version");
+  if (roadmapVersion?.value === OLYMPIAD_ROADMAP_VERSION) {
+    return snapshot;
+  }
+  const migratedSnapshot = await syncOlympiadRoadmapToSeed(snapshot, referenceDate);
   return refreshPlanningModel(migratedSnapshot, referenceDate);
 }
 
@@ -778,7 +797,7 @@ export async function loadPlannerSnapshot(): Promise<PlannerSnapshot> {
   return {
     goals,
     subjects,
-    topics,
+    topics: topics.map((topic) => normalizeTopicProgress(topic)),
     fixedEvents: fixedEvents.map(normalizeFixedEvent),
     sickDays: sickDays.map(normalizeSickDay),
     focusedDays: focusedDays.map(normalizeFocusedDay),
