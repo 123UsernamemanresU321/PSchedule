@@ -624,13 +624,19 @@ function allocateTasksToSlots(options: {
     const dependencyBlock = eligibleDependencyBlocks
       .sort((left, right) => new Date(right.end).getTime() - new Date(left.end).getTime())[0];
 
-    if (!dependencyBlock) {
-      return false;
-    }
-
     const dependencyTopic = topicMap.get(topic.dependsOnTopicId);
     const requiresDependencyCompletion =
       topic.minDaysAfterDependency == null && topic.maxDaysAfterDependency == null;
+    const dependencyCompleteFromProgress =
+      requiresDependencyCompletion &&
+      !!dependencyTopic &&
+      dependencyTopic.completedHours >= dependencyTopic.estHours - 0.001 &&
+      dependencyTopic.mastery >= 5;
+
+    if (!dependencyBlock) {
+      return dependencyCompleteFromProgress;
+    }
+
     const coveredDependencyMinutes =
       Math.round((dependencyTopic?.completedHours ?? 0) * 60) +
       eligibleDependencyBlocks.reduce((total, block) => total + block.estimatedMinutes, 0);

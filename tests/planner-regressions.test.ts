@@ -367,7 +367,7 @@ test("topics with remaining hours are still schedulable even if a stale status s
   assert.equal(candidates[0]?.topicId, "nt-foundation-stale-strong");
 });
 
-test("olympiad advanced candidates stay blocked until same-strand foundations are fully covered", () => {
+test("olympiad advanced candidates stay blocked until same-strand foundations are fully completed", () => {
   const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
   const olympiadTopics = dataset.topics.filter((topic) => topic.subjectId === "olympiad");
 
@@ -383,34 +383,25 @@ test("olympiad advanced candidates stay blocked until same-strand foundations ar
     false,
   );
 
-  const foundationBlocks = [
-    createStudyBlock({
-      id: "nt-div-1",
-      subjectId: "olympiad",
-      topicId: "olympiad-number-theory-divisibility",
-      title: "gcd structure, Euclidean algorithm, and divisibility control",
-      weekStart: "2026-03-16",
-      date: "2026-03-20",
-      start: "2026-03-20T08:00:00.000Z",
-      end: "2026-03-20T14:30:00.000Z",
-      estimatedMinutes: 390,
-    }),
-    createStudyBlock({
-      id: "nt-cong-1",
-      subjectId: "olympiad",
-      topicId: "olympiad-number-theory-congruence",
-      title: "Modular arithmetic, inverses, orders, and CRT",
-      weekStart: "2026-03-16",
-      date: "2026-03-20",
-      start: "2026-03-20T15:00:00.000Z",
-      end: "2026-03-20T22:00:00.000Z",
-      estimatedMinutes: 420,
-    }),
-  ];
+  const completedFoundations = olympiadTopics.map((topic) => {
+    if (
+      topic.id === "olympiad-number-theory-divisibility" ||
+      topic.id === "olympiad-number-theory-congruence"
+    ) {
+      return {
+        ...topic,
+        completedHours: topic.estHours,
+        mastery: 5,
+        status: "strong" as const,
+      };
+    }
+
+    return topic;
+  });
 
   const unlockedCandidates = buildTaskCandidates({
-    topics: olympiadTopics,
-    existingPlannedBlocks: foundationBlocks,
+    topics: completedFoundations,
+    existingPlannedBlocks: [],
     referenceDate: new Date("2026-03-20T08:00:00"),
     subjectDeadlinesById: { olympiad: "2027-06-30" },
   });
@@ -418,11 +409,11 @@ test("olympiad advanced candidates stay blocked until same-strand foundations ar
     (candidate) => candidate.topicId === "olympiad-number-theory-valuations",
   );
 
-  assert.ok(advancedCandidate, "expected number theory advanced candidate once foundations are covered");
-  assert.equal(advancedCandidate?.availableAt?.slice(0, 16), "2026-03-20T22:00");
+  assert.ok(advancedCandidate, "expected number theory advanced candidate once foundations are completed");
+  assert.equal(advancedCandidate?.availableAt, null);
 });
 
-test("stale future olympiad advanced blocks are purged when same-strand foundations are still uncovered", () => {
+test("stale future olympiad advanced blocks are purged when same-strand foundations are still incomplete", () => {
   const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
   const invalidAdvancedBlock = createStudyBlock({
     id: "nt-advanced-stale",
@@ -630,7 +621,7 @@ test("validator flags dependent blocks that start before the prerequisite is ful
   );
 });
 
-test("validator flags olympiad advanced blocks before same-strand foundations are fully covered", () => {
+test("validator flags olympiad advanced blocks before same-strand foundations are fully completed", () => {
   const issues = validateGeneratedHorizon({
     topics: [
       {

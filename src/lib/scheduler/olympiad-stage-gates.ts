@@ -109,50 +109,21 @@ export function getOlympiadStageGateStatus(options: {
   }
 
   const foundationTopics = getOlympiadFoundationTopics(topic as Topic, options.topics);
-  let availableAt: Date | null = null;
   const missingTopicIds: string[] = [];
 
   foundationTopics.forEach((foundationTopic) => {
-    const requiredMinutes = Math.round(foundationTopic.estHours * 60);
-    let remainingMinutes = requiredMinutes - Math.min(
-      Math.round(foundationTopic.completedHours * 60),
-      requiredMinutes,
-    );
+    const isFoundationComplete =
+      foundationTopic.completedHours >= foundationTopic.estHours - 0.001 &&
+      foundationTopic.mastery >= 5;
 
-    if (remainingMinutes <= 0) {
-      return;
-    }
-
-    const relevantBlocks = options.blocks
-      .filter((block) => block.topicId === foundationTopic.id)
-      .filter((block) => block.status !== "missed")
-      .filter((block) => !options.cutoff || new Date(block.end).getTime() <= options.cutoff.getTime())
-      .sort((left, right) => new Date(left.end).getTime() - new Date(right.end).getTime());
-
-    let completionAt: Date | null = null;
-
-    for (const block of relevantBlocks) {
-      remainingMinutes -= block.estimatedMinutes;
-      completionAt = new Date(block.end);
-
-      if (remainingMinutes <= 0) {
-        break;
-      }
-    }
-
-    if (remainingMinutes > 0) {
+    if (!isFoundationComplete) {
       missingTopicIds.push(foundationTopic.id);
-      return;
-    }
-
-    if (completionAt && (!availableAt || completionAt.getTime() > availableAt.getTime())) {
-      availableAt = completionAt;
     }
   });
 
   return {
     blocked: missingTopicIds.length > 0,
-    availableAt,
+    availableAt: null,
     foundationTopicIds: foundationTopics.map((topic) => topic.id),
     missingTopicIds,
   };

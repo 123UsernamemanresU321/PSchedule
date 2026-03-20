@@ -165,9 +165,17 @@ function resolveTopicTimingWindow(
   }
 
   if (topic.dependsOnTopicId) {
+    const dependencyTopic = topicById.get(topic.dependsOnTopicId);
+    const requiresDependencyCompletion =
+      topic.minDaysAfterDependency == null && topic.maxDaysAfterDependency == null;
     const dependencyBlock = latestScheduledBlockByTopic[topic.dependsOnTopicId];
+    const dependencyCompleteFromProgress =
+      requiresDependencyCompletion &&
+      !!dependencyTopic &&
+      dependencyTopic.completedHours >= dependencyTopic.estHours - 0.001 &&
+      dependencyTopic.mastery >= 5;
 
-    if (!dependencyBlock) {
+    if (!dependencyBlock && !dependencyCompleteFromProgress) {
       return {
         blocked: true,
         availableAt: null,
@@ -176,9 +184,6 @@ function resolveTopicTimingWindow(
       };
     }
 
-    const dependencyTopic = topicById.get(topic.dependsOnTopicId);
-    const requiresDependencyCompletion =
-      topic.minDaysAfterDependency == null && topic.maxDaysAfterDependency == null;
     const coveredDependencyMinutes =
       Math.round((dependencyTopic?.completedHours ?? 0) * 60) +
       (plannedMinutesByTopic[topic.dependsOnTopicId] ?? 0);
@@ -192,6 +197,15 @@ function resolveTopicTimingWindow(
         blocked: true,
         availableAt: null,
         latestAt: null,
+        reviewDue,
+      };
+    }
+
+    if (!dependencyBlock) {
+      return {
+        blocked: false,
+        availableAt,
+        latestAt: reviewDue ? reviewDue : null,
         reviewDue,
       };
     }
