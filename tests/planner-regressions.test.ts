@@ -381,6 +381,98 @@ test("olympiad advanced candidates stay blocked until same-strand foundations ar
   assert.equal(advancedCandidate?.availableAt?.slice(0, 16), "2026-03-20T22:00");
 });
 
+test("olympiad stage gating still works when legacy local topics are missing sequence metadata", () => {
+  const legacyTopics: Topic[] = [
+    {
+      id: "olympiad-number-theory-divisibility",
+      subjectId: "olympiad",
+      unitId: "olympiad-number-theory-1",
+      unitTitle: "Olympiad - Number Theory Foundations",
+      title: "NT Foundations 1",
+      order: 1,
+      estHours: 2,
+      completedHours: 0,
+      mastery: 2,
+      status: "learning",
+      reviewDue: null,
+      lastStudiedAt: null,
+      dependsOnTopicId: null,
+      availableFrom: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      subtopics: [],
+      sourceMaterials: [],
+      difficulty: 3,
+      preferredBlockTypes: ["standard_focus"],
+      paperCode: null,
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+    },
+    {
+      id: "olympiad-number-theory-congruence",
+      subjectId: "olympiad",
+      unitId: "olympiad-number-theory-1",
+      unitTitle: "Olympiad - Number Theory Foundations",
+      title: "NT Foundations 2",
+      order: 2,
+      estHours: 2,
+      completedHours: 0,
+      mastery: 2,
+      status: "learning",
+      reviewDue: null,
+      lastStudiedAt: null,
+      dependsOnTopicId: "olympiad-number-theory-divisibility",
+      availableFrom: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      subtopics: [],
+      sourceMaterials: [],
+      difficulty: 3,
+      preferredBlockTypes: ["standard_focus"],
+      paperCode: null,
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+    },
+    {
+      id: "olympiad-number-theory-valuations",
+      subjectId: "olympiad",
+      unitId: "olympiad-number-theory-2",
+      unitTitle: "Olympiad - Number Theory Advanced",
+      title: "NT Advanced 1",
+      order: 3,
+      estHours: 2,
+      completedHours: 0,
+      mastery: 2,
+      status: "not_started",
+      reviewDue: null,
+      lastStudiedAt: null,
+      dependsOnTopicId: "olympiad-number-theory-congruence",
+      availableFrom: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      subtopics: [],
+      sourceMaterials: [],
+      difficulty: 4,
+      preferredBlockTypes: ["deep_work"],
+      paperCode: null,
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+    },
+  ];
+
+  const candidates = buildTaskCandidates({
+    topics: legacyTopics,
+    existingPlannedBlocks: [],
+    referenceDate: new Date("2026-03-20T08:00:00"),
+    subjectDeadlinesById: { olympiad: "2027-06-30" },
+  });
+
+  assert.equal(
+    candidates.some((candidate) => candidate.topicId === "olympiad-number-theory-valuations"),
+    false,
+  );
+});
+
 test("validator flags dependent blocks that start before the prerequisite is fully covered", () => {
   const issues = validateGeneratedHorizon({
     topics: [

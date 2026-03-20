@@ -26,7 +26,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-20-olympiad-stage-gates-v23";
+const PLANNING_MODEL_VERSION = "2026-03-20-olympiad-stage-gates-v24";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v4";

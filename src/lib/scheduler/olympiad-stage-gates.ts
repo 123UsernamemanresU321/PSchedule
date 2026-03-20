@@ -1,11 +1,76 @@
 import type { StudyBlock, Topic } from "@/lib/types/planner";
 
+function inferOlympiadSequenceGroup(topic: Topic | null | undefined) {
+  if (!topic || topic.subjectId !== "olympiad") {
+    return null;
+  }
+
+  if (topic.sequenceGroup) {
+    return topic.sequenceGroup;
+  }
+
+  if (topic.unitId.startsWith("olympiad-number-theory-")) {
+    return "olympiad-nt";
+  }
+
+  if (topic.unitId.startsWith("olympiad-geometry-")) {
+    return "olympiad-geo";
+  }
+
+  if (topic.unitId.startsWith("olympiad-algebra-")) {
+    return "olympiad-alg";
+  }
+
+  if (topic.unitId.startsWith("olympiad-combinatorics-")) {
+    return "olympiad-combi";
+  }
+
+  return null;
+}
+
+function inferOlympiadSequenceStage(topic: Topic | null | undefined) {
+  if (!topic || topic.subjectId !== "olympiad") {
+    return null;
+  }
+
+  if (topic.sequenceStage) {
+    return topic.sequenceStage;
+  }
+
+  if (topic.unitId === "olympiad-number-theory-1") {
+    return "foundation";
+  }
+
+  if (topic.unitId === "olympiad-geometry-1") {
+    return "foundation";
+  }
+
+  if (topic.unitId === "olympiad-algebra-1") {
+    return "foundation";
+  }
+
+  if (topic.unitId === "olympiad-combinatorics-1") {
+    return "foundation";
+  }
+
+  if (
+    topic.unitId.startsWith("olympiad-number-theory-") ||
+    topic.unitId.startsWith("olympiad-geometry-") ||
+    topic.unitId.startsWith("olympiad-algebra-") ||
+    topic.unitId.startsWith("olympiad-combinatorics-")
+  ) {
+    return "advanced";
+  }
+
+  return null;
+}
+
 function isOlympiadAdvancedStageTopic(topic: Topic | null | undefined) {
   return (
     !!topic &&
     topic.subjectId === "olympiad" &&
-    topic.sequenceStage === "advanced" &&
-    !!topic.sequenceGroup
+    inferOlympiadSequenceStage(topic) === "advanced" &&
+    !!inferOlympiadSequenceGroup(topic)
   );
 }
 
@@ -16,8 +81,8 @@ function getOlympiadFoundationTopics(topic: Topic, topics: Iterable<Topic>) {
 
   return [...topics]
     .filter((candidate) => candidate.subjectId === "olympiad")
-    .filter((candidate) => candidate.sequenceGroup === topic.sequenceGroup)
-    .filter((candidate) => candidate.sequenceStage === "foundation")
+    .filter((candidate) => inferOlympiadSequenceGroup(candidate) === inferOlympiadSequenceGroup(topic))
+    .filter((candidate) => inferOlympiadSequenceStage(candidate) === "foundation")
     .sort((left, right) => left.order - right.order);
 }
 
