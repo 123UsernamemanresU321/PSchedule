@@ -1024,11 +1024,12 @@ export async function importPlannerData(rawJson: string) {
         db.completionLogs.clear(),
         db.weeklyPlans.clear(),
         db.preferences.clear(),
+        db.meta.clear(),
       ]);
 
       await db.goals.bulkPut(payload.goals);
       await db.subjects.bulkPut(payload.subjects);
-      await db.topics.bulkPut(payload.topics);
+      await db.topics.bulkPut(payload.topics.map((topic) => normalizeTopicProgress(topic)));
       await db.fixedEvents.bulkPut(payload.fixedEvents.map(normalizeFixedEvent));
       await db.sickDays.bulkPut((payload.sickDays ?? []).map(normalizeSickDay));
       await db.focusedDays.bulkPut((payload.focusedDays ?? []).map(normalizeFocusedDay));
@@ -1037,12 +1038,10 @@ export async function importPlannerData(rawJson: string) {
       await db.weeklyPlans.bulkPut(payload.weeklyPlans);
       await db.preferences.put(normalizePreferences(payload.preferences));
       await db.meta.put({ key: "seeded", value: "true" });
-      await db.meta.put({ key: "planning-model-version", value: PLANNING_MODEL_VERSION });
     },
   );
 
-  const snapshot = await loadPlannerSnapshot();
-  return refreshPlanningModel(snapshot, new Date());
+  return initializePlannerDatabase(new Date());
 }
 
 export function getCurrentWeekKey(referenceDate = new Date()) {
