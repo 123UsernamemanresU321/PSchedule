@@ -54,7 +54,7 @@ export function DashboardPage() {
   const roadmapSummary = getHorizonRoadmapSummary(weeklyPlans, topics, currentWeekStart);
   const subjectProgress = subjects
     .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
-    .map((subject) => getSubjectProgress(subject, topics));
+    .map((subject) => getSubjectProgress(subject, topics, studyBlocks));
   const completionForecasts = subjects
     .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
     .map((subject) =>

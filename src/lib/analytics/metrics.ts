@@ -34,8 +34,26 @@ export function getTodayBlocks(studyBlocks: StudyBlock[], referenceDate = new Da
     .sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime());
 }
 
-export function getSubjectProgress(subject: Subject, topics: Topic[]) {
+export function getSubjectProgress(
+  subject: Subject,
+  topics: Topic[],
+  studyBlocks: StudyBlock[] = [],
+  referenceDate = new Date(),
+) {
   const subjectTopics = topics.filter((topic) => topic.subjectId === subject.id);
+  const plannedFutureMinutesByTopic = studyBlocks.reduce<Record<string, number>>((accumulator, block) => {
+    if (
+      block.subjectId !== subject.id ||
+      !block.topicId ||
+      (block.status !== "planned" && block.status !== "rescheduled") ||
+      new Date(block.end) <= referenceDate
+    ) {
+      return accumulator;
+    }
+
+    accumulator[block.topicId] = (accumulator[block.topicId] ?? 0) + block.estimatedMinutes;
+    return accumulator;
+  }, {});
   const units = new Set(subjectTopics.map((topic) => topic.unitId));
   const completedUnits = new Set(
     subjectTopics
@@ -51,6 +69,16 @@ export function getSubjectProgress(subject: Subject, topics: Topic[]) {
     (total, topic) => total + Math.max(topic.estHours - topic.completedHours, 0),
     0,
   );
+  const scheduledFutureHours = subjectTopics.reduce((total, topic) => {
+    const remainingHoursForTopic = Math.max(topic.estHours - topic.completedHours, 0);
+    const plannedFutureHours = (plannedFutureMinutesByTopic[topic.id] ?? 0) / 60;
+    return total + Math.min(remainingHoursForTopic, plannedFutureHours);
+  }, 0);
+  const unscheduledHours = subjectTopics.reduce((total, topic) => {
+    const remainingHoursForTopic = Math.max(topic.estHours - topic.completedHours, 0);
+    const plannedFutureHours = (plannedFutureMinutesByTopic[topic.id] ?? 0) / 60;
+    return total + Math.max(remainingHoursForTopic - plannedFutureHours, 0);
+  }, 0);
   const atRiskTopics = subjectTopics.filter(
     (topic) => topic.mastery <= 2 || topic.status === "not_started",
   );
@@ -60,6 +88,14 @@ export function getSubjectProgress(subject: Subject, topics: Topic[]) {
     topics: subjectTopics,
     completionPercent: totalHours ? Math.round((completedHours / totalHours) * 100) : 0,
     remainingHours: Number(remainingHours.toFixed(1)),
+    scheduledFutureHours: Number(scheduledFutureHours.toFixed(1)),
+    unscheduledHours: Number(unscheduledHours.toFixed(1)),
+    plannedFutureHoursByTopic: Object.fromEntries(
+      Object.entries(plannedFutureMinutesByTopic).map(([topicId, minutes]) => [
+        topicId,
+        Number((minutes / 60).toFixed(1)),
+      ]),
+    ),
     totalHours: Number(totalHours.toFixed(1)),
     unitCount: units.size,
     completedUnits: completedUnits.size,

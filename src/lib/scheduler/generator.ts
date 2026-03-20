@@ -602,7 +602,10 @@ function allocateTasksToSlots(options: {
     ]
       .filter((block) => block.topicId === topic.dependsOnTopicId)
       .filter((block) => block.status !== "missed");
-    const dependencyBlock = dependencyBlocks
+    const eligibleDependencyBlocks = dependencyBlocks.filter(
+      (block) => new Date(block.end).getTime() <= slotStart.getTime(),
+    );
+    const dependencyBlock = eligibleDependencyBlocks
       .sort((left, right) => new Date(right.end).getTime() - new Date(left.end).getTime())[0];
 
     if (!dependencyBlock) {
@@ -614,7 +617,7 @@ function allocateTasksToSlots(options: {
       topic.minDaysAfterDependency == null && topic.maxDaysAfterDependency == null;
     const coveredDependencyMinutes =
       Math.round((dependencyTopic?.completedHours ?? 0) * 60) +
-      dependencyBlocks.reduce((total, block) => total + block.estimatedMinutes, 0);
+      eligibleDependencyBlocks.reduce((total, block) => total + block.estimatedMinutes, 0);
 
     if (
       requiresDependencyCompletion &&

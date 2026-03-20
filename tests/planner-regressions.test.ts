@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { buildSeedDataset } from "@/lib/seed";
-import { getCalendarCompletionForecast } from "@/lib/analytics/metrics";
+import { getCalendarCompletionForecast, getSubjectProgress } from "@/lib/analytics/metrics";
 import { createDateAtTime, fromDateKey } from "@/lib/dates/helpers";
 import {
   calculateFreeSlots,
@@ -251,6 +251,120 @@ test("calendar completion forecast distinguishes impossible from simply underpla
   });
 
   assert.equal(impossibleForecast.isCalendarImpossible, true);
+});
+
+test("subject progress distinguishes already planned work from truly unscheduled work", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
+  const olympiad = dataset.subjects.find((subject) => subject.id === "olympiad");
+  const numberTheoryCongruence = dataset.topics.find(
+    (topic) => topic.id === "olympiad-number-theory-congruence",
+  );
+
+  assert.ok(olympiad, "expected olympiad subject");
+  assert.ok(numberTheoryCongruence, "expected seeded number theory topic");
+
+  const plannedBlock = createStudyBlock({
+    id: "olympiad-foundation-plan",
+    weekStart: "2026-03-23",
+    date: "2026-03-24",
+    start: "2026-03-24T08:00:00.000Z",
+    end: "2026-03-24T10:00:00.000Z",
+    subjectId: "olympiad",
+    topicId: "olympiad-number-theory-congruence",
+    title: numberTheoryCongruence.title,
+    estimatedMinutes: 120,
+  });
+
+  const progress = getSubjectProgress(
+    olympiad,
+    dataset.topics,
+    [plannedBlock],
+    new Date("2026-03-20T08:00:00"),
+  );
+
+  assert.equal(progress.plannedFutureHoursByTopic["olympiad-number-theory-congruence"], 2);
+  assert.equal(progress.unscheduledHours < progress.remainingHours, true);
+});
+
+test("validator flags dependent blocks that start before the prerequisite is fully covered", () => {
+  const issues = validateGeneratedHorizon({
+    topics: [
+      {
+        id: "foundation",
+        subjectId: "olympiad",
+        unitId: "u1",
+        unitTitle: "Foundations",
+        title: "Number Theory Foundations",
+        order: 1,
+        estHours: 3,
+        completedHours: 0,
+        mastery: 2,
+        status: "learning",
+        reviewDue: null,
+        lastStudiedAt: null,
+        dependsOnTopicId: null,
+        availableFrom: null,
+        minDaysAfterDependency: null,
+        maxDaysAfterDependency: null,
+        subtopics: [],
+        sourceMaterials: [],
+        difficulty: 3,
+        preferredBlockTypes: ["standard_focus"],
+        paperCode: null,
+        sessionMode: "flexible",
+        exactSessionMinutes: null,
+      },
+      {
+        id: "advanced",
+        subjectId: "olympiad",
+        unitId: "u1",
+        unitTitle: "Advanced",
+        title: "Number Theory Advanced",
+        order: 2,
+        estHours: 3,
+        completedHours: 0,
+        mastery: 2,
+        status: "not_started",
+        reviewDue: null,
+        lastStudiedAt: null,
+        dependsOnTopicId: "foundation",
+        availableFrom: null,
+        minDaysAfterDependency: null,
+        maxDaysAfterDependency: null,
+        subtopics: [],
+        sourceMaterials: [],
+        difficulty: 4,
+        preferredBlockTypes: ["deep_work"],
+        paperCode: null,
+        sessionMode: "flexible",
+        exactSessionMinutes: null,
+      },
+    ],
+    studyBlocks: [
+      createStudyBlock({
+        id: "foundation-1",
+        subjectId: "olympiad",
+        topicId: "foundation",
+        estimatedMinutes: 60,
+        start: "2026-03-24T08:00:00.000Z",
+        end: "2026-03-24T09:00:00.000Z",
+      }),
+      createStudyBlock({
+        id: "advanced-1",
+        subjectId: "olympiad",
+        topicId: "advanced",
+        estimatedMinutes: 60,
+        start: "2026-03-24T10:00:00.000Z",
+        end: "2026-03-24T11:00:00.000Z",
+      }),
+    ],
+    weeklyPlans: [],
+  });
+
+  assert.equal(
+    issues.some((issue) => issue.code === "dependency-coverage-order-violation"),
+    true,
+  );
 });
 
 test("regeneration preserves user-touched future blocks", () => {

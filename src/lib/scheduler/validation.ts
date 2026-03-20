@@ -5,6 +5,7 @@ import type { StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
 export interface PlannerValidationIssue {
   code:
     | "overlap"
+    | "dependency-coverage-order-violation"
     | "missing-review-dependency"
     | "review-window-violation"
     | "unused-capacity-with-gap";
@@ -68,7 +69,11 @@ export function validateGeneratedHorizon(options: {
     const dependencyBlocks = options.studyBlocks
       .filter((candidate) => candidate.topicId === topic.dependsOnTopicId)
       .sort((left, right) => new Date(left.end).getTime() - new Date(right.end).getTime());
-    const dependencyBlock = dependencyBlocks[dependencyBlocks.length - 1];
+    const dependencyBlocksBeforeBlock = dependencyBlocks.filter(
+      (candidate) => new Date(candidate.end).getTime() <= new Date(block.start).getTime(),
+    );
+    const dependencyBlock = dependencyBlocksBeforeBlock[dependencyBlocksBeforeBlock.length - 1] ??
+      dependencyBlocks[dependencyBlocks.length - 1];
 
     if (!dependencyBlock) {
       issues.push({
@@ -80,6 +85,30 @@ export function validateGeneratedHorizon(options: {
         message: `Block ${block.id} is scheduled without its required dependency ${topic.dependsOnTopicId}.`,
       });
       return;
+    }
+
+    const requiresDependencyCompletion =
+      topic.minDaysAfterDependency == null && topic.maxDaysAfterDependency == null;
+
+    if (requiresDependencyCompletion) {
+      const coveredDependencyMinutes = Math.round((topicById.get(topic.dependsOnTopicId)?.completedHours ?? 0) * 60) +
+        dependencyBlocksBeforeBlock
+          .reduce((total, candidate) => total + candidate.estimatedMinutes, 0);
+      const requiredDependencyMinutes = Math.round(
+        (topicById.get(topic.dependsOnTopicId)?.estHours ?? 0) * 60,
+      );
+
+      if (coveredDependencyMinutes < requiredDependencyMinutes) {
+        issues.push({
+          code: "dependency-coverage-order-violation",
+          severity: "error",
+          blockId: block.id,
+          topicId: block.topicId,
+          subjectId: block.subjectId ?? undefined,
+          message: `Block ${block.id} starts before ${topic.dependsOnTopicId} is fully covered earlier on the calendar.`,
+        });
+        return;
+      }
     }
 
     const daysAfterDependency = differenceInCalendarDays(

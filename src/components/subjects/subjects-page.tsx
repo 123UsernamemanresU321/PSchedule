@@ -17,6 +17,7 @@ import { groupBy } from "@/lib/utils";
 export function SubjectsPage() {
   const subjects = usePlannerStore((state) => state.subjects);
   const topics = usePlannerStore((state) => state.topics);
+  const studyBlocks = usePlannerStore((state) => state.studyBlocks);
   const [activeTab, setActiveTab] = useState<string>("all");
 
   const visibleSubjects =
@@ -28,7 +29,7 @@ export function SubjectsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Subjects"
-        description="Track syllabus coverage, mastery, and remaining workload by unit and topic. These values feed directly into the deterministic scheduler."
+        description="Track what is completed, what is already placed later on the calendar, and what still has no scheduled slot yet. These values feed directly into the deterministic scheduler."
         actions={
           <>
             <div className="flex flex-wrap gap-2">
@@ -56,7 +57,7 @@ export function SubjectsPage() {
 
       <div className="grid gap-4 xl:grid-cols-2">
         {visibleSubjects.map((subject) => {
-          const progress = getSubjectProgress(subject, topics);
+          const progress = getSubjectProgress(subject, topics, studyBlocks);
 
           return (
             <Card key={subject.id}>
@@ -72,10 +73,18 @@ export function SubjectsPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <Progress value={progress.completionPercent} />
-                <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground">
+                <div className="grid grid-cols-3 gap-4 text-sm text-muted-foreground">
                   <div>
-                    <p className="uppercase tracking-[0.2em] text-xs">Remaining hours</p>
-                    <p className="mt-2 text-2xl font-semibold text-foreground">{progress.remainingHours.toFixed(1)}</p>
+                    <p className="uppercase tracking-[0.2em] text-xs">Still unscheduled</p>
+                    <p className="mt-2 text-2xl font-semibold text-foreground">
+                      {progress.unscheduledHours.toFixed(1)}
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <p className="uppercase tracking-[0.2em] text-xs">Already planned</p>
+                    <p className="mt-2 text-2xl font-semibold text-foreground">
+                      {progress.scheduledFutureHours.toFixed(1)}
+                    </p>
                   </div>
                   <div className="text-right">
                     <p className="uppercase tracking-[0.2em] text-xs">Units completed</p>
@@ -84,6 +93,9 @@ export function SubjectsPage() {
                     </p>
                   </div>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Total still to learn: {progress.remainingHours.toFixed(1)}h
+                </p>
               </CardContent>
             </Card>
           );
@@ -91,7 +103,7 @@ export function SubjectsPage() {
       </div>
 
       {visibleSubjects.map((subject) => {
-        const progress = getSubjectProgress(subject, topics);
+        const progress = getSubjectProgress(subject, topics, studyBlocks);
         const unitGroups = Object.entries(groupBy(progress.topics, (topic) => topic.unitTitle));
 
         return (
@@ -107,6 +119,16 @@ export function SubjectsPage() {
                   (total, topic) => total + Math.min(topic.completedHours, topic.estHours),
                   0,
                 );
+                const scheduledFutureHours = unitTopics.reduce((total, topic) => {
+                  const remainingHours = Math.max(topic.estHours - topic.completedHours, 0);
+                  const plannedFutureHours = progress.plannedFutureHoursByTopic[topic.id] ?? 0;
+                  return total + Math.min(remainingHours, plannedFutureHours);
+                }, 0);
+                const unscheduledHours = unitTopics.reduce((total, topic) => {
+                  const remainingHours = Math.max(topic.estHours - topic.completedHours, 0);
+                  const plannedFutureHours = progress.plannedFutureHoursByTopic[topic.id] ?? 0;
+                  return total + Math.max(remainingHours - plannedFutureHours, 0);
+                }, 0);
                 const completionPercent = totalHours ? Math.round((completedHours / totalHours) * 100) : 0;
 
                 return (
@@ -121,7 +143,7 @@ export function SubjectsPage() {
                           <div>
                             <p className="font-display text-lg font-semibold">{unitTitle}</p>
                             <p className="mt-1 text-sm text-muted-foreground">
-                              {Math.max(totalHours - completedHours, 0).toFixed(1)}h left • {unitTopics.length} topics
+                              {unscheduledHours.toFixed(1)}h unscheduled • {scheduledFutureHours.toFixed(1)}h already planned • {unitTopics.length} topics
                             </p>
                           </div>
                           <div className="min-w-[240px]">
@@ -139,36 +161,51 @@ export function SubjectsPage() {
                     </summary>
                     <div className="border-t border-white/6 px-5 py-4">
                       <div className="space-y-3">
-                        {unitTopics.map((topic) => (
-                          <div
-                            key={topic.id}
-                            className="grid gap-3 rounded-sm border border-white/6 bg-white/4 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_160px_120px]"
-                          >
-                            <div>
-                              <p className="font-medium text-foreground">{topic.title}</p>
-                              <p className="mt-1 text-sm text-muted-foreground">
-                                {topic.subtopics.join(" • ")}
-                              </p>
+                        {unitTopics.map((topic) => {
+                          const remainingHours = Math.max(topic.estHours - topic.completedHours, 0);
+                          const plannedFutureHours = Math.min(
+                            remainingHours,
+                            progress.plannedFutureHoursByTopic[topic.id] ?? 0,
+                          );
+                          const unscheduledHours = Math.max(
+                            remainingHours - plannedFutureHours,
+                            0,
+                          );
+
+                          return (
+                            <div
+                              key={topic.id}
+                              className="grid gap-3 rounded-sm border border-white/6 bg-white/4 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_220px_120px]"
+                            >
+                              <div>
+                                <p className="font-medium text-foreground">{topic.title}</p>
+                                <p className="mt-1 text-sm text-muted-foreground">
+                                  {topic.subtopics.join(" • ")}
+                                </p>
+                              </div>
+                              <div className="text-sm text-muted-foreground">
+                                <p>{unscheduledHours.toFixed(1)}h still unscheduled</p>
+                                <p className="mt-1">
+                                  {plannedFutureHours.toFixed(1)}h already planned later
+                                </p>
+                                <p className="mt-1">Mastery {topic.mastery}/5</p>
+                              </div>
+                              <div className="flex items-center justify-end">
+                                <Badge
+                                  variant={
+                                    topic.status === "strong" || topic.status === "reviewed"
+                                      ? "success"
+                                      : topic.status === "learning" || topic.status === "first_pass_done"
+                                        ? "warning"
+                                        : "muted"
+                                  }
+                                >
+                                  {topicStatusLabels[topic.status]}
+                                </Badge>
+                              </div>
                             </div>
-                            <div className="text-sm text-muted-foreground">
-                              <p>{Math.max(topic.estHours - topic.completedHours, 0).toFixed(1)}h remaining</p>
-                              <p className="mt-1">Mastery {topic.mastery}/5</p>
-                            </div>
-                            <div className="flex items-center justify-end">
-                              <Badge
-                                variant={
-                                  topic.status === "strong" || topic.status === "reviewed"
-                                    ? "success"
-                                    : topic.status === "learning" || topic.status === "first_pass_done"
-                                      ? "warning"
-                                      : "muted"
-                                }
-                              >
-                                {topicStatusLabels[topic.status]}
-                              </Badge>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   </details>
