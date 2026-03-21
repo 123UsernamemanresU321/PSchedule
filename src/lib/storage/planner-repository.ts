@@ -897,6 +897,7 @@ export async function replacePlanningHorizon(
   studyBlocks: StudyBlock[],
   weeklyPlans: WeeklyPlan[],
   horizonStartWeek: string,
+  options?: { preserveFlexibleFutureBlocks?: boolean },
 ) {
   const horizonStartDate = new Date(`${horizonStartWeek}T00:00:00`);
   const weekKeys = weeklyPlans.map((plan) => plan.weekStart);
@@ -910,7 +911,9 @@ export async function replacePlanningHorizon(
         .filter(
           (block) =>
             new Date(block.start).getTime() >= horizonStartDate.getTime() &&
-            !shouldPreserveStudyBlockOnRegeneration(normalizeStudyBlock(block)),
+            !shouldPreserveStudyBlockOnRegeneration(normalizeStudyBlock(block), {
+              preserveFlexibleFutureBlocks: options?.preserveFlexibleFutureBlocks,
+            }),
         )
         .delete();
       await db.weeklyPlans

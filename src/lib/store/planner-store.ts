@@ -97,7 +97,10 @@ interface PlannerState {
   selectStudyBlock: (id: string | null) => void;
 }
 
-async function recalculateCurrentWeek(options?: { preservedStudyBlockIds?: string[] }) {
+async function recalculateCurrentWeek(options?: {
+  preservedStudyBlockIds?: string[];
+  preserveFlexibleFutureBlocks?: boolean;
+}) {
   const referenceDate = new Date();
   const snapshot = await repairOlympiadPlanningState(referenceDate);
   const planningStartWeek = startOfPlannerWeek(referenceDate);
@@ -112,12 +115,16 @@ async function recalculateCurrentWeek(options?: { preservedStudyBlockIds?: strin
     preferences: snapshot.preferences,
     existingStudyBlocks: snapshot.studyBlocks,
     preservedStudyBlockIds: options?.preservedStudyBlockIds,
+    preserveFlexibleFutureBlocks: options?.preserveFlexibleFutureBlocks,
   });
 
   await replacePlanningHorizon(
     replanned.studyBlocks,
     replanned.weeklyPlans,
     toDateKey(planningStartWeek),
+    {
+      preserveFlexibleFutureBlocks: options?.preserveFlexibleFutureBlocks,
+    },
   );
   return loadPlannerSnapshot();
 }
@@ -185,7 +192,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     set({ loading: true, error: null });
 
     try {
-      const snapshot = await recalculateCurrentWeek();
+      const snapshot = await recalculateCurrentWeek({
+        preserveFlexibleFutureBlocks: false,
+      });
       set({
         ...snapshot,
         loading: false,
@@ -199,17 +208,38 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
   saveFixedEvent: async (event) => {
     await saveFixedEvent(event);
-    await get().regenerateHorizon();
+    const snapshot = await recalculateCurrentWeek({
+      preserveFlexibleFutureBlocks: false,
+    });
+    set({
+      ...snapshot,
+      loading: false,
+      error: null,
+    });
     get().setCurrentWeekStart(toDateKey(new Date(event.start)));
   },
   saveSickDay: async (sickDay) => {
     await persistSickDay(sickDay);
-    await get().regenerateHorizon();
+    const snapshot = await recalculateCurrentWeek({
+      preserveFlexibleFutureBlocks: false,
+    });
+    set({
+      ...snapshot,
+      loading: false,
+      error: null,
+    });
     get().setCurrentWeekStart(sickDay.startDate);
   },
   saveFocusedDay: async (focusedDay) => {
     await persistFocusedDay(focusedDay);
-    await get().regenerateHorizon();
+    const snapshot = await recalculateCurrentWeek({
+      preserveFlexibleFutureBlocks: false,
+    });
+    set({
+      ...snapshot,
+      loading: false,
+      error: null,
+    });
     get().setCurrentWeekStart(focusedDay.date);
   },
   deleteFixedEvent: async ({ id, scope = "series", occurrenceDate }) => {
@@ -218,15 +248,36 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     } else {
       await deleteFixedEventById(id);
     }
-    await get().regenerateHorizon();
+    const snapshot = await recalculateCurrentWeek({
+      preserveFlexibleFutureBlocks: false,
+    });
+    set({
+      ...snapshot,
+      loading: false,
+      error: null,
+    });
   },
   deleteSickDay: async (id) => {
     await deleteSickDayRecordById(id);
-    await get().regenerateHorizon();
+    const snapshot = await recalculateCurrentWeek({
+      preserveFlexibleFutureBlocks: false,
+    });
+    set({
+      ...snapshot,
+      loading: false,
+      error: null,
+    });
   },
   deleteFocusedDay: async (id) => {
     await deleteFocusedDayRecordById(id);
-    await get().regenerateHorizon();
+    const snapshot = await recalculateCurrentWeek({
+      preserveFlexibleFutureBlocks: false,
+    });
+    set({
+      ...snapshot,
+      loading: false,
+      error: null,
+    });
   },
   updatePreferences: async (patch) => {
     const current = get().preferences;
@@ -265,7 +316,14 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     };
 
     await savePreferences(nextPreferences);
-    await get().regenerateHorizon();
+    const snapshot = await recalculateCurrentWeek({
+      preserveFlexibleFutureBlocks: false,
+    });
+    set({
+      ...snapshot,
+      loading: false,
+      error: null,
+    });
   },
   updateTopicCompletedHours: async ({ topicId, completedHours }) => {
     set({ loading: true, error: null });
@@ -286,7 +344,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       nextTopic.status = deriveTopicStatus(nextTopic);
       await updateTopic(nextTopic);
 
-      const nextSnapshot = await recalculateCurrentWeek();
+      const nextSnapshot = await recalculateCurrentWeek({
+        preserveFlexibleFutureBlocks: false,
+      });
       set({
         ...nextSnapshot,
         loading: false,
