@@ -182,6 +182,7 @@ function normalizeStudyBlock(block: StudyBlock) {
     generatedReason: normalizedGeneratedReason,
     assignmentLocked: isLegacyManualReassignment ? false : block.assignmentLocked ?? false,
     assignmentEditedAt: block.assignmentEditedAt ?? null,
+    creationSource: block.creationSource ?? "planner",
   } satisfies StudyBlock;
 }
 
@@ -1039,6 +1040,10 @@ export async function importPlannerData(rawJson: string) {
       const isFutureBlock = new Date(block.end).getTime() > importReferenceDate.getTime();
 
       if (!isFutureBlock) {
+        return true;
+      }
+
+      if (block.creationSource === "manual") {
         return true;
       }
 

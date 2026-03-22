@@ -12,6 +12,10 @@ import { CommitmentOverrideDialog } from "@/components/calendar/commitment-overr
 import { FocusDayDialog } from "@/components/calendar/focus-day-dialog";
 import { RecoveryWindowOverrideDialog } from "@/components/calendar/recovery-window-override-dialog";
 import { HorizonRoadmap } from "@/components/planner/horizon-roadmap";
+import {
+  StudyBlockEditorDialog,
+  type StudyBlockEditorDraft,
+} from "@/components/planner/study-block-editor-dialog";
 import { PlannerCalendar } from "@/components/calendar/planner-calendar";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -36,11 +40,13 @@ export function CalendarPage() {
   const setCurrentWeekStart = usePlannerStore((state) => state.setCurrentWeekStart);
   const savePlannerFixedEvent = usePlannerStore((state) => state.saveFixedEvent);
   const saveFocusedDay = usePlannerStore((state) => state.saveFocusedDay);
+  const saveManualStudyBlock = usePlannerStore((state) => state.saveManualStudyBlock);
   const deleteFixedEvent = usePlannerStore((state) => state.deleteFixedEvent);
   const deleteFocusedDay = usePlannerStore((state) => state.deleteFocusedDay);
   const updatePreferences = usePlannerStore((state) => state.updatePreferences);
   const selectStudyBlock = usePlannerStore((state) => state.selectStudyBlock);
   const [editorDraft, setEditorDraft] = useState<EventEditorDraft>(null);
+  const [studyBlockEditorDraft, setStudyBlockEditorDraft] = useState<StudyBlockEditorDraft>(null);
   const [commitmentOverrideDraft, setCommitmentOverrideDraft] = useState<{
     ruleId: "piano-practice" | "term-homework";
     date: string;
@@ -67,7 +73,7 @@ export function CalendarPage() {
   const defaultCreateStart = new Date(addDays(visibleWeekStart, 1));
   defaultCreateStart.setHours(16, 0, 0, 0);
   const defaultCreateEnd = new Date(addDays(visibleWeekStart, 1));
-  defaultCreateEnd.setHours(17, 0, 0, 0);
+  defaultCreateEnd.setHours(17, 30, 0, 0);
 
   return (
     <div className="space-y-6">
@@ -166,6 +172,20 @@ export function CalendarPage() {
             >
               <Crosshair className="h-4 w-4" />
               Set focus
+            </Button>
+            <Button
+              data-testid="calendar-add-study-block"
+              variant="outline"
+              onClick={() =>
+                setStudyBlockEditorDraft({
+                  mode: "create",
+                  start: defaultCreateStart.toISOString(),
+                  end: defaultCreateEnd.toISOString(),
+                })
+              }
+            >
+              <BookOpen className="h-4 w-4" />
+              Add study block
             </Button>
             <Button
               data-testid="calendar-add-event"
@@ -340,6 +360,26 @@ export function CalendarPage() {
             id: focusedDay.id || createId("focused-day"),
           });
           setFocusDayDraftDate(null);
+        }}
+      />
+
+      <StudyBlockEditorDialog
+        key={
+          studyBlockEditorDraft
+            ? studyBlockEditorDraft.mode === "edit"
+              ? studyBlockEditorDraft.block.id
+              : `${studyBlockEditorDraft.start}-${studyBlockEditorDraft.end}`
+            : "study-block-editor"
+        }
+        open={!!studyBlockEditorDraft}
+        draft={studyBlockEditorDraft}
+        subjects={subjects}
+        topics={topics}
+        studyBlocks={studyBlocks}
+        onClose={() => setStudyBlockEditorDraft(null)}
+        onSave={async (options) => {
+          await saveManualStudyBlock(options);
+          setStudyBlockEditorDraft(null);
         }}
       />
     </div>

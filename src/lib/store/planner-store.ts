@@ -3,7 +3,12 @@
 import { create } from "zustand";
 
 import { fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
-import { generateStudyPlanHorizon } from "@/lib/scheduler/generator";
+import { calculateFreeSlots } from "@/lib/scheduler/free-slots";
+import {
+  generateStudyPlanHorizon,
+  shouldAlwaysPreserveStudyBlockOnRegeneration,
+} from "@/lib/scheduler/generator";
+import { createSlotSlice, selectBlockOption } from "@/lib/scheduler/slot-classifier";
 import { getAssignableTaskCandidatesForBlock } from "@/lib/scheduler/task-candidates";
 import {
   deleteFixedEventById,
@@ -71,6 +76,19 @@ interface PlannerState {
   deleteSickDay: (id: string) => Promise<void>;
   deleteFocusedDay: (id: string) => Promise<void>;
   updatePreferences: (patch: Partial<Preferences>) => Promise<void>;
+  saveManualStudyBlock: (options: {
+    start: string;
+    end: string;
+    topicId: string;
+    notes?: string;
+  }) => Promise<void>;
+  editStudyBlockSchedule: (options: {
+    blockId: string;
+    start: string;
+    end: string;
+    topicId: string;
+    notes?: string;
+  }) => Promise<void>;
   updateTopicCompletedHours: (options: {
     topicId: string;
     completedHours: number;
@@ -324,6 +342,89 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       loading: false,
       error: null,
     });
+  },
+  saveManualStudyBlock: async ({ start, end, topicId, notes }) => {
+    set({ loading: true, error: null });
+
+    try {
+      const snapshot = await loadPlannerSnapshot();
+      const nextBlock = await buildManualStudyBlock({
+        snapshot,
+        start,
+        end,
+        topicId,
+      });
+      await updateStudyBlock({
+        ...nextBlock,
+        notes: notes?.trim() ?? "",
+      });
+
+      const nextSnapshot = await recalculateCurrentWeek({
+        preservedStudyBlockIds: [nextBlock.id],
+        preserveFlexibleFutureBlocks: false,
+      });
+      set({
+        ...nextSnapshot,
+        loading: false,
+        error: null,
+      });
+      get().setCurrentWeekStart(toDateKey(startOfPlannerWeek(new Date(start))));
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to save the manual study block.";
+      set({
+        loading: false,
+        error: message,
+      });
+      throw error;
+    }
+  },
+  editStudyBlockSchedule: async ({ blockId, start, end, topicId, notes }) => {
+    set({ loading: true, error: null });
+
+    try {
+      const snapshot = await loadPlannerSnapshot();
+      const existingBlock = snapshot.studyBlocks.find((candidate) => candidate.id === blockId);
+
+      if (!existingBlock) {
+        throw new Error("Study block not found.");
+      }
+
+      if (!["planned", "rescheduled"].includes(existingBlock.status)) {
+        throw new Error("Only future planned study blocks can be edited.");
+      }
+
+      const updatedBlock = await buildManualStudyBlock({
+        snapshot,
+        start,
+        end,
+        topicId,
+        existingBlock,
+      });
+      await updateStudyBlock({
+        ...updatedBlock,
+        notes: notes?.trim() ?? existingBlock.notes,
+      });
+
+      const nextSnapshot = await recalculateCurrentWeek({
+        preservedStudyBlockIds: [existingBlock.id],
+        preserveFlexibleFutureBlocks: false,
+      });
+      set({
+        ...nextSnapshot,
+        loading: false,
+        error: null,
+      });
+      get().setCurrentWeekStart(toDateKey(startOfPlannerWeek(new Date(start))));
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to edit the study block.";
+      set({
+        loading: false,
+        error: message,
+      });
+      throw error;
+    }
   },
   updateTopicCompletedHours: async ({ topicId, completedHours }) => {
     set({ loading: true, error: null });
@@ -611,6 +712,148 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 }));
 
+async function buildManualStudyBlock(options: {
+  snapshot: Awaited<ReturnType<typeof loadPlannerSnapshot>>;
+  start: string;
+  end: string;
+  topicId: string;
+  existingBlock?: StudyBlock;
+}) {
+  const startDate = new Date(options.start);
+  const endDate = new Date(options.end);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate <= startDate) {
+    throw new Error("Choose a valid future date and time range for the study block.");
+  }
+
+  if (toDateKey(startDate) !== toDateKey(endDate)) {
+    throw new Error("Study blocks must start and end on the same day.");
+  }
+
+  const durationMinutes = Math.round((endDate.getTime() - startDate.getTime()) / (60 * 1000));
+  if (durationMinutes < 30) {
+    throw new Error("Study blocks must be at least 30 minutes long.");
+  }
+
+  if (endDate.getTime() <= Date.now()) {
+    throw new Error("Study-block scheduling edits are limited to future time slots.");
+  }
+
+  const draftBlock: StudyBlock = {
+    id: options.existingBlock?.id ?? createId("block"),
+    weekStart: toDateKey(startOfPlannerWeek(startDate)),
+    date: toDateKey(startDate),
+    start: startDate.toISOString(),
+    end: endDate.toISOString(),
+    subjectId: options.existingBlock?.subjectId ?? null,
+    topicId: options.existingBlock?.topicId ?? null,
+    title: options.existingBlock?.title ?? "Manual study block",
+    sessionSummary: options.existingBlock?.sessionSummary ?? null,
+    paperCode: options.existingBlock?.paperCode ?? null,
+    unitTitle: options.existingBlock?.unitTitle ?? null,
+    blockType: options.existingBlock?.blockType ?? "standard_focus",
+    intensity: options.existingBlock?.intensity ?? "moderate",
+    generatedReason: options.existingBlock?.generatedReason ?? "",
+    scoreBreakdown: buildManualAssignmentScoreBreakdown(),
+    status: options.existingBlock?.status ?? "planned",
+    isAutoGenerated: true,
+    creationSource: "manual",
+    sourceMaterials: options.existingBlock?.sourceMaterials ?? [],
+    slotEnergy: options.existingBlock?.slotEnergy ?? "steady",
+    estimatedMinutes: durationMinutes,
+    actualMinutes: options.existingBlock?.actualMinutes ?? null,
+    notes: options.existingBlock?.notes ?? "",
+    rescheduleCount: options.existingBlock?.rescheduleCount ?? 0,
+    assignmentLocked: false,
+    assignmentEditedAt: new Date().toISOString(),
+  };
+  const subjectDeadlinesById = Object.fromEntries(
+    options.snapshot.subjects.map((subject) => [subject.id, subject.deadline]),
+  );
+  const assignableCandidates = getAssignableTaskCandidatesForBlock({
+    block: draftBlock,
+    topics: options.snapshot.topics,
+    existingPlannedBlocks: options.snapshot.studyBlocks.filter(
+      (candidate) => candidate.id !== draftBlock.id,
+    ),
+    subjectDeadlinesById,
+  });
+  const nextCandidate = assignableCandidates.find((candidate) => candidate.topicId === options.topicId);
+
+  if (!nextCandidate?.subjectId || !nextCandidate.topicId) {
+    throw new Error(
+      "That topic is not valid for this exact time and duration. Check dependencies, focus timing, and exact paper length requirements.",
+    );
+  }
+
+  const containingFreeSlot = getContainingHardConstraintFreeSlot({
+    snapshot: options.snapshot,
+    start: startDate,
+    end: endDate,
+    excludeBlockId: options.existingBlock?.id,
+  });
+
+  if (!containingFreeSlot) {
+    throw new Error(
+      "That time overlaps a fixed event, lunch/dinner, Piano/Homework, or another preserved study block.",
+    );
+  }
+
+  const manualSlot = createSlotSlice(containingFreeSlot, startDate, durationMinutes);
+  const blockOption = selectBlockOption(nextCandidate, manualSlot, options.snapshot.preferences, {
+    allowLowEnergyHeavy: true,
+    allowLateNightDeepWork: true,
+    preferLongerBlocks: true,
+  });
+  const fallbackBlockType =
+    nextCandidate.preferredBlockTypes[0] ??
+    (nextCandidate.kind === "review" ? "review" : "standard_focus");
+
+  return {
+    ...draftBlock,
+    subjectId: nextCandidate.subjectId,
+    topicId: nextCandidate.topicId,
+    title: nextCandidate.title,
+    sessionSummary: nextCandidate.sessionSummary,
+    paperCode: nextCandidate.paperCode,
+    unitTitle: nextCandidate.unitTitle,
+    blockType: blockOption?.blockType ?? fallbackBlockType,
+    intensity: blockOption?.intensity ?? nextCandidate.intensity,
+    generatedReason: buildManualStudyBlockReason(nextCandidate, !!options.existingBlock),
+    sourceMaterials: nextCandidate.sourceMaterials,
+    slotEnergy: manualSlot.energy,
+    estimatedMinutes: durationMinutes,
+  };
+}
+
+function getContainingHardConstraintFreeSlot(options: {
+  snapshot: Awaited<ReturnType<typeof loadPlannerSnapshot>>;
+  start: Date;
+  end: Date;
+  excludeBlockId?: string;
+}) {
+  const blockingStudyBlocks = options.snapshot.studyBlocks.filter((block) => {
+    if (block.id === options.excludeBlockId) {
+      return false;
+    }
+
+    return shouldAlwaysPreserveStudyBlockOnRegeneration(block);
+  });
+
+  return calculateFreeSlots({
+    weekStart: startOfPlannerWeek(options.start),
+    fixedEvents: options.snapshot.fixedEvents,
+    sickDays: options.snapshot.sickDays,
+    preferences: options.snapshot.preferences,
+    blockedStudyBlocks: blockingStudyBlocks,
+  }).find(
+    (slot) =>
+      slot.dateKey === toDateKey(options.start) &&
+      slot.start.getTime() <= options.start.getTime() &&
+      slot.end.getTime() >= options.end.getTime(),
+  );
+}
+
 function clampMastery(value: number) {
   return Math.min(5, Math.max(0, value));
 }
@@ -660,4 +903,18 @@ function buildManualAssignmentReason(task: {
 }) {
   const unitLabel = task.unitTitle ? `${task.unitTitle}` : "the selected topic";
   return `Manually reassigned in the study-block drawer to ${task.title.toLowerCase()} from ${unitLabel}. The horizon was rebuilt around this change, but future regenerations can still move or retarget the block.`;
+}
+
+function buildManualStudyBlockReason(
+  task: {
+    title: string;
+    unitTitle: string | null;
+  },
+  isEdit: boolean,
+) {
+  const unitLabel = task.unitTitle ? `${task.unitTitle}` : "the selected section";
+
+  return isEdit
+    ? `Manually edited in the study-block editor to ${task.title.toLowerCase()} from ${unitLabel}. The horizon was rebuilt around this change, but future regenerations can still move or retarget the block.`
+    : `Manually added in the study-block editor for ${task.title.toLowerCase()} from ${unitLabel}. The horizon was rebuilt around this new block, but future regenerations can still move or retarget it.`;
 }
