@@ -428,6 +428,7 @@ export function getAssignableTaskCandidatesForBlock(options: {
   topics: Topic[];
   existingPlannedBlocks?: StudyBlock[];
   subjectDeadlinesById?: Record<string, string>;
+  allowCompletedTopics?: boolean;
 }) {
   const existingPlannedBlocks = options.existingPlannedBlocks ?? [];
   const blockStart = new Date(options.block.start);
@@ -465,7 +466,7 @@ export function getAssignableTaskCandidatesForBlock(options: {
       0,
     );
 
-    if (totalRemainingMinutes < MIN_ALLOCATABLE_MINUTES) {
+    if (!options.allowCompletedTopics && totalRemainingMinutes < MIN_ALLOCATABLE_MINUTES) {
       return [];
     }
 
@@ -501,7 +502,7 @@ export function getAssignableTaskCandidatesForBlock(options: {
         remainingMinutes:
           sessionMode === "exam"
             ? exactSessionMinutes ?? totalRemainingMinutes
-            : Math.max(totalRemainingMinutes, MIN_ALLOCATABLE_MINUTES),
+            : Math.max(totalRemainingMinutes, blockDurationMinutes, MIN_ALLOCATABLE_MINUTES),
         sessionMode,
         exactSessionMinutes,
         availableAt: timingWindow.availableAt ? timingWindow.availableAt.toISOString() : null,

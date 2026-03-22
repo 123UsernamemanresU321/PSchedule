@@ -375,11 +375,16 @@ async function refreshPlanningModel(_snapshot: PlannerSnapshot, referenceDate: D
   return loadPlannerSnapshot();
 }
 
-export async function resetFutureOlympiadPlanningBlocks(referenceDate = new Date()) {
+export async function resetFutureOlympiadPlanningBlocks(
+  referenceDate = new Date(),
+  preservedStudyBlockIds: string[] = [],
+) {
+  const preservedIds = new Set(preservedStudyBlockIds);
   await db.studyBlocks
     .filter(
       (block) =>
         block.subjectId === OLYMPIAD_SUBJECT_ID &&
+        !preservedIds.has(block.id) &&
         new Date(block.end).getTime() > referenceDate.getTime() &&
         !["done", "partial", "missed"].includes(block.status) &&
         !normalizeStudyBlock(block).assignmentLocked,
@@ -387,13 +392,17 @@ export async function resetFutureOlympiadPlanningBlocks(referenceDate = new Date
     .delete();
 }
 
-export async function purgeInvalidFutureOlympiadAdvancedBlocks(referenceDate = new Date()) {
+export async function purgeInvalidFutureOlympiadAdvancedBlocks(
+  referenceDate = new Date(),
+  preservedStudyBlockIds: string[] = [],
+) {
   const [topics, studyBlocks] = await Promise.all([db.topics.toArray(), db.studyBlocks.toArray()]);
+  const preservedIds = new Set(preservedStudyBlockIds);
   const invalidBlockIds = collectInvalidFutureOlympiadBlockIds({
     topics,
     blocks: studyBlocks,
     referenceDate,
-  });
+  }).filter((id) => !preservedIds.has(id));
 
   if (!invalidBlockIds.length) {
     return;
@@ -402,10 +411,13 @@ export async function purgeInvalidFutureOlympiadAdvancedBlocks(referenceDate = n
   await db.studyBlocks.bulkDelete(invalidBlockIds);
 }
 
-export async function repairOlympiadPlanningState(referenceDate = new Date()) {
+export async function repairOlympiadPlanningState(
+  referenceDate = new Date(),
+  preservedStudyBlockIds: string[] = [],
+) {
   await syncOlympiadRoadmapToSeed(await loadPlannerSnapshot(), referenceDate);
-  await resetFutureOlympiadPlanningBlocks(referenceDate);
-  await purgeInvalidFutureOlympiadAdvancedBlocks(referenceDate);
+  await resetFutureOlympiadPlanningBlocks(referenceDate, preservedStudyBlockIds);
+  await purgeInvalidFutureOlympiadAdvancedBlocks(referenceDate, preservedStudyBlockIds);
   return loadPlannerSnapshot();
 }
 
@@ -898,10 +910,11 @@ export async function replacePlanningHorizon(
   studyBlocks: StudyBlock[],
   weeklyPlans: WeeklyPlan[],
   horizonStartWeek: string,
-  options?: { preserveFlexibleFutureBlocks?: boolean },
+  options?: { preserveFlexibleFutureBlocks?: boolean; preservedStudyBlockIds?: string[] },
 ) {
   const horizonStartDate = new Date(`${horizonStartWeek}T00:00:00`);
   const weekKeys = weeklyPlans.map((plan) => plan.weekStart);
+  const preservedIds = new Set(options?.preservedStudyBlockIds ?? []);
 
   await db.transaction(
     "rw",
@@ -912,6 +925,7 @@ export async function replacePlanningHorizon(
         .filter(
           (block) =>
             new Date(block.start).getTime() >= horizonStartDate.getTime() &&
+            !preservedIds.has(block.id) &&
             !shouldPreserveStudyBlockOnRegeneration(normalizeStudyBlock(block), {
               preserveFlexibleFutureBlocks: options?.preserveFlexibleFutureBlocks,
             }),

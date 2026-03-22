@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { studyBlockStatusLabels } from "@/lib/constants/planner";
 import { createDateAtTime, fromDateKey, minutesBetween, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import { getAssignableTaskCandidatesForBlock } from "@/lib/scheduler/task-candidates";
 import type { StudyBlock, Subject, Topic } from "@/lib/types/planner";
@@ -38,6 +39,8 @@ interface StudyBlockEditorDialogProps {
     end: string;
     topicId: string;
     notes?: string;
+    status?: "done" | "partial";
+    actualMinutes?: number;
   }) => Promise<void>;
 }
 
@@ -144,6 +147,10 @@ function StudyBlockEditorDialogPanel({
   const [notes, setNotes] = useState(draft.mode === "edit" ? draft.block.notes : "");
   const [formError, setFormError] = useState<string | null>(null);
   const [editorOpenedAt] = useState(() => Date.now());
+  const [historicalStatus, setHistoricalStatus] = useState<"done" | "partial">("done");
+  const [historicalActualMinutes, setHistoricalActualMinutes] = useState(() =>
+    String(minutesBetween(initialStart, initialEnd)),
+  );
   const initialTopicId = draft.mode === "edit" ? draft.block.topicId ?? "" : "";
   const initialSubjectId = draft.mode === "edit" ? draft.block.subjectId ?? "" : "";
   const initialUnitId =
@@ -201,6 +208,7 @@ function StudyBlockEditorDialogPanel({
       topics,
       existingPlannedBlocks: studyBlocks.filter((candidate) => candidate.id !== draftBlock.id),
       subjectDeadlinesById,
+      allowCompletedTopics: draft.mode === "create" && range.end.getTime() <= editorOpenedAt,
     })
       .map((candidate) => {
         const candidateTopic = topics.find((topic) => topic.id === candidate.topicId);
@@ -226,7 +234,7 @@ function StudyBlockEditorDialogPanel({
 
         return left.topic.order - right.topic.order;
       });
-  }, [draft, notes, range, studyBlocks, subjects, topics]);
+  }, [draft, editorOpenedAt, notes, range, studyBlocks, subjects, topics]);
 
   const availableSubjects = useMemo(() => {
     const seen = new Set<string>();
@@ -283,13 +291,22 @@ function StudyBlockEditorDialogPanel({
     : availableTopics[0]?.topic.id ?? "";
 
   const selectedCandidate = availableTopics.find((entry) => entry.topic.id === selectedTopicId) ?? null;
-  const isFutureRange = !!range && range.end.getTime() > editorOpenedAt;
+  const isHistoricalRange = !!range && range.end.getTime() <= editorOpenedAt;
+  const isCurrentOrFutureRange = !!range && range.end.getTime() > editorOpenedAt;
+  const resolvedHistoricalActualMinutes = range
+    ? Math.min(
+        minutesBetween(range.start, range.end),
+        Math.max(1, Math.round(Number(historicalActualMinutes || 0))),
+      )
+    : 0;
   const canSave =
     !!range &&
     range.start.toDateString() === range.end.toDateString() &&
     minutesBetween(range.start, range.end) >= 30 &&
     !!selectedTopicId &&
-    isFutureRange;
+    ((isCurrentOrFutureRange && draft.mode === "create") ||
+      (isCurrentOrFutureRange && draft.mode === "edit") ||
+      (isHistoricalRange && draft.mode === "create" && resolvedHistoricalActualMinutes > 0));
 
   const handleSave = async () => {
     if (!range || !selectedTopicId) {
@@ -305,6 +322,8 @@ function StudyBlockEditorDialogPanel({
         end: range.end.toISOString(),
         topicId: selectedTopicId,
         notes: notes.trim() || undefined,
+        status: isHistoricalRange ? historicalStatus : undefined,
+        actualMinutes: isHistoricalRange ? resolvedHistoricalActualMinutes : undefined,
       });
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Failed to save the study block.");
@@ -319,7 +338,7 @@ function StudyBlockEditorDialogPanel({
             <div>
               <CardTitle>{draft.mode === "edit" ? "Edit study block" : "Add study block"}</CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
-                This is a real study block, not a fixed event. It counts toward topic coverage immediately, and the future horizon rebuilds around it.
+                This is a real study block, not a fixed event. Future and current blocks rebuild the horizon around them immediately, and past blocks can be entered as historical study that updates topic progress.
               </p>
             </div>
             <Button variant="ghost" size="sm" className="h-10 w-10 rounded-full p-0" onClick={onClose}>
@@ -457,24 +476,61 @@ function StudyBlockEditorDialogPanel({
               />
             </div>
 
+            {isHistoricalRange ? (
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Outcome</label>
+                  <Select
+                    data-testid="study-block-editor-status"
+                    value={historicalStatus}
+                    onChange={(event) => {
+                      setFormError(null);
+                      setHistoricalStatus(event.target.value as "done" | "partial");
+                    }}
+                  >
+                    <option value="done">{studyBlockStatusLabels.done}</option>
+                    <option value="partial">{studyBlockStatusLabels.partial}</option>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                    Actual minutes
+                  </label>
+                  <Input
+                    data-testid="study-block-editor-actual-minutes"
+                    type="number"
+                    min={1}
+                    max={range ? minutesBetween(range.start, range.end) : undefined}
+                    value={historicalActualMinutes}
+                    onChange={(event) => {
+                      setFormError(null);
+                      setHistoricalActualMinutes(event.target.value);
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
+
             <div className="rounded-sm border border-primary/20 bg-primary/8 px-4 py-3">
               <div className="flex items-start gap-3">
                 <CalendarClock className="mt-0.5 h-4 w-4 text-primary" />
                 <p className="text-sm text-foreground">
-                  Saving keeps this block at the chosen time for the immediate rebuild, but later full regenerations can still move or retarget it like any normal planned study block.
+                  {isHistoricalRange
+                    ? "Saving records this as past study you actually did, updates topic progress immediately, and then rebuilds the future horizon from that corrected history."
+                    : "Saving keeps this block at the chosen time for the immediate rebuild, but later full regenerations can still move or retarget it like any normal planned study block."}
                 </p>
               </div>
             </div>
 
-            {!isFutureRange ? (
-              <p className="text-sm text-danger">
-                Study-block scheduling edits are limited to future time slots.
-              </p>
-            ) : null}
-
             {range && minutesBetween(range.start, range.end) < 30 ? (
               <p className="text-sm text-danger">
                 Study blocks must be at least 30 minutes long.
+              </p>
+            ) : null}
+
+            {isHistoricalRange && resolvedHistoricalActualMinutes <= 0 ? (
+              <p className="text-sm text-danger">
+                Historical study entries need a positive number of actual study minutes.
               </p>
             ) : null}
 
@@ -489,7 +545,11 @@ function StudyBlockEditorDialogPanel({
                 disabled={!canSave}
                 onClick={() => void handleSave()}
               >
-                {draft.mode === "edit" ? "Save changes" : "Add study block"}
+                {isHistoricalRange
+                  ? "Save historical study"
+                  : draft.mode === "edit"
+                    ? "Save changes"
+                    : "Add study block"}
               </Button>
             </div>
           </CardContent>

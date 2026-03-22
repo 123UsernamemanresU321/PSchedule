@@ -16,6 +16,7 @@ import {
   getInlineBreakMinutes,
   shouldPreserveStudyBlockOnRegeneration,
 } from "@/lib/scheduler/generator";
+import { getStatusUpdatePreservedStudyBlockIds } from "@/lib/store/planner-store";
 import {
   getActiveSickDaySeverity,
   isReservedCommitmentRuleActiveOnDate,
@@ -1949,6 +1950,85 @@ test("regeneration preserves user-touched future blocks", () => {
   );
 });
 
+test("status-triggered replans preserve active planned and rescheduled blocks", () => {
+  const referenceDate = new Date("2026-03-24T17:00:00.000Z");
+  const ids = getStatusUpdatePreservedStudyBlockIds({
+    studyBlocks: [
+      createStudyBlock({
+        id: "past-block",
+        status: "planned",
+        start: "2026-03-24T14:00:00.000Z",
+        end: "2026-03-24T15:00:00.000Z",
+      }),
+      createStudyBlock({
+        id: "current-planned",
+        status: "planned",
+        start: "2026-03-24T16:30:00.000Z",
+        end: "2026-03-24T18:30:00.000Z",
+      }),
+      createStudyBlock({
+        id: "current-rescheduled",
+        status: "rescheduled",
+        start: "2026-03-24T16:45:00.000Z",
+        end: "2026-03-24T18:15:00.000Z",
+      }),
+      createStudyBlock({
+        id: "future-planned",
+        status: "planned",
+        start: "2026-03-24T19:00:00.000Z",
+        end: "2026-03-24T20:30:00.000Z",
+      }),
+    ],
+    updatedBlockId: "past-block",
+    nextStatus: "done",
+    referenceDate,
+  });
+
+  assert.deepEqual(
+    ids.sort((left, right) => left.localeCompare(right)),
+    ["current-planned", "current-rescheduled", "future-planned"],
+  );
+});
+
+test("explicitly preserved active blocks stay in the horizon even when flexible blocks can move", () => {
+  const referenceDate = new Date("2026-03-24T17:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const activeManualBlock = createStudyBlock({
+    id: "active-manual-block",
+    weekStart: "2026-03-23",
+    date: "2026-03-24",
+    start: "2026-03-24T16:30:00.000Z",
+    end: "2026-03-24T18:30:00.000Z",
+    subjectId: "physics-hl",
+    topicId: "physics-a1-kinematics",
+    title: "Kinematics",
+    unitTitle: "A. Space, time and motion",
+    creationSource: "manual",
+    status: "planned",
+    assignmentEditedAt: "2026-03-24T16:35:00.000Z",
+  });
+
+  const result = generateStudyPlanHorizon({
+    startWeek: referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    preferences: dataset.preferences,
+    existingStudyBlocks: [activeManualBlock],
+    preservedStudyBlockIds: [activeManualBlock.id],
+  });
+
+  const preservedBlock = result.studyBlocks.find((block) => block.id === activeManualBlock.id);
+
+  assert.ok(preservedBlock);
+  assert.equal(preservedBlock?.start, activeManualBlock.start);
+  assert.equal(preservedBlock?.end, activeManualBlock.end);
+  assert.equal(preservedBlock?.topicId, activeManualBlock.topicId);
+});
+
 test("manual block reassignment only offers topics valid for the fixed slot", () => {
   const block = createStudyBlock({
     id: "manual-slot",
@@ -2152,6 +2232,60 @@ test("manual block reassignment can target a valid topic even when it is already
 
   assert.equal(
     candidates.some((candidate) => candidate.topicId === "physics-target-fully-planned"),
+    true,
+  );
+});
+
+test("historical manual study assignment can target a topic that is already complete today", () => {
+  const block = createStudyBlock({
+    id: "historical-manual-slot",
+    subjectId: "physics-hl",
+    topicId: "physics-a1-kinematics",
+    estimatedMinutes: 90,
+    start: "2026-03-20T14:00:00.000Z",
+    end: "2026-03-20T15:30:00.000Z",
+  });
+  const topics: Topic[] = [
+    {
+      id: "physics-a1-kinematics",
+      subjectId: "physics-hl",
+      unitId: "physics-a-space-time-motion",
+      unitTitle: "A. Space, time and motion",
+      title: "Kinematics",
+      subtopics: [],
+      availableFrom: null,
+      dependsOnTopicId: null,
+      sequenceGroup: null,
+      sequenceStage: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      estHours: 5,
+      completedHours: 5,
+      difficulty: 3,
+      status: "strong",
+      mastery: 5,
+      reviewDue: null,
+      lastStudiedAt: null,
+      sourceMaterials: [],
+      preferredBlockTypes: ["standard_focus"],
+      order: 1,
+      paperCode: null,
+      notes: "",
+    },
+  ];
+
+  const candidates = getAssignableTaskCandidatesForBlock({
+    block,
+    topics,
+    existingPlannedBlocks: [],
+    subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+    allowCompletedTopics: true,
+  });
+
+  assert.equal(
+    candidates.some((candidate) => candidate.topicId === "physics-a1-kinematics"),
     true,
   );
 });

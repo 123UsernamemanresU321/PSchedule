@@ -81,6 +81,8 @@ interface PlannerState {
     end: string;
     topicId: string;
     notes?: string;
+    status?: Extract<StudyBlockStatus, "done" | "partial">;
+    actualMinutes?: number;
   }) => Promise<void>;
   editStudyBlockSchedule: (options: {
     blockId: string;
@@ -120,7 +122,7 @@ async function recalculateCurrentWeek(options?: {
   preserveFlexibleFutureBlocks?: boolean;
 }) {
   const referenceDate = new Date();
-  const snapshot = await repairOlympiadPlanningState(referenceDate);
+  const snapshot = await repairOlympiadPlanningState(referenceDate, options?.preservedStudyBlockIds);
   const planningStartWeek = startOfPlannerWeek(referenceDate);
   const replanned = generateStudyPlanHorizon({
     startWeek: planningStartWeek,
@@ -141,6 +143,7 @@ async function recalculateCurrentWeek(options?: {
     replanned.weeklyPlans,
     toDateKey(planningStartWeek),
     {
+      preservedStudyBlockIds: options?.preservedStudyBlockIds,
       preserveFlexibleFutureBlocks: options?.preserveFlexibleFutureBlocks,
     },
   );
@@ -343,21 +346,51 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       error: null,
     });
   },
-  saveManualStudyBlock: async ({ start, end, topicId, notes }) => {
+  saveManualStudyBlock: async ({ start, end, topicId, notes, status, actualMinutes }) => {
     set({ loading: true, error: null });
 
     try {
       const snapshot = await loadPlannerSnapshot();
+      const referenceDate = new Date();
+      const isHistoricalBlock = new Date(end).getTime() <= referenceDate.getTime();
       const nextBlock = await buildManualStudyBlock({
         snapshot,
         start,
         end,
         topicId,
+        allowEndedPast: isHistoricalBlock,
       });
-      await updateStudyBlock({
+      const savedBlock: StudyBlock = {
         ...nextBlock,
         notes: notes?.trim() ?? "",
-      });
+        status: isHistoricalBlock ? status ?? "done" : nextBlock.status,
+        actualMinutes:
+          isHistoricalBlock
+            ? Math.min(
+                nextBlock.estimatedMinutes,
+                Math.max(1, Math.round(actualMinutes ?? nextBlock.estimatedMinutes)),
+              )
+            : nextBlock.actualMinutes,
+      };
+      await updateStudyBlock(savedBlock);
+
+      if (isHistoricalBlock) {
+        await saveCompletionLog({
+          id: createId("log"),
+          studyBlockId: savedBlock.id,
+          outcome: savedBlock.status as CompletionLog["outcome"],
+          actualMinutes: savedBlock.actualMinutes ?? savedBlock.estimatedMinutes,
+          perceivedDifficulty: 3,
+          notes: savedBlock.notes,
+          recordedAt: new Date().toISOString(),
+        });
+
+        await applyTopicProgressForStudyBlockUpdate({
+          snapshot,
+          previousBlock: null,
+          nextBlock: savedBlock,
+        });
+      }
 
       const nextSnapshot = await recalculateCurrentWeek({
         preservedStudyBlockIds: [nextBlock.id],
@@ -502,72 +535,19 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
 
     if (block.topicId) {
-      const topic = snapshot.topics.find((candidate) => candidate.id === block.topicId);
-      if (topic) {
-        const previousActualMinutes = block.actualMinutes ?? block.estimatedMinutes;
-        const previousCompletedHoursDelta =
-          block.status === "done"
-            ? previousActualMinutes / 60
-            : block.status === "partial"
-              ? previousActualMinutes / 60
-              : 0;
-        const previousMasteryDelta =
-          block.status === "done"
-            ? 1
-            : block.status === "partial"
-              ? 0.5
-              : block.status === "missed"
-                ? -0.25
-                : 0;
-        const completedHoursDelta =
-          status === "done"
-            ? nextActualMinutes / 60
-            : status === "partial"
-              ? nextActualMinutes / 60
-              : 0;
-        const nextMastery = clampMastery(
-          topic.mastery - previousMasteryDelta +
-            (status === "done"
-              ? 1
-              : status === "partial"
-                ? 0.5
-                : status === "missed"
-                  ? -0.25
-                  : 0),
-        );
-        const nextTopic: Topic = {
-          ...topic,
-          completedHours: clampCompletedHours(
-            topic.completedHours - previousCompletedHoursDelta + completedHoursDelta,
-            topic.estHours,
-          ),
-          mastery: nextMastery,
-          lastStudiedAt:
-            status === "planned" ? topic.lastStudiedAt : new Date().toISOString(),
-        };
-        nextTopic.status = deriveTopicStatus(nextTopic);
-        await updateTopic(nextTopic);
-      }
+      await applyTopicProgressForStudyBlockUpdate({
+        snapshot,
+        previousBlock: block,
+        nextBlock: updatedBlock,
+      });
     }
 
-    const now = new Date();
-    const preservedStudyBlockIds = snapshot.studyBlocks
-      .filter((candidate) => {
-        if (candidate.status !== "planned") {
-          return false;
-        }
-
-        if (candidate.id === block.id && status !== "planned") {
-          return false;
-        }
-
-        return new Date(candidate.end) > now;
-      })
-      .map((candidate) => candidate.id);
-
-    if (status === "planned") {
-      preservedStudyBlockIds.push(block.id);
-    }
+    const preservedStudyBlockIds = getStatusUpdatePreservedStudyBlockIds({
+      studyBlocks: snapshot.studyBlocks,
+      updatedBlockId: block.id,
+      nextStatus: status,
+      referenceDate: new Date(),
+    });
 
     const nextSnapshot = await recalculateCurrentWeek({
       preservedStudyBlockIds,
@@ -718,12 +698,13 @@ async function buildManualStudyBlock(options: {
   end: string;
   topicId: string;
   existingBlock?: StudyBlock;
+  allowEndedPast?: boolean;
 }) {
   const startDate = new Date(options.start);
   const endDate = new Date(options.end);
 
   if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate <= startDate) {
-    throw new Error("Choose a valid future date and time range for the study block.");
+    throw new Error("Choose a valid current or future time range for the study block.");
   }
 
   if (toDateKey(startDate) !== toDateKey(endDate)) {
@@ -735,8 +716,8 @@ async function buildManualStudyBlock(options: {
     throw new Error("Study blocks must be at least 30 minutes long.");
   }
 
-  if (endDate.getTime() <= Date.now()) {
-    throw new Error("Study-block scheduling edits are limited to future time slots.");
+  if (!options.allowEndedPast && endDate.getTime() <= Date.now()) {
+    throw new Error("Study-block scheduling edits are limited to blocks that have not ended yet.");
   }
 
   const draftBlock: StudyBlock = {
@@ -777,6 +758,7 @@ async function buildManualStudyBlock(options: {
       (candidate) => candidate.id !== draftBlock.id,
     ),
     subjectDeadlinesById,
+    allowCompletedTopics: options.allowEndedPast,
   });
   const nextCandidate = assignableCandidates.find((candidate) => candidate.topicId === options.topicId);
 
@@ -862,6 +844,66 @@ function clampCompletedHours(value: number, estHours: number) {
   return Math.min(estHours, Math.max(0, value));
 }
 
+function getProgressDeltaForStudyBlock(block: Pick<StudyBlock, "status" | "estimatedMinutes" | "actualMinutes">) {
+  const minutes = block.actualMinutes ?? block.estimatedMinutes;
+
+  switch (block.status) {
+    case "done":
+      return {
+        completedHours: minutes / 60,
+        mastery: 1,
+      };
+    case "partial":
+      return {
+        completedHours: minutes / 60,
+        mastery: 0.5,
+      };
+    case "missed":
+      return {
+        completedHours: 0,
+        mastery: -0.25,
+      };
+    default:
+      return {
+        completedHours: 0,
+        mastery: 0,
+      };
+  }
+}
+
+async function applyTopicProgressForStudyBlockUpdate(options: {
+  snapshot: Awaited<ReturnType<typeof loadPlannerSnapshot>>;
+  previousBlock: Pick<StudyBlock, "topicId" | "status" | "estimatedMinutes" | "actualMinutes"> | null;
+  nextBlock: Pick<StudyBlock, "topicId" | "status" | "estimatedMinutes" | "actualMinutes">;
+}) {
+  if (!options.nextBlock.topicId) {
+    return;
+  }
+
+  const topic = options.snapshot.topics.find((candidate) => candidate.id === options.nextBlock.topicId);
+  if (!topic) {
+    return;
+  }
+
+  const previousDelta =
+    options.previousBlock?.topicId === topic.id
+      ? getProgressDeltaForStudyBlock(options.previousBlock)
+      : { completedHours: 0, mastery: 0 };
+  const nextDelta = getProgressDeltaForStudyBlock(options.nextBlock);
+  const nextTopic: Topic = {
+    ...topic,
+    completedHours: clampCompletedHours(
+      topic.completedHours - previousDelta.completedHours + nextDelta.completedHours,
+      topic.estHours,
+    ),
+    mastery: clampMastery(topic.mastery - previousDelta.mastery + nextDelta.mastery),
+    lastStudiedAt:
+      options.nextBlock.status === "planned" ? topic.lastStudiedAt : new Date().toISOString(),
+  };
+  nextTopic.status = deriveTopicStatus(nextTopic);
+  await updateTopic(nextTopic);
+}
+
 function resolveAdditionalPracticeMinutes(block: StudyBlock, explicitMinutes?: number) {
   const baseMinutes = explicitMinutes ?? block.actualMinutes ?? block.estimatedMinutes;
   return Math.max(30, Math.ceil(Math.max(baseMinutes, 0) / 30) * 30);
@@ -903,6 +945,49 @@ function buildManualAssignmentReason(task: {
 }) {
   const unitLabel = task.unitTitle ? `${task.unitTitle}` : "the selected topic";
   return `Manually reassigned in the study-block drawer to ${task.title.toLowerCase()} from ${unitLabel}. The horizon was rebuilt around this change, but future regenerations can still move or retarget the block.`;
+}
+
+function isStudyBlockActiveAt(block: StudyBlock, referenceDate: Date) {
+  const blockStart = new Date(block.start).getTime();
+  const blockEnd = new Date(block.end).getTime();
+  const now = referenceDate.getTime();
+  return blockStart <= now && now < blockEnd;
+}
+
+export function getStatusUpdatePreservedStudyBlockIds(options: {
+  studyBlocks: StudyBlock[];
+  updatedBlockId: string;
+  nextStatus: StudyBlockStatus;
+  referenceDate: Date;
+}) {
+  const ids = options.studyBlocks
+    .filter((block) => {
+      if (block.id === options.updatedBlockId && options.nextStatus !== "planned") {
+        return false;
+      }
+
+      const blockEnd = new Date(block.end).getTime();
+      if (blockEnd <= options.referenceDate.getTime()) {
+        return false;
+      }
+
+      const isActiveBlock =
+        ["planned", "rescheduled"].includes(block.status) &&
+        isStudyBlockActiveAt(block, options.referenceDate);
+
+      if (isActiveBlock) {
+        return true;
+      }
+
+      return block.status === "planned";
+    })
+    .map((block) => block.id);
+
+  if (options.nextStatus === "planned" && !ids.includes(options.updatedBlockId)) {
+    ids.push(options.updatedBlockId);
+  }
+
+  return ids;
 }
 
 function buildManualStudyBlockReason(
