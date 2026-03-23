@@ -2789,6 +2789,58 @@ test("weekly focus applies across the week and daily focus overrides it on a spe
   assert.ok(wednesdayChemistryMinutes >= wednesdayPhysicsMinutes);
 });
 
+test("future weekly focus retains work for that later week instead of letting earlier weeks consume it first", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const base = generateStudyPlanHorizon({
+    startWeek: startOfPlannerWeek(referenceDate),
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: [],
+    focusedWeeks: [],
+    preferences: dataset.preferences,
+    existingStudyBlocks: [],
+  });
+  const withFocusedWeek = generateStudyPlanHorizon({
+    startWeek: startOfPlannerWeek(referenceDate),
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: [],
+    focusedWeeks: [
+      {
+        id: "future-week-focus-physics",
+        weekStart: "2026-03-30",
+        subjectIds: ["physics-hl"],
+      },
+    ],
+    preferences: dataset.preferences,
+    existingStudyBlocks: [],
+  });
+
+  const sumWeekMinutes = (blocks: StudyBlock[], weekStartKey: string, subjectId: string) =>
+    blocks
+      .filter((block) => block.weekStart === weekStartKey && block.subjectId === subjectId)
+      .reduce((total, block) => total + block.estimatedMinutes, 0);
+
+  const basePhysicsMinutes = sumWeekMinutes(base.studyBlocks, "2026-03-30", "physics-hl");
+  const focusedPhysicsMinutes = sumWeekMinutes(
+    withFocusedWeek.studyBlocks,
+    "2026-03-30",
+    "physics-hl",
+  );
+
+  assert.ok(
+    focusedPhysicsMinutes >= basePhysicsMinutes + 120,
+    "expected the later focused week to retain substantially more physics time",
+  );
+});
+
 test("multi-subject focus on a low-capacity day relaxes once the reserved share is nearly met", () => {
   const referenceDate = new Date("2026-03-16T08:00:00");
   const dataset = buildSeedDataset(referenceDate);

@@ -552,6 +552,90 @@ function buildFullCoverageHoursBySubject(subjects: Subject[], tasks: TaskCandida
   return requiredHoursBySubject;
 }
 
+function buildFutureFocusedReserveMinutesBySubject(options: {
+  currentWeek: Date;
+  endWeek: Date;
+  topics: Topic[];
+  fixedEvents: import("@/lib/types/planner").FixedEvent[];
+  sickDays?: SickDay[];
+  focusedDays?: FocusedDay[];
+  focusedWeeks?: FocusedWeek[];
+  preferences: Preferences;
+  subjectDeadlinesById: Record<string, string>;
+  existingPlannedBlocks: StudyBlock[];
+}) {
+  const remainingTasks = buildTaskCandidates({
+    topics: options.topics,
+    existingPlannedBlocks: options.existingPlannedBlocks,
+    referenceDate: getPlannerReferenceDate(options.currentWeek),
+    subjectDeadlinesById: options.subjectDeadlinesById,
+  });
+  const remainingRequiredMinutesBySubject = recordFromKeys(subjectIds, () => 0);
+
+  remainingTasks.forEach((task) => {
+    if (!task.subjectId) {
+      return;
+    }
+
+    remainingRequiredMinutesBySubject[task.subjectId] += task.remainingMinutes;
+  });
+
+  const reserveMinutesBySubject = recordFromKeys(subjectIds, () => 0);
+
+  for (
+    let futureWeek = addDays(options.currentWeek, 7);
+    futureWeek.getTime() <= options.endWeek.getTime();
+    futureWeek = addDays(futureWeek, 7)
+  ) {
+    const focusedSubjectsByDate = buildFocusedSubjectsByDate({
+      weekStart: futureWeek,
+      focusedDays: options.focusedDays,
+      focusedWeeks: options.focusedWeeks,
+    });
+
+    if (!Object.keys(focusedSubjectsByDate).length) {
+      continue;
+    }
+
+    const futureWeekSlots = calculateFreeSlots({
+      weekStart: futureWeek,
+      fixedEvents: options.fixedEvents,
+      sickDays: options.sickDays ?? [],
+      preferences: options.preferences,
+      blockedStudyBlocks: [],
+      planningStart: futureWeek,
+    });
+    const dayCapacityByDate = buildDayCapacityByDate(futureWeekSlots, 0);
+    const focusedTargetMinutesByDate = buildFocusedTargetMinutesByDate({
+      focusedSubjectsByDate,
+      dayCapacityByDate,
+    });
+    const focusedSubjectTargetMinutesByDate = buildFocusedSubjectTargetMinutesByDate({
+      focusedSubjectsByDate,
+      focusedTargetMinutesByDate,
+      requiredMinutesBySubject: remainingRequiredMinutesBySubject,
+    });
+
+    Object.values(focusedSubjectTargetMinutesByDate).forEach((subjectTargetMinutes) => {
+      Object.entries(subjectTargetMinutes).forEach(([subjectId, minutes]) => {
+        if (subjectId in reserveMinutesBySubject) {
+          reserveMinutesBySubject[subjectId as keyof typeof reserveMinutesBySubject] += minutes;
+        }
+      });
+    });
+  }
+
+  Object.keys(reserveMinutesBySubject).forEach((subjectId) => {
+    const typedSubjectId = subjectId as keyof typeof reserveMinutesBySubject;
+    reserveMinutesBySubject[typedSubjectId] = Math.min(
+      reserveMinutesBySubject[typedSubjectId],
+      remainingRequiredMinutesBySubject[typedSubjectId],
+    );
+  });
+
+  return reserveMinutesBySubject;
+}
+
 interface AllocationPassPolicy {
   allowLowEnergyHeavy?: boolean;
   allowLateNightDeepWork?: boolean;
@@ -618,6 +702,7 @@ function allocateTasksToSlots(options: {
   lockedBlocks: StudyBlock[];
   priorPlannedBlocks?: StudyBlock[];
   requiredHoursBySubject?: Record<string, number>;
+  futureFocusedReserveMinutesBySubject?: Record<string, number>;
   dailyCapBoostMinutes?: number;
   heavySessionBoost?: number;
   minBreakMinutes?: number;
@@ -695,12 +780,21 @@ function allocateTasksToSlots(options: {
 
     const requiredMinutes = requiredMinutesBySubject[task.subjectId] ?? 0;
     const assignedMinutes = assignedMinutesBySubject[task.subjectId] ?? 0;
+    const futureFocusedReserveMinutes =
+      options.futureFocusedReserveMinutesBySubject?.[task.subjectId] ?? 0;
+    const allocatableMinutesBeforeFutureFocus = Math.max(
+      requiredMinutes - futureFocusedReserveMinutes,
+      0,
+    );
 
     if (task.kind === "review") {
-      return assignedMinutes >= requiredMinutes + 45;
+      return assignedMinutes >= allocatableMinutesBeforeFutureFocus + 45;
     }
 
-    return requiredMinutes > 0 && assignedMinutes >= requiredMinutes;
+    return (
+      requiredMinutes > 0 &&
+      assignedMinutes >= allocatableMinutesBeforeFutureFocus
+    );
   }
 
   function allWeeklyTargetsSatisfied() {
@@ -1775,6 +1869,7 @@ export function generateStudyPlanForWeek(options: {
   preferences: Preferences;
   lockedBlocks?: StudyBlock[];
   existingPlannedBlocks?: StudyBlock[];
+  futureFocusedReserveMinutesBySubject?: Record<string, number>;
   dailyCapBoostMinutes?: number;
   horizonStartDate?: Date;
 }): SchedulerResult {
@@ -1960,6 +2055,7 @@ export function generateStudyPlanForWeek(options: {
       },
       fillAvailableStudyDays: false,
       focusedSubjectsByDate,
+      futureFocusedReserveMinutesBySubject: options.futureFocusedReserveMinutesBySubject,
       allowLargeGapAbsorption: false,
     });
 
@@ -2033,6 +2129,7 @@ export function generateStudyPlanForWeek(options: {
       blockSelectionPolicy: passPolicy.blockSelectionPolicy,
       fillAvailableStudyDays: shouldFillAvailableStudyDays,
       focusedSubjectsByDate,
+      futureFocusedReserveMinutesBySubject: options.futureFocusedReserveMinutesBySubject,
     });
 
     if (!result.scheduledBlocks.length) {
@@ -2096,6 +2193,7 @@ export function generateStudyPlanForWeek(options: {
         },
         fillAvailableStudyDays: true,
         focusedSubjectsByDate,
+        futureFocusedReserveMinutesBySubject: options.futureFocusedReserveMinutesBySubject,
       });
 
       if (olympiadOnlyResult.scheduledBlocks.length) {
@@ -2243,6 +2341,9 @@ export function generateStudyPlanHorizon(options: {
   const horizonStudyBlocks: StudyBlock[] = [];
   const weeklyPlans: WeeklyPlan[] = [];
   const accumulatedBlocks: StudyBlock[] = [];
+  const subjectDeadlinesById = Object.fromEntries(
+    options.subjects.map((subject) => [subject.id, subject.deadline]),
+  );
 
   for (
     let currentWeek = startWeek;
@@ -2257,6 +2358,18 @@ export function generateStudyPlanHorizon(options: {
 
       return toDateKey(startOfPlannerWeek(new Date(block.start))) === weekKey;
     });
+    const futureFocusedReserveMinutesBySubject = buildFutureFocusedReserveMinutesBySubject({
+      currentWeek,
+      endWeek,
+      topics: options.topics,
+      fixedEvents: options.fixedEvents,
+      sickDays: options.sickDays,
+      focusedDays: options.focusedDays,
+      focusedWeeks: options.focusedWeeks,
+      preferences: options.preferences,
+      subjectDeadlinesById,
+      existingPlannedBlocks: [...accumulatedBlocks, ...lockedBlocks],
+    });
     const result = generateStudyPlanForWeek({
       weekStart: currentWeek,
       goals: options.goals,
@@ -2269,6 +2382,7 @@ export function generateStudyPlanHorizon(options: {
       preferences: options.preferences,
       lockedBlocks,
       existingPlannedBlocks: [...accumulatedBlocks, ...lockedBlocks],
+      futureFocusedReserveMinutesBySubject,
       horizonStartDate,
     });
 
