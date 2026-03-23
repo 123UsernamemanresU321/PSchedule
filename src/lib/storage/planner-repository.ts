@@ -19,6 +19,7 @@ import { subjectIds } from "@/lib/constants/planner";
 import type {
   CompletionLog,
   FocusedDay,
+  FocusedWeek,
   PlannerExportPayload,
   Preferences,
   SeedDataset,
@@ -28,7 +29,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-20-olympiad-frontier-v30";
+const PLANNING_MODEL_VERSION = "2026-03-23-weekly-focus-v31";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v8";
@@ -212,6 +213,20 @@ function normalizeFocusedDay(focusedDay: FocusedDay) {
   } satisfies FocusedDay;
 }
 
+function normalizeFocusedWeek(focusedWeek: FocusedWeek) {
+  return {
+    ...focusedWeek,
+    weekStart: toDateKey(startOfPlannerWeek(new Date(`${focusedWeek.weekStart}T00:00:00`))),
+    subjectIds: Array.from(
+      new Set(
+        focusedWeek.subjectIds.filter((subjectId): subjectId is SubjectId =>
+          subjectIds.includes(subjectId as SubjectId),
+        ),
+      ),
+    ).sort((left, right) => left.localeCompare(right)) as SubjectId[],
+  } satisfies FocusedWeek;
+}
+
 function normalizePreferences(preferences: Preferences): Preferences {
   const seedPreferences = buildSeedPreferences();
 
@@ -317,6 +332,7 @@ export interface PlannerSnapshot {
   fixedEvents: PlannerExportPayload["fixedEvents"];
   sickDays: PlannerExportPayload["sickDays"];
   focusedDays: PlannerExportPayload["focusedDays"];
+  focusedWeeks: PlannerExportPayload["focusedWeeks"];
   studyBlocks: PlannerExportPayload["studyBlocks"];
   completionLogs: PlannerExportPayload["completionLogs"];
   weeklyPlans: PlannerExportPayload["weeklyPlans"];
@@ -346,6 +362,7 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
     fixedEvents: snapshot.fixedEvents,
     sickDays: snapshot.sickDays,
     focusedDays: snapshot.focusedDays,
+    focusedWeeks: snapshot.focusedWeeks,
     preferences: snapshot.preferences,
     existingStudyBlocks: snapshot.studyBlocks,
   });
@@ -366,6 +383,7 @@ async function refreshPlanningModel(_snapshot: PlannerSnapshot, referenceDate: D
     fixedEvents: refreshedSnapshot.fixedEvents,
     sickDays: refreshedSnapshot.sickDays,
     focusedDays: refreshedSnapshot.focusedDays,
+    focusedWeeks: refreshedSnapshot.focusedWeeks,
     preferences: refreshedSnapshot.preferences,
     existingStudyBlocks: refreshedSnapshot.studyBlocks,
   });
@@ -776,6 +794,7 @@ async function writeSeedDataset(seed: SeedDataset) {
       db.fixedEvents,
       db.sickDays,
       db.focusedDays,
+      db.focusedWeeks,
       db.preferences,
       db.meta,
     ],
@@ -791,6 +810,10 @@ async function writeSeedDataset(seed: SeedDataset) {
       await db.focusedDays.clear();
       if (seed.focusedDays.length) {
         await db.focusedDays.bulkPut(seed.focusedDays.map(normalizeFocusedDay));
+      }
+      await db.focusedWeeks.clear();
+      if (seed.focusedWeeks.length) {
+        await db.focusedWeeks.bulkPut(seed.focusedWeeks.map(normalizeFocusedWeek));
       }
       await db.preferences.put(seed.preferences);
       await db.meta.put({ key: "seeded", value: "true" });
@@ -817,6 +840,7 @@ export async function loadPlannerSnapshot(): Promise<PlannerSnapshot> {
     fixedEvents,
     sickDays,
     focusedDays,
+    focusedWeeks,
     studyBlocks,
     completionLogs,
     weeklyPlans,
@@ -829,6 +853,7 @@ export async function loadPlannerSnapshot(): Promise<PlannerSnapshot> {
       db.fixedEvents.toArray(),
       db.sickDays.toArray(),
       db.focusedDays.toArray(),
+      db.focusedWeeks.toArray(),
       db.studyBlocks.toArray(),
       db.completionLogs.toArray(),
       db.weeklyPlans.toArray(),
@@ -846,6 +871,7 @@ export async function loadPlannerSnapshot(): Promise<PlannerSnapshot> {
     fixedEvents: fixedEvents.map(normalizeFixedEvent),
     sickDays: sickDays.map(normalizeSickDay),
     focusedDays: focusedDays.map(normalizeFocusedDay),
+    focusedWeeks: focusedWeeks.map(normalizeFocusedWeek),
     studyBlocks: studyBlocks.map(normalizeStudyBlock),
     completionLogs,
     weeklyPlans: weeklyPlans.map((weeklyPlan) => normalizeWeeklyPlan(weeklyPlan, new Date())),
@@ -867,6 +893,7 @@ export async function initializePlannerDatabase(referenceDate = new Date()) {
       fixedEvents: seedDataset.fixedEvents,
       sickDays: seedDataset.sickDays,
       focusedDays: seedDataset.focusedDays,
+      focusedWeeks: seedDataset.focusedWeeks,
       preferences: seedDataset.preferences,
     });
 
@@ -971,12 +998,34 @@ export async function saveFocusedDay(focusedDay: FocusedDay) {
   });
 }
 
+export async function saveFocusedWeek(focusedWeek: FocusedWeek) {
+  const normalizedFocusedWeek = normalizeFocusedWeek(focusedWeek);
+
+  await db.transaction("rw", db.focusedWeeks, async () => {
+    const duplicateIds = (
+      await db.focusedWeeks.where("weekStart").equals(normalizedFocusedWeek.weekStart).toArray()
+    )
+      .filter((candidate) => candidate.id !== normalizedFocusedWeek.id)
+      .map((candidate) => candidate.id);
+
+    if (duplicateIds.length) {
+      await db.focusedWeeks.bulkDelete(duplicateIds);
+    }
+
+    await db.focusedWeeks.put(normalizedFocusedWeek);
+  });
+}
+
 export async function deleteSickDayById(id: string) {
   await db.sickDays.delete(id);
 }
 
 export async function deleteFocusedDayById(id: string) {
   await db.focusedDays.delete(id);
+}
+
+export async function deleteFocusedWeekById(id: string) {
+  await db.focusedWeeks.delete(id);
 }
 
 export async function deleteFixedEventById(id: string) {
@@ -1077,6 +1126,7 @@ export async function importPlannerData(rawJson: string) {
       db.fixedEvents,
       db.sickDays,
       db.focusedDays,
+      db.focusedWeeks,
       db.studyBlocks,
       db.completionLogs,
       db.weeklyPlans,
@@ -1091,6 +1141,7 @@ export async function importPlannerData(rawJson: string) {
         db.fixedEvents.clear(),
         db.sickDays.clear(),
         db.focusedDays.clear(),
+        db.focusedWeeks.clear(),
         db.studyBlocks.clear(),
         db.completionLogs.clear(),
         db.weeklyPlans.clear(),
@@ -1104,6 +1155,7 @@ export async function importPlannerData(rawJson: string) {
       await db.fixedEvents.bulkPut(payload.fixedEvents.map(normalizeFixedEvent));
       await db.sickDays.bulkPut((payload.sickDays ?? []).map(normalizeSickDay));
       await db.focusedDays.bulkPut((payload.focusedDays ?? []).map(normalizeFocusedDay));
+      await db.focusedWeeks.bulkPut((payload.focusedWeeks ?? []).map(normalizeFocusedWeek));
       await db.studyBlocks.bulkPut(importedStudyBlocks);
       await db.completionLogs.bulkPut(payload.completionLogs);
       await db.preferences.put(normalizePreferences(payload.preferences));

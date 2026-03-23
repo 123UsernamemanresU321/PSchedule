@@ -101,6 +101,13 @@ export const focusedDaySchema = z.object({
   notes: z.string().optional(),
 });
 
+export const focusedWeekSchema = z.object({
+  id: z.string(),
+  weekStart: z.string(),
+  subjectIds: z.array(z.string()).min(1),
+  notes: z.string().optional(),
+});
+
 export const scoreBreakdownSchema = z.object({
   priorityWeight: z.number(),
   deadlineUrgency: z.number(),
@@ -342,6 +349,7 @@ export const plannerExportSchema = z.object({
   fixedEvents: z.array(fixedEventSchema),
   sickDays: z.array(sickDaySchema).optional().default([]),
   focusedDays: z.array(focusedDaySchema).optional().default([]),
+  focusedWeeks: z.array(focusedWeekSchema).optional().default([]),
   studyBlocks: z.array(studyBlockSchema),
   completionLogs: z.array(completionLogSchema),
   weeklyPlans: z.array(weeklyPlanSchema),

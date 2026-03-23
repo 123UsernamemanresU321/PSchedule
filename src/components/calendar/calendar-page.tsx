@@ -2,7 +2,17 @@
 
 import { useState } from "react";
 import { addDays, subDays } from "date-fns";
-import { BookOpen, CalendarClock, ChevronLeft, ChevronRight, Crosshair, Music4, Plus, RefreshCw } from "lucide-react";
+import {
+  BookOpen,
+  CalendarClock,
+  ChevronLeft,
+  ChevronRight,
+  Crosshair,
+  Music4,
+  Plus,
+  RefreshCw,
+  UtensilsCrossed,
+} from "lucide-react";
 
 import {
   EventEditorDialog,
@@ -10,6 +20,7 @@ import {
 } from "@/components/calendar/event-editor-dialog";
 import { CommitmentOverrideDialog } from "@/components/calendar/commitment-override-dialog";
 import { FocusDayDialog } from "@/components/calendar/focus-day-dialog";
+import { FocusWeekDialog } from "@/components/calendar/focus-week-dialog";
 import { RecoveryWindowOverrideDialog } from "@/components/calendar/recovery-window-override-dialog";
 import { HorizonRoadmap } from "@/components/planner/horizon-roadmap";
 import {
@@ -18,6 +29,7 @@ import {
 } from "@/components/planner/study-block-editor-dialog";
 import { PlannerCalendar } from "@/components/calendar/planner-calendar";
 import { PageHeader } from "@/components/layout/page-header";
+import { ActionMenu } from "@/components/ui/action-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,6 +43,7 @@ export function CalendarPage() {
   const fixedEvents = usePlannerStore((state) => state.fixedEvents);
   const sickDays = usePlannerStore((state) => state.sickDays);
   const focusedDays = usePlannerStore((state) => state.focusedDays);
+  const focusedWeeks = usePlannerStore((state) => state.focusedWeeks);
   const preferences = usePlannerStore((state) => state.preferences);
   const studyBlocks = usePlannerStore((state) => state.studyBlocks);
   const topics = usePlannerStore((state) => state.topics);
@@ -40,9 +53,11 @@ export function CalendarPage() {
   const setCurrentWeekStart = usePlannerStore((state) => state.setCurrentWeekStart);
   const savePlannerFixedEvent = usePlannerStore((state) => state.saveFixedEvent);
   const saveFocusedDay = usePlannerStore((state) => state.saveFocusedDay);
+  const saveFocusedWeek = usePlannerStore((state) => state.saveFocusedWeek);
   const saveManualStudyBlock = usePlannerStore((state) => state.saveManualStudyBlock);
   const deleteFixedEvent = usePlannerStore((state) => state.deleteFixedEvent);
   const deleteFocusedDay = usePlannerStore((state) => state.deleteFocusedDay);
+  const deleteFocusedWeek = usePlannerStore((state) => state.deleteFocusedWeek);
   const updatePreferences = usePlannerStore((state) => state.updatePreferences);
   const selectStudyBlock = usePlannerStore((state) => state.selectStudyBlock);
   const [editorDraft, setEditorDraft] = useState<EventEditorDraft>(null);
@@ -57,6 +72,7 @@ export function CalendarPage() {
     date: string;
   } | null>(null);
   const [focusDayDraftDate, setFocusDayDraftDate] = useState<string | null>(null);
+  const [focusWeekDraftWeekStart, setFocusWeekDraftWeekStart] = useState<string | null>(null);
   const hasConfiguredConstraints =
     !!fixedEvents.length || !!preferences?.schoolSchedule.enabled || !!preferences?.holidaySchedule.enabled;
   const roadmapSummary = getHorizonRoadmapSummary(weeklyPlans, topics, currentWeekStart);
@@ -113,95 +129,105 @@ export function CalendarPage() {
             >
               Today
             </Button>
-            <Button
-              data-testid="calendar-adjust-lunch"
-              variant="outline"
-              onClick={() =>
-                setRecoveryOverrideDraft({
-                  label: "Lunch break",
-                  date: defaultOverrideDate,
-                })
-              }
-            >
-              Adjust lunch
-            </Button>
-            <Button
-              data-testid="calendar-adjust-dinner"
-              variant="outline"
-              onClick={() =>
-                setRecoveryOverrideDraft({
-                  label: "Dinner reset",
-                  date: defaultOverrideDate,
-                })
-              }
-            >
-              Adjust dinner
-            </Button>
-            <Button
-              data-testid="calendar-adjust-piano"
-              variant="outline"
-              onClick={() =>
-                setCommitmentOverrideDraft({
-                  ruleId: "piano-practice",
-                  date: defaultOverrideDate,
-                  mode: "add",
-                })
-              }
-            >
-              <Music4 className="h-4 w-4" />
-              Adjust piano
-            </Button>
-            <Button
-              data-testid="calendar-adjust-homework"
-              variant="outline"
-              onClick={() =>
-                setCommitmentOverrideDraft({
-                  ruleId: "term-homework",
-                  date: defaultOverrideDate,
-                  mode: "add",
-                })
-              }
-            >
-              <BookOpen className="h-4 w-4" />
-              Adjust homework
-            </Button>
-            <Button
-              data-testid="calendar-set-focus"
-              variant="outline"
-              onClick={() => setFocusDayDraftDate(defaultOverrideDate)}
-            >
-              <Crosshair className="h-4 w-4" />
-              Set focus
-            </Button>
-            <Button
-              data-testid="calendar-add-study-block"
-              variant="outline"
-              onClick={() =>
-                setStudyBlockEditorDraft({
-                  mode: "create",
-                  start: defaultCreateStart.toISOString(),
-                  end: defaultCreateEnd.toISOString(),
-                })
-              }
-            >
-              <BookOpen className="h-4 w-4" />
-              Add study block
-            </Button>
-            <Button
-              data-testid="calendar-add-event"
-              variant="outline"
-              onClick={() =>
-                setEditorDraft({
-                  mode: "create",
-                  start: defaultCreateStart.toISOString(),
-                  end: defaultCreateEnd.toISOString(),
-                  allDay: false,
-                })
-              }
-            >
-              <Plus className="h-4 w-4" />
-              Add event
-            </Button>
+            <ActionMenu
+              label="Add"
+              icon={<Plus className="h-4 w-4" />}
+              testId="calendar-add-menu"
+              items={[
+                {
+                  id: "add-study-block",
+                  label: "Add study block",
+                  icon: <BookOpen className="h-4 w-4" />,
+                  testId: "calendar-add-study-block",
+                  onSelect: () =>
+                    setStudyBlockEditorDraft({
+                      mode: "create",
+                      start: defaultCreateStart.toISOString(),
+                      end: defaultCreateEnd.toISOString(),
+                    }),
+                },
+                {
+                  id: "add-event",
+                  label: "Add event",
+                  icon: <Plus className="h-4 w-4" />,
+                  testId: "calendar-add-event",
+                  onSelect: () =>
+                    setEditorDraft({
+                      mode: "create",
+                      start: defaultCreateStart.toISOString(),
+                      end: defaultCreateEnd.toISOString(),
+                      allDay: false,
+                    }),
+                },
+                {
+                  id: "set-day-focus",
+                  label: "Set day focus",
+                  icon: <Crosshair className="h-4 w-4" />,
+                  testId: "calendar-set-focus",
+                  onSelect: () => setFocusDayDraftDate(defaultOverrideDate),
+                },
+                {
+                  id: "set-week-focus",
+                  label: "Set week focus",
+                  icon: <Crosshair className="h-4 w-4" />,
+                  testId: "calendar-set-week-focus",
+                  onSelect: () => setFocusWeekDraftWeekStart(currentWeekStart),
+                },
+              ]}
+            />
+            <ActionMenu
+              label="Adjust"
+              icon={<RefreshCw className="h-4 w-4" />}
+              testId="calendar-adjust-menu"
+              items={[
+                {
+                  id: "adjust-lunch",
+                  label: "Adjust lunch",
+                  icon: <UtensilsCrossed className="h-4 w-4" />,
+                  testId: "calendar-adjust-lunch",
+                  onSelect: () =>
+                    setRecoveryOverrideDraft({
+                      label: "Lunch break",
+                      date: defaultOverrideDate,
+                    }),
+                },
+                {
+                  id: "adjust-dinner",
+                  label: "Adjust dinner",
+                  icon: <UtensilsCrossed className="h-4 w-4" />,
+                  testId: "calendar-adjust-dinner",
+                  onSelect: () =>
+                    setRecoveryOverrideDraft({
+                      label: "Dinner reset",
+                      date: defaultOverrideDate,
+                    }),
+                },
+                {
+                  id: "adjust-piano",
+                  label: "Adjust piano",
+                  icon: <Music4 className="h-4 w-4" />,
+                  testId: "calendar-adjust-piano",
+                  onSelect: () =>
+                    setCommitmentOverrideDraft({
+                      ruleId: "piano-practice",
+                      date: defaultOverrideDate,
+                      mode: "add",
+                    }),
+                },
+                {
+                  id: "adjust-homework",
+                  label: "Adjust homework",
+                  icon: <BookOpen className="h-4 w-4" />,
+                  testId: "calendar-adjust-homework",
+                  onSelect: () =>
+                    setCommitmentOverrideDraft({
+                      ruleId: "term-homework",
+                      date: defaultOverrideDate,
+                      mode: "add",
+                    }),
+                },
+              ]}
+            />
             <Button data-testid="calendar-regenerate-horizon" onClick={() => void regenerateHorizon()}>
               <RefreshCw className="h-4 w-4" />
               Regenerate horizon
@@ -252,6 +278,7 @@ export function CalendarPage() {
           fixedEvents={fixedEvents}
           sickDays={sickDays}
           focusedDays={focusedDays}
+          focusedWeeks={focusedWeeks}
           preferences={preferences}
           studyBlocks={studyBlocks}
           subjects={subjects}
@@ -277,6 +304,7 @@ export function CalendarPage() {
             })
           }
           onManageFocusDay={(dateKey) => setFocusDayDraftDate(dateKey)}
+          onManageFocusWeek={(weekStartKey) => setFocusWeekDraftWeekStart(weekStartKey)}
           onEditFixedEvent={({ event, occurrenceStart, occurrenceEnd }) =>
             setEditorDraft({
               mode: "edit",
@@ -360,6 +388,31 @@ export function CalendarPage() {
             id: focusedDay.id || createId("focused-day"),
           });
           setFocusDayDraftDate(null);
+        }}
+      />
+
+      <FocusWeekDialog
+        key={focusWeekDraftWeekStart ?? "focus-week-dialog"}
+        open={!!focusWeekDraftWeekStart}
+        weekStart={focusWeekDraftWeekStart}
+        existingFocusedWeek={
+          focusWeekDraftWeekStart
+            ? focusedWeeks.find((focusedWeek) => focusedWeek.weekStart === focusWeekDraftWeekStart) ??
+              null
+            : null
+        }
+        subjects={subjects}
+        onClose={() => setFocusWeekDraftWeekStart(null)}
+        onDelete={async (id) => {
+          await deleteFocusedWeek(id);
+          setFocusWeekDraftWeekStart(null);
+        }}
+        onSave={async (focusedWeek) => {
+          await saveFocusedWeek({
+            ...focusedWeek,
+            id: focusedWeek.id || createId("focused-week"),
+          });
+          setFocusWeekDraftWeekStart(null);
         }}
       />
 

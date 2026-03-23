@@ -2572,7 +2572,314 @@ test("multi-subject focused days split work by pressure instead of equally", () 
   assert.ok(physicsMinutes >= chemistryMinutes);
 });
 
-test("focused days still keep all main-subject topic hours fully scheduled in the seeded horizon", () => {
+test("weekly focus applies across the week and daily focus overrides it on a specific date", () => {
+  const referenceDate = new Date("2026-03-16T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const basePhysics = dataset.subjects.find((subject) => subject.id === "physics-hl");
+  const baseChemistry = dataset.subjects.find((subject) => subject.id === "chemistry-hl");
+  const baseMaths = dataset.subjects.find((subject) => subject.id === "maths-aa-hl");
+
+  assert.ok(basePhysics);
+  assert.ok(baseChemistry);
+  assert.ok(baseMaths);
+
+  const result = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T00:00:00"),
+    goals: [
+      {
+        id: "goal-physics",
+        title: "Physics goal",
+        subjectId: "physics-hl",
+        deadline: "2026-05-30",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+      {
+        id: "goal-chemistry",
+        title: "Chemistry goal",
+        subjectId: "chemistry-hl",
+        deadline: "2026-05-30",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+      {
+        id: "goal-maths",
+        title: "Maths goal",
+        subjectId: "maths-aa-hl",
+        deadline: "2026-05-30",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [basePhysics, baseChemistry, baseMaths],
+    topics: [
+      {
+        id: "physics-week-focus-topic",
+        subjectId: "physics-hl",
+        unitId: "week-focus-physics",
+        unitTitle: "Week focus physics",
+        title: "Physics week focus topic",
+        subtopics: ["Physics focus work"],
+        estHours: 8,
+        completedHours: 0,
+        difficulty: 3,
+        status: "not_started",
+        mastery: 0,
+        reviewDue: null,
+        lastStudiedAt: null,
+        sourceMaterials: [],
+        preferredBlockTypes: ["drill"],
+        order: 1,
+      },
+      {
+        id: "chemistry-day-override-topic",
+        subjectId: "chemistry-hl",
+        unitId: "day-focus-chemistry",
+        unitTitle: "Day focus chemistry",
+        title: "Chemistry day override topic",
+        subtopics: ["Chemistry focus work"],
+        estHours: 8,
+        completedHours: 0,
+        difficulty: 3,
+        status: "not_started",
+        mastery: 0,
+        reviewDue: null,
+        lastStudiedAt: null,
+        sourceMaterials: [],
+        preferredBlockTypes: ["drill"],
+        order: 1,
+      },
+      {
+        id: "maths-background-topic",
+        subjectId: "maths-aa-hl",
+        unitId: "background-maths",
+        unitTitle: "Background maths",
+        title: "Maths background topic",
+        subtopics: ["Background maths work"],
+        estHours: 8,
+        completedHours: 0,
+        difficulty: 3,
+        status: "not_started",
+        mastery: 0,
+        reviewDue: null,
+        lastStudiedAt: null,
+        sourceMaterials: [],
+        preferredBlockTypes: ["drill"],
+        order: 1,
+      },
+    ],
+    fixedEvents: [],
+    preferences: {
+      ...dataset.preferences,
+      reservedCommitmentRules: [],
+      schoolSchedule: {
+        ...dataset.preferences.schoolSchedule,
+        enabled: false,
+        terms: [],
+      },
+      holidaySchedule: {
+        ...dataset.preferences.holidaySchedule,
+        enabled: true,
+      },
+    },
+    focusedDays: [
+      {
+        id: "day-focus-override",
+        date: "2026-03-25",
+        subjectIds: ["chemistry-hl"],
+      },
+    ],
+    focusedWeeks: [
+      {
+        id: "week-focus-physics",
+        weekStart: "2026-03-23",
+        subjectIds: ["physics-hl"],
+      },
+    ],
+  });
+
+  const tuesdayBlocks = result.studyBlocks.filter(
+    (block) => block.date === "2026-03-24" && block.subjectId,
+  );
+  const wednesdayBlocks = result.studyBlocks.filter(
+    (block) => block.date === "2026-03-25" && block.subjectId,
+  );
+  const tuesdayPhysicsMinutes = tuesdayBlocks
+    .filter((block) => block.subjectId === "physics-hl")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+  const tuesdayChemistryMinutes = tuesdayBlocks
+    .filter((block) => block.subjectId === "chemistry-hl")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+  const wednesdayPhysicsMinutes = wednesdayBlocks
+    .filter((block) => block.subjectId === "physics-hl")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+  const wednesdayChemistryMinutes = wednesdayBlocks
+    .filter((block) => block.subjectId === "chemistry-hl")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+
+  assert.ok(tuesdayPhysicsMinutes > 0, "expected weekly focus to add physics time on Tuesday");
+  assert.ok(tuesdayPhysicsMinutes >= tuesdayChemistryMinutes);
+  assert.ok(
+    wednesdayChemistryMinutes > 0,
+    "expected the daily override to add chemistry time on Wednesday",
+  );
+  assert.ok(wednesdayChemistryMinutes >= wednesdayPhysicsMinutes);
+});
+
+test("multi-subject focus on a low-capacity day relaxes once the reserved share is nearly met", () => {
+  const referenceDate = new Date("2026-03-16T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const basePhysics = dataset.subjects.find((subject) => subject.id === "physics-hl");
+  const baseChemistry = dataset.subjects.find((subject) => subject.id === "chemistry-hl");
+  const baseMaths = dataset.subjects.find((subject) => subject.id === "maths-aa-hl");
+
+  assert.ok(basePhysics);
+  assert.ok(baseChemistry);
+  assert.ok(baseMaths);
+
+  const result = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T00:00:00"),
+    goals: [
+      {
+        id: "goal-physics",
+        title: "Physics goal",
+        subjectId: "physics-hl",
+        deadline: "2026-05-30",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+      {
+        id: "goal-chemistry",
+        title: "Chemistry goal",
+        subjectId: "chemistry-hl",
+        deadline: "2026-05-30",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+      {
+        id: "goal-maths-urgent",
+        title: "Maths urgent goal",
+        subjectId: "maths-aa-hl",
+        deadline: "2026-03-24",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [
+      { ...basePhysics, deadline: "2026-05-30" },
+      { ...baseChemistry, deadline: "2026-05-30" },
+      { ...baseMaths, deadline: "2026-03-24" },
+    ],
+    topics: [
+      {
+        id: "physics-focus-topic",
+        subjectId: "physics-hl",
+        unitId: "low-capacity-physics",
+        unitTitle: "Low-capacity physics",
+        title: "Physics focus topic",
+        subtopics: ["Physics focus work"],
+        estHours: 8,
+        completedHours: 0,
+        difficulty: 3,
+        status: "not_started",
+        mastery: 0,
+        reviewDue: null,
+        lastStudiedAt: null,
+        sourceMaterials: [],
+        preferredBlockTypes: ["drill"],
+        order: 1,
+      },
+      {
+        id: "chemistry-focus-topic",
+        subjectId: "chemistry-hl",
+        unitId: "low-capacity-chemistry",
+        unitTitle: "Low-capacity chemistry",
+        title: "Chemistry focus topic",
+        subtopics: ["Chemistry focus work"],
+        estHours: 8,
+        completedHours: 0,
+        difficulty: 3,
+        status: "not_started",
+        mastery: 0,
+        reviewDue: null,
+        lastStudiedAt: null,
+        sourceMaterials: [],
+        preferredBlockTypes: ["drill"],
+        order: 1,
+      },
+      {
+        id: "maths-urgent-topic",
+        subjectId: "maths-aa-hl",
+        unitId: "urgent-maths",
+        unitTitle: "Urgent maths",
+        title: "Urgent maths topic",
+        subtopics: ["Urgent maths work"],
+        estHours: 8,
+        completedHours: 0,
+        difficulty: 3,
+        status: "not_started",
+        mastery: 0,
+        reviewDue: null,
+        lastStudiedAt: null,
+        sourceMaterials: [],
+        preferredBlockTypes: ["drill"],
+        order: 1,
+      },
+    ],
+    fixedEvents: [],
+    preferences: {
+      ...dataset.preferences,
+      reservedCommitmentRules: [],
+      lockedRecoveryWindows: [],
+      schoolSchedule: {
+        ...dataset.preferences.schoolSchedule,
+        enabled: false,
+        terms: [],
+      },
+      holidaySchedule: {
+        ...dataset.preferences.holidaySchedule,
+        enabled: true,
+        dailyStudyWindow: {
+          start: "08:00",
+          end: "11:30",
+        },
+        preferredDeepWorkWindows: [
+          {
+            label: "Short focus day",
+            start: "08:00",
+            end: "11:30",
+            days: [1, 2, 3, 4, 5, 6, 0],
+            timeOverrides: {},
+          },
+        ],
+      },
+    },
+    focusedDays: [
+      {
+        id: "multi-focus-low-capacity",
+        date: "2026-03-23",
+        subjectIds: ["physics-hl", "chemistry-hl"],
+      },
+    ],
+  });
+
+  const focusedDayBlocks = result.studyBlocks.filter(
+    (block) => block.date === "2026-03-23" && block.subjectId,
+  );
+  const totalMinutes = focusedDayBlocks.reduce((total, block) => total + block.estimatedMinutes, 0);
+  const focusedMinutes = focusedDayBlocks
+    .filter((block) => ["physics-hl", "chemistry-hl"].includes(block.subjectId ?? ""))
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+  const mathsMinutes = focusedDayBlocks
+    .filter((block) => block.subjectId === "maths-aa-hl")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+
+  assert.ok(totalMinutes >= 180, "expected the low-capacity focused day to contain real study time");
+  assert.ok(mathsMinutes > 0, "expected urgent non-focused maths work to still get some time");
+  assert.ok(focusedMinutes / totalMinutes < 0.9);
+});
+
+test("focused days and focused weeks still keep all main-subject topic hours fully scheduled in the seeded horizon", () => {
   const referenceDate = new Date("2026-03-21T08:00:00");
   const dataset = buildSeedDataset(referenceDate);
   const result = generateStudyPlanHorizon({
@@ -2589,6 +2896,10 @@ test("focused days still keep all main-subject topic hours fully scheduled in th
       { id: "focus-3", date: "2026-03-25", subjectIds: ["chemistry-hl"] },
       { id: "focus-4", date: "2026-03-26", subjectIds: ["olympiad"] },
       { id: "focus-5", date: "2026-03-27", subjectIds: ["physics-hl", "maths-aa-hl"] },
+    ],
+    focusedWeeks: [
+      { id: "week-focus-1", weekStart: "2026-03-30", subjectIds: ["physics-hl"] },
+      { id: "week-focus-2", weekStart: "2026-04-06", subjectIds: ["chemistry-hl", "olympiad"] },
     ],
     existingStudyBlocks: [],
   });

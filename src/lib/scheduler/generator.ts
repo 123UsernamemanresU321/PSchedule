@@ -28,6 +28,7 @@ import { clamp, createId, recordFromKeys, sum } from "@/lib/utils";
 import type {
   CalendarSlot,
   FocusedDay,
+  FocusedWeek,
   Goal,
   SickDay,
   Preferences,
@@ -41,6 +42,7 @@ import type {
 
 const MIN_ALLOCATABLE_MINUTES = 30;
 const FOCUSED_DAY_RESERVED_SHARE = 0.7;
+const FOCUS_STRICT_TOLERANCE_MINUTES = 10;
 const OLYMPIAD_BRIDGE_WEEKLY_TARGET_MINUTES = 240;
 
 function getAllowedBlockTypesForSlot(slot: CalendarSlot) {
@@ -366,15 +368,36 @@ function buildDailyTargetMinutes(options: {
   return targets;
 }
 
-function buildFocusedSubjectsByDate(focusedDays: FocusedDay[] = []) {
-  return focusedDays.reduce<Record<string, string[]>>((accumulator, focusedDay) => {
-    if (!focusedDay.subjectIds.length) {
-      return accumulator;
+function buildFocusedSubjectsByDate(options: {
+  weekStart: Date;
+  focusedDays?: FocusedDay[];
+  focusedWeeks?: FocusedWeek[];
+}) {
+  const focusedSubjectsByDate: Record<string, string[]> = {};
+  const weekStartKey = toDateKey(options.weekStart);
+  const visibleDateKeys = Array.from({ length: 7 }, (_, index) =>
+    toDateKey(addDays(options.weekStart, index)),
+  );
+
+  (options.focusedWeeks ?? []).forEach((focusedWeek) => {
+    if (focusedWeek.weekStart !== weekStartKey || !focusedWeek.subjectIds.length) {
+      return;
     }
 
-    accumulator[focusedDay.date] = focusedDay.subjectIds;
-    return accumulator;
-  }, {});
+    visibleDateKeys.forEach((dateKey) => {
+      focusedSubjectsByDate[dateKey] = focusedWeek.subjectIds;
+    });
+  });
+
+  (options.focusedDays ?? []).forEach((focusedDay) => {
+    if (!focusedDay.subjectIds.length || !visibleDateKeys.includes(focusedDay.date)) {
+      return;
+    }
+
+    focusedSubjectsByDate[focusedDay.date] = focusedDay.subjectIds;
+  });
+
+  return focusedSubjectsByDate;
 }
 
 function buildFocusedTargetMinutesByDate(options: {
@@ -940,9 +963,41 @@ function allocateTasksToSlots(options: {
       return workingTasks.some(
         (task) =>
           task.subjectId === subjectId &&
-          task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
+        task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
       );
     });
+  }
+
+  function getRemainingFocusedTargetMinutes(dateKey: string) {
+    return Math.max(
+      0,
+      (focusedTargetMinutesByDate[dateKey] ?? 0) - getFocusedAssignedMinutes(dateKey),
+    );
+  }
+
+  function shouldForceFocusedOnlyForSlot(
+    dateKey: string,
+    focusOptions: Array<{
+      blockOption: NonNullable<ReturnType<typeof selectBlockOption>>;
+    }>,
+  ) {
+    if (!focusOptions.length) {
+      return false;
+    }
+
+    const remainingFocusedTargetMinutes = getRemainingFocusedTargetMinutes(dateKey);
+    if (remainingFocusedTargetMinutes < MIN_ALLOCATABLE_MINUTES) {
+      return false;
+    }
+
+    const shortestFocusedOptionMinutes = Math.min(
+      ...focusOptions.map((option) => option.blockOption.durationMinutes),
+    );
+
+    return (
+      remainingFocusedTargetMinutes + FOCUS_STRICT_TOLERANCE_MINUTES >=
+      shortestFocusedOptionMinutes
+    );
   }
 
   function getCadenceReservedSubjectIds(dateKey: string) {
@@ -1187,6 +1242,7 @@ function allocateTasksToSlots(options: {
     restrictedSubjectIds?: string[];
     restrictedTopicIds?: string[];
     mustFillEndOfDaySlot?: boolean;
+    strongFocusDemand?: boolean;
   }) {
     const {
       slot,
@@ -1194,6 +1250,7 @@ function allocateTasksToSlots(options: {
       restrictedSubjectIds,
       restrictedTopicIds,
       mustFillEndOfDaySlot = false,
+      strongFocusDemand = false,
     } = config;
     const allowedBlockTypes = getAllowedBlockTypesForSlot(slot);
     const requiredNumberTheoryFrontierTopicId = getNumberTheoryFrontierTopicIdForSlot(slot.start);
@@ -1268,7 +1325,7 @@ function allocateTasksToSlots(options: {
           focusedSubjectTargetMinutesByDate,
           subjectMinutesByDate,
           hasFocusDemandByDate: {
-            [slot.dateKey]: getUnmetFocusedSubjectIds(slot.dateKey).length > 0,
+            [slot.dateKey]: strongFocusDemand,
           },
           referenceDate: options.referenceDate,
         });
@@ -1356,31 +1413,36 @@ function allocateTasksToSlots(options: {
         end: addMinutes(cursor, Math.min(remainingSlotMinutes, availableToday)),
         durationMinutes: Math.min(remainingSlotMinutes, availableToday),
       };
-      const focusedTargetMinutes = focusedTargetMinutesByDate[slot.dateKey] ?? 0;
       const unmetFocusedSubjectIds = getUnmetFocusedSubjectIds(slot.dateKey);
       const cadenceReservedSubjectIds =
         unmetFocusedSubjectIds.length > 0 ? [] : getCadenceReservedSubjectIds(slot.dateKey);
-      const focusedTargetStillOpen =
-        focusedTargetMinutes > 0 &&
-        unmetFocusedSubjectIds.length > 0 &&
-        getFocusedAssignedMinutes(slot.dateKey) + 14 < focusedTargetMinutes;
-      let focusedOnlyOptions = focusedTargetStillOpen
+      let focusedOnlyOptions = unmetFocusedSubjectIds.length > 0
         ? buildScoredOptionsForSlot({
             slot: slotSlice,
             allowWeeklyTargetOverride: true,
             restrictedSubjectIds: unmetFocusedSubjectIds,
             mustFillEndOfDaySlot,
+            strongFocusDemand: true,
           })
         : [];
 
-      if (focusedTargetStillOpen && focusedOnlyOptions.length === 0) {
+      if (unmetFocusedSubjectIds.length > 0 && focusedOnlyOptions.length === 0) {
         syncWorkingTasks(unmetFocusedSubjectIds);
         focusedOnlyOptions = buildScoredOptionsForSlot({
           slot: slotSlice,
           allowWeeklyTargetOverride: true,
           restrictedSubjectIds: unmetFocusedSubjectIds,
           mustFillEndOfDaySlot,
+          strongFocusDemand: true,
         });
+      }
+
+      const focusedDemandStillOpen =
+        unmetFocusedSubjectIds.length > 0 &&
+        shouldForceFocusedOnlyForSlot(slot.dateKey, focusedOnlyOptions);
+
+      if (!focusedDemandStillOpen) {
+        focusedOnlyOptions = [];
       }
 
       let cadenceOnlyOptions =
@@ -1390,6 +1452,7 @@ function allocateTasksToSlots(options: {
               allowWeeklyTargetOverride: true,
               restrictedSubjectIds: cadenceReservedSubjectIds,
               mustFillEndOfDaySlot,
+              strongFocusDemand: false,
             })
           : [];
 
@@ -1400,6 +1463,7 @@ function allocateTasksToSlots(options: {
           allowWeeklyTargetOverride: true,
           restrictedSubjectIds: cadenceReservedSubjectIds,
           mustFillEndOfDaySlot,
+          strongFocusDemand: false,
         });
       }
 
@@ -1411,6 +1475,7 @@ function allocateTasksToSlots(options: {
           : buildScoredOptionsForSlot({
               slot: slotSlice,
               mustFillEndOfDaySlot,
+              strongFocusDemand: focusedDemandStillOpen,
             });
       const winner = scoredOptions[0];
       const allTargetsMet = allWeeklyTargetsSatisfied();
@@ -1706,6 +1771,7 @@ export function generateStudyPlanForWeek(options: {
   fixedEvents: import("@/lib/types/planner").FixedEvent[];
   sickDays?: SickDay[];
   focusedDays?: FocusedDay[];
+  focusedWeeks?: FocusedWeek[];
   preferences: Preferences;
   lockedBlocks?: StudyBlock[];
   existingPlannedBlocks?: StudyBlock[];
@@ -1719,6 +1785,7 @@ export function generateStudyPlanForWeek(options: {
   const lockedBlocks = options.lockedBlocks ?? [];
   const sickDays = options.sickDays ?? [];
   const focusedDays = options.focusedDays ?? [];
+  const focusedWeeks = options.focusedWeeks ?? [];
   const weekStartKey = toDateKey(weekStart);
   const existingPlannedBlocks = options.existingPlannedBlocks ?? lockedBlocks;
   const deadlineTracks = computeSubjectDeadlineTracks({
@@ -1805,7 +1872,11 @@ export function generateStudyPlanForWeek(options: {
     requiredMinutes,
     preferences: options.preferences,
   });
-  const focusedSubjectsByDate = buildFocusedSubjectsByDate(focusedDays);
+  const focusedSubjectsByDate = buildFocusedSubjectsByDate({
+    weekStart,
+    focusedDays,
+    focusedWeeks,
+  });
   const passPolicies = buildAllocationPasses(
     Math.max(options.dailyCapBoostMinutes ?? 0, automaticDailyCapBoostMinutes),
     { partialCurrentWeek: isPartialCurrentWeek },
@@ -2150,6 +2221,7 @@ export function generateStudyPlanHorizon(options: {
   fixedEvents: import("@/lib/types/planner").FixedEvent[];
   sickDays?: SickDay[];
   focusedDays?: FocusedDay[];
+  focusedWeeks?: FocusedWeek[];
   preferences: Preferences;
   existingStudyBlocks?: StudyBlock[];
   preservedStudyBlockIds?: string[];
@@ -2193,6 +2265,7 @@ export function generateStudyPlanHorizon(options: {
       fixedEvents: options.fixedEvents,
       sickDays: options.sickDays,
       focusedDays: options.focusedDays,
+      focusedWeeks: options.focusedWeeks,
       preferences: options.preferences,
       lockedBlocks,
       existingPlannedBlocks: [...accumulatedBlocks, ...lockedBlocks],

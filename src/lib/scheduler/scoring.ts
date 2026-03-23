@@ -109,7 +109,7 @@ export function scoreTaskCandidate(
     !focusedSubjectIds.length
       ? 0
       : subjectIsFocused
-        ? focusedSubjectTargetStillOpen
+        ? focusTargetStillOpen && focusedSubjectTargetStillOpen
           ? 20
           : 8
         : focusTargetStillOpen

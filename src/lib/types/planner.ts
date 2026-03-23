@@ -123,6 +123,13 @@ export interface FocusedDay {
   notes?: string;
 }
 
+export interface FocusedWeek {
+  id: string;
+  weekStart: string;
+  subjectIds: SubjectId[];
+  notes?: string;
+}
+
 export interface ScoreBreakdown {
   priorityWeight: number;
   deadlineUrgency: number;
@@ -295,6 +302,7 @@ export interface PlannerExportPayload {
   fixedEvents: FixedEvent[];
   sickDays: SickDay[];
   focusedDays: FocusedDay[];
+  focusedWeeks: FocusedWeek[];
   studyBlocks: StudyBlock[];
   completionLogs: CompletionLog[];
   weeklyPlans: WeeklyPlan[];
@@ -361,6 +369,7 @@ export interface SeedDataset {
   fixedEvents: FixedEvent[];
   sickDays: SickDay[];
   focusedDays: FocusedDay[];
+  focusedWeeks: FocusedWeek[];
   preferences: Preferences;
 }
 

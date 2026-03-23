@@ -17,7 +17,15 @@ import {
 } from "@/lib/scheduler/free-slots";
 import { getActiveSickDaySeverity } from "@/lib/scheduler/schedule-regime";
 import { fromDateKey } from "@/lib/dates/helpers";
-import type { FixedEvent, FocusedDay, Preferences, SickDay, StudyBlock, Subject } from "@/lib/types/planner";
+import type {
+  FixedEvent,
+  FocusedDay,
+  FocusedWeek,
+  Preferences,
+  SickDay,
+  StudyBlock,
+  Subject,
+} from "@/lib/types/planner";
 
 function blockFallsInVisibleWeek(block: StudyBlock, weekStart: string) {
   return (
@@ -111,6 +119,7 @@ interface PlannerCalendarProps {
   fixedEvents: FixedEvent[];
   sickDays: SickDay[];
   focusedDays: FocusedDay[];
+  focusedWeeks: FocusedWeek[];
   preferences: Preferences;
   studyBlocks: StudyBlock[];
   subjects: Subject[];
@@ -130,6 +139,7 @@ interface PlannerCalendarProps {
     label: "Lunch break" | "Dinner reset";
   }) => void;
   onManageFocusDay: (dateKey: string) => void;
+  onManageFocusWeek: (weekStart: string) => void;
 }
 
 export function PlannerCalendar({
@@ -137,6 +147,7 @@ export function PlannerCalendar({
   fixedEvents,
   sickDays,
   focusedDays,
+  focusedWeeks,
   preferences,
   studyBlocks,
   subjects,
@@ -146,10 +157,13 @@ export function PlannerCalendar({
   onManageReservedCommitmentDate,
   onManageRecoveryWindowDate,
   onManageFocusDay,
+  onManageFocusWeek,
 }: PlannerCalendarProps) {
   const subjectMap = new Map(subjects.map((subject) => [subject.id, subject]));
   const visibleWeekStart = fromDateKey(weekStart);
   const visibleWeekEnd = addDays(visibleWeekStart, 7);
+  const visibleFocusedWeek =
+    focusedWeeks.find((focusedWeek) => focusedWeek.weekStart === weekStart) ?? null;
   const expandedFixedEvents = expandPlannerFixedEventsForWeek(visibleWeekStart, fixedEvents, preferences);
   const recoveryWindows = expandLockedRecoveryWindowsForWeek(
     visibleWeekStart,
@@ -220,6 +234,23 @@ export function PlannerCalendar({
         focusedDay,
       },
     }));
+  const focusedWeekEvents = visibleFocusedWeek
+    ? [
+        {
+          id: `focused-week:${visibleFocusedWeek.weekStart}`,
+          title: `Week focus: ${visibleFocusedWeek.subjectIds
+            .map((subjectId) => subjectMap.get(subjectId)?.shortName ?? subjectId)
+            .join(", ")}`,
+          start: visibleWeekStart,
+          end: visibleWeekEnd,
+          allDay: true,
+          extendedProps: {
+            kind: "focused-week" as const,
+            focusedWeek: visibleFocusedWeek,
+          },
+        },
+      ]
+    : [];
   const blockedIntervals = [
     ...recoveryWindows.map((window) => ({
       start: new Date(window.start),
@@ -272,6 +303,7 @@ export function PlannerCalendar({
       };
     }),
     ...sickDayEvents,
+    ...focusedWeekEvents,
     ...focusedDayEvents,
     ...reservedCommitments.map((commitment) => ({
       id: `reserved:${commitment.id}`,
@@ -332,11 +364,15 @@ export function PlannerCalendar({
         eventDisplay="block"
         dayCellClassNames={(arg) => {
           const classNames: string[] = [];
+          const dateKey = toDateKey(arg.date);
           const severity = getActiveSickDaySeverity(arg.date, sickDays);
           if (severity) {
             classNames.push(`planner-sick-day-${severity}`);
           }
-          if (focusedDays.some((focusedDay) => focusedDay.date === toDateKey(arg.date))) {
+          if (visibleFocusedWeek && !focusedDays.some((focusedDay) => focusedDay.date === dateKey)) {
+            classNames.push("planner-focused-week");
+          }
+          if (focusedDays.some((focusedDay) => focusedDay.date === dateKey)) {
             classNames.push("planner-focused-day");
           }
           return classNames;
@@ -356,7 +392,8 @@ export function PlannerCalendar({
             | "reserved-commitment"
             | "break"
             | "sick-day"
-            | "focused-day";
+            | "focused-day"
+            | "focused-week";
           if (
             kind === "recovery-window" ||
             kind === "sick-day"
@@ -385,6 +422,11 @@ export function PlannerCalendar({
           if (kind === "focused-day") {
             const focusedDay = clickInfo.event.extendedProps.focusedDay as FocusedDay;
             onManageFocusDay(focusedDay.date);
+            return;
+          }
+          if (kind === "focused-week") {
+            const focusedWeek = clickInfo.event.extendedProps.focusedWeek as FocusedWeek;
+            onManageFocusWeek(focusedWeek.weekStart);
             return;
           }
           if (kind === "reserved-commitment") {
@@ -439,7 +481,8 @@ export function PlannerCalendar({
             | "reserved-commitment"
             | "break"
             | "sick-day"
-            | "focused-day";
+            | "focused-day"
+            | "focused-week";
           const eventStart = eventInfo.event.start ?? new Date();
           const eventEnd = eventInfo.event.end ?? eventStart;
           const durationMinutes = differenceInMinutes(eventEnd, eventStart);
@@ -480,6 +523,26 @@ export function PlannerCalendar({
                 </div>
                 {focusedDay.notes ? (
                   <p className="mt-1 truncate text-xs text-primary-foreground/75">{focusedDay.notes}</p>
+                ) : null}
+              </div>
+            );
+          }
+
+          if (kind === "focused-week") {
+            const focusedWeek = eventInfo.event.extendedProps.focusedWeek as FocusedWeek;
+
+            return (
+              <div
+                className="h-full overflow-hidden rounded-lg border border-sky-300/18 bg-sky-300/[0.07] px-3 py-2 text-sm text-sky-50 shadow-panel"
+                data-testid="calendar-focused-week"
+                data-event-title={eventInfo.event.title}
+              >
+                <div className="flex items-center gap-2">
+                  <Crosshair className="h-3.5 w-3.5 opacity-80" />
+                  <span className="truncate font-medium">{eventInfo.event.title}</span>
+                </div>
+                {focusedWeek.notes ? (
+                  <p className="mt-1 truncate text-xs text-sky-100/70">{focusedWeek.notes}</p>
                 ) : null}
               </div>
             );
