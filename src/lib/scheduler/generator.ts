@@ -563,6 +563,7 @@ function buildFutureFocusedReserveMinutesBySubject(options: {
   preferences: Preferences;
   subjectDeadlinesById: Record<string, string>;
   existingPlannedBlocks: StudyBlock[];
+  availabilityOverrideSubjectIds?: Subject["id"][];
 }) {
   const futureFocusedSubjectIds = new Set<string>();
 
@@ -587,7 +588,12 @@ function buildFutureFocusedReserveMinutesBySubject(options: {
     existingPlannedBlocks: options.existingPlannedBlocks,
     referenceDate: getPlannerReferenceDate(options.currentWeek),
     subjectDeadlinesById: options.subjectDeadlinesById,
-    availabilityOverrideSubjectIds: [...futureFocusedSubjectIds],
+    availabilityOverrideSubjectIds: Array.from(
+      new Set([
+        ...futureFocusedSubjectIds,
+        ...(options.availabilityOverrideSubjectIds ?? []),
+      ]),
+    ),
   });
   const remainingRequiredMinutesBySubject = recordFromKeys(subjectIds, () => 0);
 
@@ -1966,6 +1972,7 @@ export function generateStudyPlanForWeek(options: {
   futureFocusedReserveMinutesBySubject?: Record<string, number>;
   dailyCapBoostMinutes?: number;
   horizonStartDate?: Date;
+  availabilityOverrideSubjectIds?: Subject["id"][];
 }): SchedulerResult {
   const weekStart = startOfPlannerWeek(options.weekStart ?? new Date());
   const referenceDate = getPlannerReferenceDate(weekStart);
@@ -1981,7 +1988,10 @@ export function generateStudyPlanForWeek(options: {
     focusedWeeks,
   });
   const availabilityOverrideSubjectIds = Array.from(
-    new Set(Object.values(focusedSubjectsByDate).flat()),
+    new Set([
+      ...Object.values(focusedSubjectsByDate).flat(),
+      ...(options.availabilityOverrideSubjectIds ?? []),
+    ]),
   );
   const weekStartKey = toDateKey(weekStart);
   const existingPlannedBlocks = options.existingPlannedBlocks ?? lockedBlocks;
@@ -2427,6 +2437,7 @@ export function generateStudyPlanHorizon(options: {
   existingStudyBlocks?: StudyBlock[];
   preservedStudyBlockIds?: string[];
   preserveFlexibleFutureBlocks?: boolean;
+  availabilityOverrideSubjectIds?: Subject["id"][];
 }) {
   const startWeek = startOfPlannerWeek(options.startWeek ?? new Date());
   const horizonStartDate = getPlannerReferenceDate(startWeek);
@@ -2472,6 +2483,7 @@ export function generateStudyPlanHorizon(options: {
       preferences: options.preferences,
       subjectDeadlinesById,
       existingPlannedBlocks: [...accumulatedBlocks, ...lockedBlocks],
+      availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
     });
     const result = generateStudyPlanForWeek({
       weekStart: currentWeek,
@@ -2487,6 +2499,7 @@ export function generateStudyPlanHorizon(options: {
       existingPlannedBlocks: [...accumulatedBlocks, ...lockedBlocks],
       futureFocusedReserveMinutesBySubject,
       horizonStartDate,
+      availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
     });
 
     horizonStudyBlocks.push(...result.studyBlocks);

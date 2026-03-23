@@ -2,6 +2,7 @@ import { getAcademicDeadline, startOfPlannerWeek, toDateKey } from "@/lib/dates/
 import {
   generateStudyPlanHorizon,
   getPlanningHorizonEndWeek,
+  shouldAlwaysPreserveStudyBlockOnRegeneration,
   shouldPreserveStudyBlockOnRegeneration,
 } from "@/lib/scheduler/generator";
 import { collectInvalidFutureOlympiadBlockIds } from "@/lib/scheduler/olympiad-stage-gates";
@@ -30,7 +31,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-23-olympiad-coverage-v32";
+const PLANNING_MODEL_VERSION = "2026-03-23-olympiad-repair-v33";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v8";
@@ -348,30 +349,75 @@ export interface PlannerSnapshot {
   preferences: Preferences;
 }
 
+export function getOlympiadCoverageRepairState(
+  snapshot: PlannerSnapshot,
+  referenceDate = new Date(),
+) {
+  const olympiad = snapshot.subjects.find((subject) => subject.id === OLYMPIAD_SUBJECT_ID);
+  const olympiadProgress = olympiad
+    ? getSubjectProgress(olympiad, snapshot.topics, snapshot.studyBlocks, referenceDate)
+    : null;
+  const futureOlympiadBlocks = snapshot.studyBlocks.filter(
+    (block) =>
+      block.subjectId === OLYMPIAD_SUBJECT_ID &&
+      ["planned", "rescheduled"].includes(block.status) &&
+      new Date(block.end).getTime() > referenceDate.getTime(),
+  );
+  const futureOlympiadTopicBlocks = futureOlympiadBlocks.filter((block) => !!block.topicId);
+  const hasSuspiciousCoverageGap =
+    !!olympiadProgress &&
+    olympiadProgress.remainingHours > 1 &&
+    olympiadProgress.unscheduledHours > Math.max(1, olympiadProgress.remainingHours - 1) &&
+    (olympiadProgress.scheduledFutureHours < 0.5 || futureOlympiadTopicBlocks.length === 0);
+
+  return {
+    olympiadProgress,
+    futureOlympiadBlocks,
+    futureOlympiadTopicBlocks,
+    hasSuspiciousCoverageGap,
+  };
+}
+
+export function buildOlympiadRepairBaselineStudyBlocks(
+  studyBlocks: StudyBlock[],
+  referenceDate = new Date(),
+  preservedStudyBlockIds: string[] = [],
+) {
+  const preservedIds = new Set(preservedStudyBlockIds);
+
+  return studyBlocks.filter((block) => {
+    if (preservedIds.has(block.id)) {
+      return true;
+    }
+
+    if (new Date(block.end).getTime() <= referenceDate.getTime()) {
+      return true;
+    }
+
+    return shouldAlwaysPreserveStudyBlockOnRegeneration(block);
+  });
+}
+
 async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: Date) {
   const weekStart = startOfPlannerWeek(referenceDate);
   const weekStartKey = toDateKey(weekStart);
   const horizonEndWeekKey = toDateKey(
     getPlanningHorizonEndWeek(snapshot.goals, snapshot.subjects, referenceDate),
   );
-  const olympiad = snapshot.subjects.find((subject) => subject.id === OLYMPIAD_SUBJECT_ID);
-  const olympiadProgress = olympiad
-    ? getSubjectProgress(olympiad, snapshot.topics, snapshot.studyBlocks, referenceDate)
-    : null;
-  const hasSuspiciousOlympiadCoverageGap =
-    !!olympiadProgress &&
-    olympiadProgress.remainingHours > 100 &&
-    olympiadProgress.scheduledFutureHours < 1 &&
-    olympiadProgress.unscheduledHours > olympiadProgress.remainingHours - 1;
+  const olympiadRepairState = getOlympiadCoverageRepairState(snapshot, referenceDate);
 
   if (
-    !hasSuspiciousOlympiadCoverageGap &&
+    !olympiadRepairState.hasSuspiciousCoverageGap &&
     snapshot.weeklyPlans.some((plan) => plan.weekStart === weekStartKey) &&
     snapshot.weeklyPlans.some((plan) => plan.weekStart === horizonEndWeekKey) &&
     !snapshot.weeklyPlans.some((plan) => plan.weekStart > horizonEndWeekKey)
   ) {
     return snapshot;
   }
+
+  const existingStudyBlocks = olympiadRepairState.hasSuspiciousCoverageGap
+    ? buildOlympiadRepairBaselineStudyBlocks(snapshot.studyBlocks, referenceDate)
+    : snapshot.studyBlocks;
 
   const replanned = generateStudyPlanHorizon({
     startWeek: weekStart,
@@ -383,10 +429,16 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
     focusedDays: snapshot.focusedDays,
     focusedWeeks: snapshot.focusedWeeks,
     preferences: snapshot.preferences,
-    existingStudyBlocks: snapshot.studyBlocks,
+    existingStudyBlocks,
+    preserveFlexibleFutureBlocks: olympiadRepairState.hasSuspiciousCoverageGap ? false : undefined,
+    availabilityOverrideSubjectIds: olympiadRepairState.hasSuspiciousCoverageGap
+      ? [OLYMPIAD_SUBJECT_ID]
+      : undefined,
   });
 
-  await replacePlanningHorizon(replanned.studyBlocks, replanned.weeklyPlans, weekStartKey);
+  await replacePlanningHorizon(replanned.studyBlocks, replanned.weeklyPlans, weekStartKey, {
+    preserveFlexibleFutureBlocks: olympiadRepairState.hasSuspiciousCoverageGap ? false : undefined,
+  });
   return loadPlannerSnapshot();
 }
 

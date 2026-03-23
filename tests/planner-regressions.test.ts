@@ -20,7 +20,10 @@ import {
   getStatusUpdatePreservedStudyBlockIds,
   shouldStatusUpdateTriggerReplan,
 } from "@/lib/store/planner-store";
-import { normalizeStudyBlock } from "@/lib/storage/planner-repository";
+import {
+  buildOlympiadRepairBaselineStudyBlocks,
+  normalizeStudyBlock,
+} from "@/lib/storage/planner-repository";
 import {
   getActiveSickDaySeverity,
   isReservedCommitmentRuleActiveOnDate,
@@ -3020,6 +3023,53 @@ test("current-week olympiad focus can pull roadmap-dated olympiad work into the 
     olympiadMinutesWithFocus >= 60,
     "expected focused olympiad week to pull roadmap-dated olympiad work into the current week",
   );
+});
+
+test("olympiad repair rebuild restores olympiad coverage when the future horizon lost all olympiad blocks", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const base = generateStudyPlanHorizon({
+    startWeek: referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+  });
+  const brokenStudyBlocks = base.studyBlocks.filter((block) => block.subjectId !== "olympiad");
+  const repaired = generateStudyPlanHorizon({
+    startWeek: referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+    existingStudyBlocks: buildOlympiadRepairBaselineStudyBlocks(brokenStudyBlocks, referenceDate),
+    preserveFlexibleFutureBlocks: false,
+    availabilityOverrideSubjectIds: ["olympiad"],
+  });
+  const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
+
+  assert.ok(olympiadSubject, "expected olympiad subject");
+
+  const repairedProgress = getSubjectProgress(
+    olympiadSubject,
+    dataset.topics,
+    repaired.studyBlocks,
+    referenceDate,
+  );
+
+  assert.ok(
+    repairedProgress.scheduledFutureHours > 100,
+    `expected repaired horizon to restore substantial olympiad coverage, got ${repairedProgress.scheduledFutureHours}h`,
+  );
+  assert.equal(repairedProgress.unscheduledHours, 0);
 });
 
 test("multi-subject focus on a low-capacity day relaxes once the reserved share is nearly met", () => {

@@ -11,6 +11,7 @@ import {
 import { createSlotSlice, selectBlockOption } from "@/lib/scheduler/slot-classifier";
 import { getAssignableTaskCandidatesForBlock } from "@/lib/scheduler/task-candidates";
 import {
+  buildOlympiadRepairBaselineStudyBlocks,
   deleteFixedEventById,
   deleteFocusedDayById as deleteFocusedDayRecordById,
   deleteFocusedWeekById as deleteFocusedWeekRecordById,
@@ -21,6 +22,7 @@ import {
   importPlannerData,
   initializePlannerDatabase,
   loadPlannerSnapshot,
+  getOlympiadCoverageRepairState,
   repairOlympiadPlanningState,
   replacePlanningHorizon,
   deleteCompletionLogsByStudyBlockId,
@@ -129,6 +131,7 @@ async function recalculateCurrentWeek(options?: {
 }) {
   const referenceDate = new Date();
   const snapshot = await repairOlympiadPlanningState(referenceDate, options?.preservedStudyBlockIds);
+  const olympiadRepairState = getOlympiadCoverageRepairState(snapshot, referenceDate);
   const planningStartWeek = startOfPlannerWeek(referenceDate);
   const replanned = generateStudyPlanHorizon({
     startWeek: planningStartWeek,
@@ -140,9 +143,20 @@ async function recalculateCurrentWeek(options?: {
     focusedDays: snapshot.focusedDays,
     focusedWeeks: snapshot.focusedWeeks,
     preferences: snapshot.preferences,
-    existingStudyBlocks: snapshot.studyBlocks,
+    existingStudyBlocks: olympiadRepairState.hasSuspiciousCoverageGap
+      ? buildOlympiadRepairBaselineStudyBlocks(
+          snapshot.studyBlocks,
+          referenceDate,
+          options?.preservedStudyBlockIds,
+        )
+      : snapshot.studyBlocks,
     preservedStudyBlockIds: options?.preservedStudyBlockIds,
-    preserveFlexibleFutureBlocks: options?.preserveFlexibleFutureBlocks,
+    preserveFlexibleFutureBlocks: olympiadRepairState.hasSuspiciousCoverageGap
+      ? false
+      : options?.preserveFlexibleFutureBlocks,
+    availabilityOverrideSubjectIds: olympiadRepairState.hasSuspiciousCoverageGap
+      ? ["olympiad"]
+      : undefined,
   });
 
   await replacePlanningHorizon(
@@ -151,7 +165,9 @@ async function recalculateCurrentWeek(options?: {
     toDateKey(planningStartWeek),
     {
       preservedStudyBlockIds: options?.preservedStudyBlockIds,
-      preserveFlexibleFutureBlocks: options?.preserveFlexibleFutureBlocks,
+      preserveFlexibleFutureBlocks: olympiadRepairState.hasSuspiciousCoverageGap
+        ? false
+        : options?.preserveFlexibleFutureBlocks,
     },
   );
   return loadPlannerSnapshot();
