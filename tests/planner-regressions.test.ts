@@ -3044,6 +3044,50 @@ test("current-week olympiad focus can pull roadmap-dated olympiad work into the 
   );
 });
 
+test("current-week olympiad focus keeps roadmap pull-forward alive after task refreshes", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
+
+  assert.ok(olympiadSubject, "expected olympiad subject");
+
+  const deferredFoundationTopic: Topic = {
+    ...dataset.topics.find((topic) => topic.id === "olympiad-number-theory-divisibility")!,
+    availableFrom: "2026-03-30",
+    estHours: 4,
+    completedHours: 0,
+    mastery: 0,
+    status: "not_started",
+  };
+
+  const withOlympiadFocus = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T00:00:00"),
+    goals: dataset.goals.filter((goal) => goal.subjectId === "olympiad"),
+    subjects: [olympiadSubject],
+    topics: [deferredFoundationTopic],
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: [],
+    focusedWeeks: [
+      {
+        id: "olympiad-focus-persists-after-sync",
+        weekStart: "2026-03-23",
+        subjectIds: ["olympiad"],
+      },
+    ],
+    preferences: dataset.preferences,
+  });
+
+  const olympiadMinutesWithFocus = withOlympiadFocus.studyBlocks
+    .filter((block) => block.weekStart === "2026-03-23" && block.subjectId === "olympiad")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+
+  assert.ok(
+    olympiadMinutesWithFocus >= 120,
+    `expected olympiad focus to survive mid-pass task refreshes, got ${olympiadMinutesWithFocus} minutes`,
+  );
+});
+
 test("olympiad repair rebuild restores olympiad coverage when the future horizon lost all olympiad blocks", () => {
   const referenceDate = new Date("2026-03-23T08:00:00");
   const dataset = buildSeedDataset(referenceDate);

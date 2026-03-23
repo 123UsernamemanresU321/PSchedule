@@ -736,6 +736,7 @@ function allocateTasksToSlots(options: {
   fillAvailableStudyDays?: boolean;
   focusedSubjectsByDate?: Record<string, string[]>;
   allowLargeGapAbsorption?: boolean;
+  availabilityOverrideSubjectIds?: Subject["id"][];
 }) {
   const weekStartKey = toDateKey(options.weekStart);
   const subjectMap = new Map(options.subjects.map((subject) => [subject.id, subject]));
@@ -1036,6 +1037,7 @@ function allocateTasksToSlots(options: {
       ],
       referenceDate: options.referenceDate,
       subjectDeadlinesById,
+      availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
     });
 
     if (!restrictedSubjectIds?.length) {
@@ -1992,7 +1994,7 @@ export function generateStudyPlanForWeek(options: {
       ...Object.values(focusedSubjectsByDate).flat(),
       ...(options.availabilityOverrideSubjectIds ?? []),
     ]),
-  );
+  ) as Subject["id"][];
   const weekStartKey = toDateKey(weekStart);
   const existingPlannedBlocks = options.existingPlannedBlocks ?? lockedBlocks;
   const deadlineTracks = computeSubjectDeadlineTracks({
@@ -2167,6 +2169,7 @@ export function generateStudyPlanForWeek(options: {
       focusedSubjectsByDate,
       futureFocusedReserveMinutesBySubject: options.futureFocusedReserveMinutesBySubject,
       allowLargeGapAbsorption: false,
+      availabilityOverrideSubjectIds,
     });
 
     if (!frontierResult.scheduledBlocks.length) {
@@ -2241,6 +2244,7 @@ export function generateStudyPlanForWeek(options: {
       fillAvailableStudyDays: shouldFillAvailableStudyDays,
       focusedSubjectsByDate,
       futureFocusedReserveMinutesBySubject: options.futureFocusedReserveMinutesBySubject,
+      availabilityOverrideSubjectIds,
     });
 
     if (!result.scheduledBlocks.length) {
@@ -2306,6 +2310,7 @@ export function generateStudyPlanForWeek(options: {
         fillAvailableStudyDays: true,
         focusedSubjectsByDate,
         futureFocusedReserveMinutesBySubject: options.futureFocusedReserveMinutesBySubject,
+        availabilityOverrideSubjectIds,
       });
 
       if (olympiadOnlyResult.scheduledBlocks.length) {
