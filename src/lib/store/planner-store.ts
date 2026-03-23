@@ -11,7 +11,7 @@ import {
 import { createSlotSlice, selectBlockOption } from "@/lib/scheduler/slot-classifier";
 import { getAssignableTaskCandidatesForBlock } from "@/lib/scheduler/task-candidates";
 import {
-  buildOlympiadRepairBaselineStudyBlocks,
+  buildCollapsedCoverageRepairBaselineStudyBlocks,
   deleteFixedEventById,
   deleteFocusedDayById as deleteFocusedDayRecordById,
   deleteFocusedWeekById as deleteFocusedWeekRecordById,
@@ -22,8 +22,7 @@ import {
   importPlannerData,
   initializePlannerDatabase,
   loadPlannerSnapshot,
-  getOlympiadCoverageRepairState,
-  repairOlympiadPlanningState,
+  getCollapsedCoverageRepairState,
   replacePlanningHorizon,
   deleteCompletionLogsByStudyBlockId,
   saveCompletionLog,
@@ -130,8 +129,8 @@ async function recalculateCurrentWeek(options?: {
   preserveFlexibleFutureBlocks?: boolean;
 }) {
   const referenceDate = new Date();
-  const snapshot = await repairOlympiadPlanningState(referenceDate, options?.preservedStudyBlockIds);
-  const olympiadRepairState = getOlympiadCoverageRepairState(snapshot, referenceDate);
+  const snapshot = await loadPlannerSnapshot();
+  const repairState = getCollapsedCoverageRepairState(snapshot, referenceDate);
   const planningStartWeek = startOfPlannerWeek(referenceDate);
   const replanned = generateStudyPlanHorizon({
     startWeek: planningStartWeek,
@@ -143,20 +142,17 @@ async function recalculateCurrentWeek(options?: {
     focusedDays: snapshot.focusedDays,
     focusedWeeks: snapshot.focusedWeeks,
     preferences: snapshot.preferences,
-    existingStudyBlocks: olympiadRepairState.hasSuspiciousCoverageGap
-      ? buildOlympiadRepairBaselineStudyBlocks(
+    existingStudyBlocks: repairState.hasCollapsedCoverage
+      ? buildCollapsedCoverageRepairBaselineStudyBlocks(
           snapshot.studyBlocks,
           referenceDate,
           options?.preservedStudyBlockIds,
         )
       : snapshot.studyBlocks,
     preservedStudyBlockIds: options?.preservedStudyBlockIds,
-    preserveFlexibleFutureBlocks: olympiadRepairState.hasSuspiciousCoverageGap
+    preserveFlexibleFutureBlocks: repairState.hasCollapsedCoverage
       ? false
       : options?.preserveFlexibleFutureBlocks,
-    availabilityOverrideSubjectIds: olympiadRepairState.hasSuspiciousCoverageGap
-      ? ["olympiad"]
-      : undefined,
   });
 
   await replacePlanningHorizon(
@@ -165,7 +161,7 @@ async function recalculateCurrentWeek(options?: {
     toDateKey(planningStartWeek),
     {
       preservedStudyBlockIds: options?.preservedStudyBlockIds,
-      preserveFlexibleFutureBlocks: olympiadRepairState.hasSuspiciousCoverageGap
+      preserveFlexibleFutureBlocks: repairState.hasCollapsedCoverage
         ? false
         : options?.preserveFlexibleFutureBlocks,
     },

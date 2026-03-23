@@ -21,8 +21,8 @@ import {
   shouldStatusUpdateTriggerReplan,
 } from "@/lib/store/planner-store";
 import {
-  buildOlympiadRepairBaselineStudyBlocks,
-  getOlympiadCoverageRepairState,
+  buildCollapsedCoverageRepairBaselineStudyBlocks,
+  getCollapsedCoverageRepairState,
   normalizeStudyBlock,
 } from "@/lib/storage/planner-repository";
 import {
@@ -3114,9 +3114,11 @@ test("olympiad repair rebuild restores olympiad coverage when the future horizon
     focusedDays: dataset.focusedDays,
     focusedWeeks: dataset.focusedWeeks,
     preferences: dataset.preferences,
-    existingStudyBlocks: buildOlympiadRepairBaselineStudyBlocks(brokenStudyBlocks, referenceDate),
+    existingStudyBlocks: buildCollapsedCoverageRepairBaselineStudyBlocks(
+      brokenStudyBlocks,
+      referenceDate,
+    ),
     preserveFlexibleFutureBlocks: false,
-    availabilityOverrideSubjectIds: ["olympiad"],
   });
   const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
 
@@ -3136,7 +3138,7 @@ test("olympiad repair rebuild restores olympiad coverage when the future horizon
   assert.equal(repairedProgress.unscheduledHours, 0);
 });
 
-test("olympiad repair detection catches severely collapsed partial coverage, not just zero coverage", () => {
+test("collapsed coverage repair detection catches severely collapsed Olympiad partial coverage", () => {
   const referenceDate = new Date("2026-03-23T08:00:00");
   const dataset = buildSeedDataset(referenceDate);
   const base = generateStudyPlanHorizon({
@@ -3188,7 +3190,7 @@ test("olympiad repair detection catches severely collapsed partial coverage, not
     `expected broken horizon to leave most olympiad work unscheduled, got ${brokenProgress.unscheduledHours}h`,
   );
 
-  const repairState = getOlympiadCoverageRepairState(
+  const repairState = getCollapsedCoverageRepairState(
     {
       goals: dataset.goals,
       subjects: dataset.subjects,
@@ -3205,7 +3207,8 @@ test("olympiad repair detection catches severely collapsed partial coverage, not
     referenceDate,
   );
 
-  assert.equal(repairState.hasSuspiciousCoverageGap, true);
+  assert.equal(repairState.hasCollapsedCoverage, true);
+  assert.ok(repairState.collapsedSubjectIds.includes("olympiad"));
 
   const repaired = generateStudyPlanHorizon({
     startWeek: referenceDate,
@@ -3217,9 +3220,11 @@ test("olympiad repair detection catches severely collapsed partial coverage, not
     focusedDays: dataset.focusedDays,
     focusedWeeks: dataset.focusedWeeks,
     preferences: dataset.preferences,
-    existingStudyBlocks: buildOlympiadRepairBaselineStudyBlocks(brokenStudyBlocks, referenceDate),
+    existingStudyBlocks: buildCollapsedCoverageRepairBaselineStudyBlocks(
+      brokenStudyBlocks,
+      referenceDate,
+    ),
     preserveFlexibleFutureBlocks: false,
-    availabilityOverrideSubjectIds: ["olympiad"],
   });
   const repairedProgress = getSubjectProgress(
     olympiadSubject,
@@ -3235,7 +3240,7 @@ test("olympiad repair detection catches severely collapsed partial coverage, not
   assert.equal(repairedProgress.unscheduledHours, 0);
 });
 
-test("horizon generation retries olympiad recovery when stale flexible future blocks would otherwise starve olympiad completely", () => {
+test("collapsed coverage repair also catches a non-Olympiad subject and does not flag a healthy horizon", () => {
   const referenceDate = new Date("2026-03-23T08:00:00");
   const dataset = buildSeedDataset(referenceDate);
   const base = generateStudyPlanHorizon({
@@ -3249,16 +3254,62 @@ test("horizon generation retries olympiad recovery when stale flexible future bl
     focusedWeeks: dataset.focusedWeeks,
     preferences: dataset.preferences,
   });
-  const pollutedExistingStudyBlocks = base.studyBlocks
-    .filter((block) => block.subjectId !== "olympiad")
-    .map((block) =>
-      new Date(block.end).getTime() > referenceDate.getTime()
-        ? {
-            ...block,
-            status: "rescheduled" as const,
-          }
-        : block,
-    );
+  const healthyState = getCollapsedCoverageRepairState(
+    {
+      goals: dataset.goals,
+      subjects: dataset.subjects,
+      topics: dataset.topics,
+      fixedEvents: dataset.fixedEvents,
+      sickDays: dataset.sickDays,
+      focusedDays: dataset.focusedDays,
+      focusedWeeks: dataset.focusedWeeks,
+      studyBlocks: base.studyBlocks,
+      completionLogs: [],
+      weeklyPlans: base.weeklyPlans,
+      preferences: dataset.preferences,
+    },
+    referenceDate,
+  );
+
+  assert.equal(healthyState.hasCollapsedCoverage, false);
+
+  let retainedPhysicsMinutes = 0;
+  const collapsedPhysicsBlocks = base.studyBlocks.filter((block) => {
+    if (block.subjectId !== "physics-hl" || !block.topicId) {
+      return false;
+    }
+
+    if (retainedPhysicsMinutes >= 10 * 60) {
+      return false;
+    }
+
+    retainedPhysicsMinutes += block.estimatedMinutes;
+    return true;
+  });
+  const brokenStudyBlocks = [
+    ...base.studyBlocks.filter((block) => block.subjectId !== "physics-hl"),
+    ...collapsedPhysicsBlocks,
+  ];
+  const collapsedState = getCollapsedCoverageRepairState(
+    {
+      goals: dataset.goals,
+      subjects: dataset.subjects,
+      topics: dataset.topics,
+      fixedEvents: dataset.fixedEvents,
+      sickDays: dataset.sickDays,
+      focusedDays: dataset.focusedDays,
+      focusedWeeks: dataset.focusedWeeks,
+      studyBlocks: brokenStudyBlocks,
+      completionLogs: [],
+      weeklyPlans: base.weeklyPlans,
+      preferences: dataset.preferences,
+    },
+    referenceDate,
+  );
+
+  assert.equal(collapsedState.hasCollapsedCoverage, true);
+  assert.ok(collapsedState.collapsedSubjectIds.includes("physics-hl"));
+
   const recovered = generateStudyPlanHorizon({
     startWeek: referenceDate,
     goals: dataset.goals,
@@ -3269,32 +3320,28 @@ test("horizon generation retries olympiad recovery when stale flexible future bl
     focusedDays: dataset.focusedDays,
     focusedWeeks: dataset.focusedWeeks,
     preferences: dataset.preferences,
-    existingStudyBlocks: pollutedExistingStudyBlocks,
+    existingStudyBlocks: buildCollapsedCoverageRepairBaselineStudyBlocks(
+      brokenStudyBlocks,
+      referenceDate,
+    ),
+    preserveFlexibleFutureBlocks: false,
   });
-  const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
+  const physicsSubject = dataset.subjects.find((subject) => subject.id === "physics-hl");
 
-  assert.ok(olympiadSubject, "expected olympiad subject");
+  assert.ok(physicsSubject, "expected physics subject");
 
   const recoveredProgress = getSubjectProgress(
-    olympiadSubject,
+    physicsSubject,
     dataset.topics,
     recovered.studyBlocks,
     referenceDate,
   );
 
   assert.ok(
-    recovered.studyBlocks.some(
-      (block) =>
-        block.subjectId === "olympiad" &&
-        !!block.topicId &&
-        new Date(block.end).getTime() > referenceDate.getTime(),
-    ),
-    "expected horizon recovery to restore future olympiad topic blocks",
+    recoveredProgress.scheduledFutureHours > 50,
+    `expected recovered horizon to restore substantial physics coverage, got ${recoveredProgress.scheduledFutureHours}h`,
   );
-  assert.ok(
-    recoveredProgress.scheduledFutureHours > 100,
-    `expected recovered horizon to restore substantial olympiad coverage, got ${recoveredProgress.scheduledFutureHours}h`,
-  );
+  assert.equal(recoveredProgress.unscheduledHours, 0);
 });
 
 test("multi-subject focus on a low-capacity day relaxes once the reserved share is nearly met", () => {
