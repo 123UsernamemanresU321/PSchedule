@@ -37,6 +37,15 @@ const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v8";
 const EXTENDED_GOALS_VERSION = "2026-03-19-post-syllabus-papers-v8";
 const LANGUAGE_MAINTENANCE_VERSION = "2026-03-19-languages-v1";
 const SEED_TOPIC_ORDERING_VERSION = "2026-03-19-seed-ordering-v3";
+const PLANNING_SYNC_SUBJECT_IDS: SubjectId[] = [
+  "physics-hl",
+  "maths-aa-hl",
+  "chemistry-hl",
+  "olympiad",
+  "cpp-book",
+  "french-b-sl",
+  "geography-transition",
+];
 
 function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreferences: Preferences) {
   const mergedWindows = new Map(
@@ -424,37 +433,54 @@ export function buildCollapsedCoverageRepairBaselineStudyBlocks(
   });
 }
 
+export async function repairCollapsedCoveragePlanningState(referenceDate = new Date()) {
+  const snapshot = await loadPlannerSnapshot();
+  const repairState = getCollapsedCoverageRepairState(snapshot, referenceDate);
+
+  if (!repairState.hasCollapsedCoverage) {
+    return snapshot;
+  }
+
+  return syncPlanningSubjectsToCurrentSeed(snapshot, referenceDate);
+}
+
 async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: Date) {
   const weekStart = startOfPlannerWeek(referenceDate);
   const weekStartKey = toDateKey(weekStart);
   const horizonEndWeekKey = toDateKey(
     getPlanningHorizonEndWeek(snapshot.goals, snapshot.subjects, referenceDate),
   );
-  const repairState = getCollapsedCoverageRepairState(snapshot, referenceDate);
+  let workingSnapshot = snapshot;
+  let repairState = getCollapsedCoverageRepairState(workingSnapshot, referenceDate);
 
   if (
     !repairState.hasCollapsedCoverage &&
-    snapshot.weeklyPlans.some((plan) => plan.weekStart === weekStartKey) &&
-    snapshot.weeklyPlans.some((plan) => plan.weekStart === horizonEndWeekKey) &&
-    !snapshot.weeklyPlans.some((plan) => plan.weekStart > horizonEndWeekKey)
+    workingSnapshot.weeklyPlans.some((plan) => plan.weekStart === weekStartKey) &&
+    workingSnapshot.weeklyPlans.some((plan) => plan.weekStart === horizonEndWeekKey) &&
+    !workingSnapshot.weeklyPlans.some((plan) => plan.weekStart > horizonEndWeekKey)
   ) {
-    return snapshot;
+    return workingSnapshot;
+  }
+
+  if (repairState.hasCollapsedCoverage) {
+    workingSnapshot = await syncPlanningSubjectsToCurrentSeed(workingSnapshot, referenceDate);
+    repairState = getCollapsedCoverageRepairState(workingSnapshot, referenceDate);
   }
 
   const existingStudyBlocks = repairState.hasCollapsedCoverage
-    ? buildCollapsedCoverageRepairBaselineStudyBlocks(snapshot.studyBlocks, referenceDate)
-    : snapshot.studyBlocks;
+    ? buildCollapsedCoverageRepairBaselineStudyBlocks(workingSnapshot.studyBlocks, referenceDate)
+    : workingSnapshot.studyBlocks;
 
   const replanned = generateStudyPlanHorizon({
     startWeek: weekStart,
-    goals: snapshot.goals,
-    subjects: snapshot.subjects,
-    topics: snapshot.topics,
-    fixedEvents: snapshot.fixedEvents,
-    sickDays: snapshot.sickDays,
-    focusedDays: snapshot.focusedDays,
-    focusedWeeks: snapshot.focusedWeeks,
-    preferences: snapshot.preferences,
+    goals: workingSnapshot.goals,
+    subjects: workingSnapshot.subjects,
+    topics: workingSnapshot.topics,
+    fixedEvents: workingSnapshot.fixedEvents,
+    sickDays: workingSnapshot.sickDays,
+    focusedDays: workingSnapshot.focusedDays,
+    focusedWeeks: workingSnapshot.focusedWeeks,
+    preferences: workingSnapshot.preferences,
     existingStudyBlocks,
     preserveFlexibleFutureBlocks: repairState.hasCollapsedCoverage ? false : undefined,
   });
@@ -468,17 +494,18 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
 async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Date) {
   const weekStart = startOfPlannerWeek(referenceDate);
   const weekStartKey = toDateKey(weekStart);
+  const syncedSnapshot = await syncPlanningSubjectsToCurrentSeed(snapshot, referenceDate);
   const replanned = generateStudyPlanHorizon({
     startWeek: weekStart,
-    goals: snapshot.goals,
-    subjects: snapshot.subjects,
-    topics: snapshot.topics,
-    fixedEvents: snapshot.fixedEvents,
-    sickDays: snapshot.sickDays,
-    focusedDays: snapshot.focusedDays,
-    focusedWeeks: snapshot.focusedWeeks,
-    preferences: snapshot.preferences,
-    existingStudyBlocks: snapshot.studyBlocks,
+    goals: syncedSnapshot.goals,
+    subjects: syncedSnapshot.subjects,
+    topics: syncedSnapshot.topics,
+    fixedEvents: syncedSnapshot.fixedEvents,
+    sickDays: syncedSnapshot.sickDays,
+    focusedDays: syncedSnapshot.focusedDays,
+    focusedWeeks: syncedSnapshot.focusedWeeks,
+    preferences: syncedSnapshot.preferences,
+    existingStudyBlocks: syncedSnapshot.studyBlocks,
     preserveFlexibleFutureBlocks: false,
   });
 
@@ -614,6 +641,72 @@ function mergeSeedTopicProgress<T extends PlannerSnapshot["topics"][number]>(
     lastStudiedAt: existingTopic.lastStudiedAt,
     notes: existingTopic.notes ?? seededTopic.notes,
   });
+}
+
+async function syncPlanningSubjectsToCurrentSeed(snapshot: PlannerSnapshot, referenceDate: Date) {
+  const seedDataset = buildSeedDataset(referenceDate);
+  const existingTopicsById = new Map(snapshot.topics.map((topic) => [topic.id, topic]));
+  const seededSubjects = seedDataset.subjects.filter((subject) =>
+    PLANNING_SYNC_SUBJECT_IDS.includes(subject.id),
+  );
+  const seededGoals = seedDataset.goals.filter((goal) =>
+    PLANNING_SYNC_SUBJECT_IDS.includes(goal.subjectId as SubjectId),
+  );
+  const seededGoalIds = new Set(seededGoals.map((goal) => goal.id));
+  const seededTopics = seedDataset.topics.filter((topic) =>
+    PLANNING_SYNC_SUBJECT_IDS.includes(topic.subjectId as SubjectId),
+  );
+  const seededTopicIds = new Set(seededTopics.map((topic) => topic.id));
+  const mergedTopics = seededTopics.map((seededTopic) =>
+    mergeSeedTopicProgress(
+      seededTopic,
+      existingTopicsById.get(seededTopic.id),
+    ),
+  );
+  const obsoleteGoalIds = snapshot.goals
+    .filter((goal) => PLANNING_SYNC_SUBJECT_IDS.includes(goal.subjectId as SubjectId))
+    .filter((goal) => !seededGoalIds.has(goal.id))
+    .map((goal) => goal.id);
+  const obsoleteTopicIds = snapshot.topics
+    .filter((topic) => PLANNING_SYNC_SUBJECT_IDS.includes(topic.subjectId as SubjectId))
+    .filter((topic) => !seededTopicIds.has(topic.id))
+    .map((topic) => topic.id);
+
+  await db.transaction(
+    "rw",
+    [db.subjects, db.goals, db.topics, db.studyBlocks],
+    async () => {
+      if (seededSubjects.length) {
+        await db.subjects.bulkPut(seededSubjects);
+      }
+
+      if (obsoleteGoalIds.length) {
+        await db.goals.bulkDelete(obsoleteGoalIds);
+      }
+
+      if (seededGoals.length) {
+        await db.goals.bulkPut(seededGoals);
+      }
+
+      if (obsoleteTopicIds.length) {
+        await db.topics.bulkDelete(obsoleteTopicIds);
+        await db.studyBlocks
+          .filter(
+            (block) =>
+              !!block.topicId &&
+              obsoleteTopicIds.includes(block.topicId) &&
+              !["done", "partial", "missed"].includes(block.status),
+          )
+          .delete();
+      }
+
+      if (mergedTopics.length) {
+        await db.topics.bulkPut(mergedTopics);
+      }
+    },
+  );
+
+  return loadPlannerSnapshot();
 }
 
 export async function syncOlympiadRoadmapToSeed(snapshot: PlannerSnapshot, referenceDate: Date) {

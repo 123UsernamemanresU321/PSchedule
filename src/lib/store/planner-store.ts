@@ -23,6 +23,7 @@ import {
   initializePlannerDatabase,
   loadPlannerSnapshot,
   getCollapsedCoverageRepairState,
+  repairCollapsedCoveragePlanningState,
   replacePlanningHorizon,
   deleteCompletionLogsByStudyBlockId,
   saveCompletionLog,
@@ -129,7 +130,7 @@ async function recalculateCurrentWeek(options?: {
   preserveFlexibleFutureBlocks?: boolean;
 }) {
   const referenceDate = new Date();
-  const snapshot = await loadPlannerSnapshot();
+  const snapshot = await repairCollapsedCoveragePlanningState(referenceDate);
   const repairState = getCollapsedCoverageRepairState(snapshot, referenceDate);
   const planningStartWeek = startOfPlannerWeek(referenceDate);
   const replanned = generateStudyPlanHorizon({
