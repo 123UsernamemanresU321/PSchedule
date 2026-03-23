@@ -202,8 +202,7 @@ function resolveTopicTimingWindow(
     const dependencyCompleteFromProgress =
       requiresDependencyCompletion &&
       !!dependencyTopic &&
-      dependencyTopic.completedHours >= dependencyTopic.estHours - 0.001 &&
-      dependencyTopic.mastery >= 5;
+      dependencyTopic.completedHours >= dependencyTopic.estHours - 0.001;
 
     if (!dependencyBlock && !dependencyCompleteFromProgress) {
       return {

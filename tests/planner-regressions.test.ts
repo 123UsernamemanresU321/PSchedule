@@ -1380,6 +1380,53 @@ test("number theory frontier top-off does not stretch into a giant overallocated
   assert.equal(congruenceMinutes <= 30, true);
 });
 
+test("marking a prerequisite topic complete by hours still unlocks downstream Olympiad planning", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
+  const divisibility = dataset.topics.find((topic) => topic.id === "olympiad-number-theory-divisibility");
+
+  assert.ok(olympiadSubject);
+  assert.ok(divisibility);
+
+  const topics = dataset.topics.map((topic) =>
+    topic.id === "olympiad-number-theory-divisibility"
+      ? {
+          ...topic,
+          completedHours: divisibility!.estHours,
+          mastery: 4,
+          status: "reviewed" as const,
+        }
+      : topic,
+  );
+
+  const result = generateStudyPlanHorizon({
+    startWeek: startOfPlannerWeek(referenceDate),
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+    existingStudyBlocks: [],
+    preserveFlexibleFutureBlocks: false,
+  });
+
+  const progress = getSubjectProgress(olympiadSubject!, topics, result.studyBlocks, referenceDate);
+
+  assert.equal(progress.unscheduledHours, 0);
+  assert.ok(
+    result.studyBlocks.some((block) => block.topicId === "olympiad-number-theory-congruence"),
+    "expected congruence to unlock once divisibility is fully logged by hours",
+  );
+  assert.ok(
+    progress.scheduledFutureHours > 500,
+    `expected Olympiad coverage to remain substantial after logging divisibility complete, got ${progress.scheduledFutureHours}h`,
+  );
+});
+
 test("subject progress caps already-planned-later hours at the topic's true remaining hours", () => {
   const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
   const olympiad = dataset.subjects.find((subject) => subject.id === "olympiad");
