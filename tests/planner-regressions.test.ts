@@ -2841,6 +2841,52 @@ test("future weekly focus retains work for that later week instead of letting ea
   );
 });
 
+test("current-week olympiad focus materially increases olympiad time despite olympiad-specific gating", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+
+  const withoutFocus = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T00:00:00"),
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: [],
+    focusedWeeks: [],
+    preferences: dataset.preferences,
+  });
+  const withOlympiadFocus = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T00:00:00"),
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: [],
+    focusedWeeks: [
+      {
+        id: "olympiad-focus-current-week",
+        weekStart: "2026-03-23",
+        subjectIds: ["olympiad"],
+      },
+    ],
+    preferences: dataset.preferences,
+  });
+
+  const olympiadMinutesWithoutFocus = withoutFocus.studyBlocks
+    .filter((block) => block.weekStart === "2026-03-23" && block.subjectId === "olympiad")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+  const olympiadMinutesWithFocus = withOlympiadFocus.studyBlocks
+    .filter((block) => block.weekStart === "2026-03-23" && block.subjectId === "olympiad")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+
+  assert.ok(
+    olympiadMinutesWithFocus >= olympiadMinutesWithoutFocus + 300,
+    "expected current-week olympiad focus to produce substantially more olympiad time",
+  );
+});
+
 test("multi-subject focus on a low-capacity day relaxes once the reserved share is nearly met", () => {
   const referenceDate = new Date("2026-03-16T08:00:00");
   const dataset = buildSeedDataset(referenceDate);
