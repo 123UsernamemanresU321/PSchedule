@@ -16,7 +16,10 @@ import {
   getInlineBreakMinutes,
   shouldPreserveStudyBlockOnRegeneration,
 } from "@/lib/scheduler/generator";
-import { getStatusUpdatePreservedStudyBlockIds } from "@/lib/store/planner-store";
+import {
+  getStatusUpdatePreservedStudyBlockIds,
+  shouldStatusUpdateTriggerReplan,
+} from "@/lib/store/planner-store";
 import {
   getActiveSickDaySeverity,
   isReservedCommitmentRuleActiveOnDate,
@@ -1987,6 +1990,66 @@ test("status-triggered replans preserve active planned and rescheduled blocks", 
   assert.deepEqual(
     ids.sort((left, right) => left.localeCompare(right)),
     ["current-planned", "current-rescheduled", "future-planned"],
+  );
+});
+
+test("marking a past planned block done with the expected minutes does not require a horizon rebuild", () => {
+  const previousBlock = createStudyBlock({
+    status: "planned",
+    estimatedMinutes: 90,
+    actualMinutes: null,
+    start: "2026-03-24T14:00:00.000Z",
+    end: "2026-03-24T15:30:00.000Z",
+  });
+  const nextBlock = {
+    ...previousBlock,
+    status: "done" as const,
+    actualMinutes: 90,
+  };
+
+  assert.equal(
+    shouldStatusUpdateTriggerReplan({
+      previousBlock,
+      nextBlock,
+      referenceDate: new Date("2026-03-24T16:00:00.000Z"),
+    }),
+    false,
+  );
+});
+
+test("partial or mismatched completions still trigger a horizon rebuild", () => {
+  const previousBlock = createStudyBlock({
+    status: "planned",
+    estimatedMinutes: 90,
+    actualMinutes: null,
+    start: "2026-03-24T14:00:00.000Z",
+    end: "2026-03-24T15:30:00.000Z",
+  });
+
+  assert.equal(
+    shouldStatusUpdateTriggerReplan({
+      previousBlock,
+      nextBlock: {
+        ...previousBlock,
+        status: "partial",
+        actualMinutes: 45,
+      },
+      referenceDate: new Date("2026-03-24T16:00:00.000Z"),
+    }),
+    true,
+  );
+
+  assert.equal(
+    shouldStatusUpdateTriggerReplan({
+      previousBlock,
+      nextBlock: {
+        ...previousBlock,
+        status: "done",
+        actualMinutes: 60,
+      },
+      referenceDate: new Date("2026-03-24T16:00:00.000Z"),
+    }),
+    true,
   );
 });
 

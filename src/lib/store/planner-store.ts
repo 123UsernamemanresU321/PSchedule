@@ -573,16 +573,21 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       });
     }
 
-    const preservedStudyBlockIds = getStatusUpdatePreservedStudyBlockIds({
-      studyBlocks: snapshot.studyBlocks,
-      updatedBlockId: block.id,
-      nextStatus: status,
-      referenceDate: new Date(),
-    });
-
-    const nextSnapshot = await recalculateCurrentWeek({
-      preservedStudyBlockIds,
-    });
+    const referenceDate = new Date();
+    const nextSnapshot = shouldStatusUpdateTriggerReplan({
+      previousBlock: block,
+      nextBlock: updatedBlock,
+      referenceDate,
+    })
+      ? await recalculateCurrentWeek({
+          preservedStudyBlockIds: getStatusUpdatePreservedStudyBlockIds({
+            studyBlocks: snapshot.studyBlocks,
+            updatedBlockId: block.id,
+            nextStatus: status,
+            referenceDate,
+          }),
+        })
+      : await loadPlannerSnapshot();
     set({
       ...nextSnapshot,
       loading: false,
@@ -983,6 +988,28 @@ function isStudyBlockActiveAt(block: StudyBlock, referenceDate: Date) {
   const blockEnd = new Date(block.end).getTime();
   const now = referenceDate.getTime();
   return blockStart <= now && now < blockEnd;
+}
+
+export function shouldStatusUpdateTriggerReplan(options: {
+  previousBlock: StudyBlock;
+  nextBlock: StudyBlock;
+  referenceDate: Date;
+}) {
+  const previousStatus = options.previousBlock.status;
+  const nextStatus = options.nextBlock.status;
+  const blockEnded = new Date(options.previousBlock.end).getTime() <= options.referenceDate.getTime();
+  const actualMinutes = options.nextBlock.actualMinutes ?? options.nextBlock.estimatedMinutes;
+
+  if (
+    blockEnded &&
+    nextStatus === "done" &&
+    ["planned", "rescheduled"].includes(previousStatus) &&
+    actualMinutes === options.previousBlock.estimatedMinutes
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 export function getStatusUpdatePreservedStudyBlockIds(options: {
