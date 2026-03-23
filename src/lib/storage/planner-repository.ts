@@ -16,6 +16,7 @@ import { db } from "@/lib/storage/db";
 import { parsePlannerJson } from "@/lib/storage/json-transfer";
 import { normalizeTopicProgress } from "@/lib/topics/status";
 import { subjectIds } from "@/lib/constants/planner";
+import { getSubjectProgress } from "@/lib/analytics/metrics";
 import type {
   CompletionLog,
   FocusedDay,
@@ -29,7 +30,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-23-weekly-focus-v31";
+const PLANNING_MODEL_VERSION = "2026-03-23-olympiad-coverage-v32";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v8";
@@ -353,8 +354,18 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
   const horizonEndWeekKey = toDateKey(
     getPlanningHorizonEndWeek(snapshot.goals, snapshot.subjects, referenceDate),
   );
+  const olympiad = snapshot.subjects.find((subject) => subject.id === OLYMPIAD_SUBJECT_ID);
+  const olympiadProgress = olympiad
+    ? getSubjectProgress(olympiad, snapshot.topics, snapshot.studyBlocks, referenceDate)
+    : null;
+  const hasSuspiciousOlympiadCoverageGap =
+    !!olympiadProgress &&
+    olympiadProgress.remainingHours > 100 &&
+    olympiadProgress.scheduledFutureHours < 1 &&
+    olympiadProgress.unscheduledHours > olympiadProgress.remainingHours - 1;
 
   if (
+    !hasSuspiciousOlympiadCoverageGap &&
     snapshot.weeklyPlans.some((plan) => plan.weekStart === weekStartKey) &&
     snapshot.weeklyPlans.some((plan) => plan.weekStart === horizonEndWeekKey) &&
     !snapshot.weeklyPlans.some((plan) => plan.weekStart > horizonEndWeekKey)

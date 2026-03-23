@@ -1175,6 +1175,38 @@ function allocateTasksToSlots(options: {
       })[0] ?? "maths-aa-hl";
   }
 
+  function getFocusedOverflowPracticeSubjectId(dateKey: string): Subject["id"] | null {
+    const focusedSubjectIds = focusedSubjectsByDate[dateKey] ?? [];
+
+    if (!focusedSubjectIds.length) {
+      return null;
+    }
+
+    const sortedSubjectIds = [...focusedSubjectIds] as Subject["id"][];
+
+    return sortedSubjectIds.sort((left, right) => {
+      const leftUnderTarget =
+        (focusedSubjectTargetMinutesByDate[dateKey]?.[left] ?? 0) -
+        getFocusedSubjectAssignedMinutes(dateKey, left);
+      const rightUnderTarget =
+        (focusedSubjectTargetMinutesByDate[dateKey]?.[right] ?? 0) -
+        getFocusedSubjectAssignedMinutes(dateKey, right);
+
+      if (leftUnderTarget !== rightUnderTarget) {
+        return rightUnderTarget - leftUnderTarget;
+      }
+
+      const leftMinutes = subjectMinutesByDate[dateKey]?.[left] ?? 0;
+      const rightMinutes = subjectMinutesByDate[dateKey]?.[right] ?? 0;
+
+      if (leftMinutes !== rightMinutes) {
+        return leftMinutes - rightMinutes;
+      }
+
+      return left.localeCompare(right);
+    })[0] ?? null;
+  }
+
   function extendScheduledStudyBlock(block: StudyBlock, extraMinutes: number) {
     if (!block.subjectId || extraMinutes <= 0) {
       return;
@@ -1556,6 +1588,49 @@ function allocateTasksToSlots(options: {
 
       if (!focusedDemandStillOpen) {
         focusedOnlyOptions = [];
+      }
+
+      const focusedOverflowSubjectId =
+        focusedOnlyOptions.length === 0 && focusedDemandStillOpen
+          ? getFocusedOverflowPracticeSubjectId(slot.dateKey)
+          : null;
+
+      if (
+        focusedOverflowSubjectId &&
+        options.fillAvailableStudyDays &&
+        remainingSlotMinutes >= 60
+      ) {
+        const overflowDuration = Math.min(
+          remainingSlotMinutes,
+          slotSlice.energy === "low" ? 60 : 90,
+        );
+        const overflowBlock = buildOverflowPracticeBlock({
+          slot: slotSlice,
+          weekStart: weekStartKey,
+          subjectId: focusedOverflowSubjectId,
+          start: cursor,
+          durationMinutes: overflowDuration,
+        });
+        scheduledBlocks.push(overflowBlock);
+        dailyMinutes[slot.dateKey] = (dailyMinutes[slot.dateKey] ?? 0) + overflowDuration;
+        assignedMinutesBySubject[focusedOverflowSubjectId] += overflowDuration;
+        subjectMinutesByDate[slot.dateKey] = {
+          ...(subjectMinutesByDate[slot.dateKey] ?? {}),
+          [focusedOverflowSubjectId]:
+            (subjectMinutesByDate[slot.dateKey]?.[focusedOverflowSubjectId] ?? 0) +
+            overflowDuration,
+        };
+        const overflowWeekKey = getWeekKeyForDate(slot.dateKey);
+        subjectMinutesByWeekStart[overflowWeekKey] = {
+          ...(subjectMinutesByWeekStart[overflowWeekKey] ?? {}),
+          [focusedOverflowSubjectId]:
+            (subjectMinutesByWeekStart[overflowWeekKey]?.[focusedOverflowSubjectId] ?? 0) +
+            overflowDuration,
+        };
+        consumedStudyMinutes += overflowDuration;
+        cursor = addMinutes(cursor, overflowDuration);
+        remainingSlotMinutes = Math.max(0, remainingSlotMinutes - overflowDuration);
+        continue;
       }
 
       let cadenceOnlyOptions =
