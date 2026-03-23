@@ -2964,6 +2964,64 @@ test("current-week olympiad focus still works when one day is blocked by an all-
   );
 });
 
+test("current-week olympiad focus can pull roadmap-dated olympiad work into the focused week", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
+
+  assert.ok(olympiadSubject, "expected olympiad subject");
+
+  const deferredFoundationTopic: Topic = {
+    ...dataset.topics.find((topic) => topic.id === "olympiad-number-theory-divisibility")!,
+    availableFrom: "2026-03-30",
+    completedHours: 0,
+    mastery: 0,
+    status: "not_started",
+  };
+
+  const withoutFocus = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T00:00:00"),
+    goals: dataset.goals.filter((goal) => goal.subjectId === "olympiad"),
+    subjects: [olympiadSubject],
+    topics: [deferredFoundationTopic],
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: [],
+    focusedWeeks: [],
+    preferences: dataset.preferences,
+  });
+  const withOlympiadFocus = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T00:00:00"),
+    goals: dataset.goals.filter((goal) => goal.subjectId === "olympiad"),
+    subjects: [olympiadSubject],
+    topics: [deferredFoundationTopic],
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: [],
+    focusedWeeks: [
+      {
+        id: "olympiad-focus-pulls-roadmap-work-forward",
+        weekStart: "2026-03-23",
+        subjectIds: ["olympiad"],
+      },
+    ],
+    preferences: dataset.preferences,
+  });
+
+  const olympiadMinutesWithoutFocus = withoutFocus.studyBlocks
+    .filter((block) => block.weekStart === "2026-03-23" && block.subjectId === "olympiad")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+  const olympiadMinutesWithFocus = withOlympiadFocus.studyBlocks
+    .filter((block) => block.weekStart === "2026-03-23" && block.subjectId === "olympiad")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+
+  assert.equal(olympiadMinutesWithoutFocus, 0);
+  assert.ok(
+    olympiadMinutesWithFocus >= 60,
+    "expected focused olympiad week to pull roadmap-dated olympiad work into the current week",
+  );
+});
+
 test("multi-subject focus on a low-capacity day relaxes once the reserved share is nearly met", () => {
   const referenceDate = new Date("2026-03-16T08:00:00");
   const dataset = buildSeedDataset(referenceDate);

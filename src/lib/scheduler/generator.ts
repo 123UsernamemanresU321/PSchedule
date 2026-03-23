@@ -564,11 +564,30 @@ function buildFutureFocusedReserveMinutesBySubject(options: {
   subjectDeadlinesById: Record<string, string>;
   existingPlannedBlocks: StudyBlock[];
 }) {
+  const futureFocusedSubjectIds = new Set<string>();
+
+  for (
+    let futureWeek = addDays(options.currentWeek, 7);
+    futureWeek.getTime() <= options.endWeek.getTime();
+    futureWeek = addDays(futureWeek, 7)
+  ) {
+    const focusedSubjectsByDate = buildFocusedSubjectsByDate({
+      weekStart: futureWeek,
+      focusedDays: options.focusedDays,
+      focusedWeeks: options.focusedWeeks,
+    });
+
+    Object.values(focusedSubjectsByDate).forEach((subjectIds) => {
+      subjectIds.forEach((subjectId) => futureFocusedSubjectIds.add(subjectId));
+    });
+  }
+
   const remainingTasks = buildTaskCandidates({
     topics: options.topics,
     existingPlannedBlocks: options.existingPlannedBlocks,
     referenceDate: getPlannerReferenceDate(options.currentWeek),
     subjectDeadlinesById: options.subjectDeadlinesById,
+    availabilityOverrideSubjectIds: [...futureFocusedSubjectIds],
   });
   const remainingRequiredMinutesBySubject = recordFromKeys(subjectIds, () => 0);
 
@@ -1881,6 +1900,14 @@ export function generateStudyPlanForWeek(options: {
   const sickDays = options.sickDays ?? [];
   const focusedDays = options.focusedDays ?? [];
   const focusedWeeks = options.focusedWeeks ?? [];
+  const focusedSubjectsByDate = buildFocusedSubjectsByDate({
+    weekStart,
+    focusedDays,
+    focusedWeeks,
+  });
+  const availabilityOverrideSubjectIds = Array.from(
+    new Set(Object.values(focusedSubjectsByDate).flat()),
+  );
   const weekStartKey = toDateKey(weekStart);
   const existingPlannedBlocks = options.existingPlannedBlocks ?? lockedBlocks;
   const deadlineTracks = computeSubjectDeadlineTracks({
@@ -1927,6 +1954,7 @@ export function generateStudyPlanForWeek(options: {
         existingPlannedBlocks,
         referenceDate,
         subjectDeadlinesById,
+        availabilityOverrideSubjectIds,
       }),
     };
   }
@@ -1954,6 +1982,7 @@ export function generateStudyPlanForWeek(options: {
     existingPlannedBlocks,
     referenceDate,
     subjectDeadlinesById,
+    availabilityOverrideSubjectIds,
   });
   const allocationRequiredHoursBySubject = buildFullCoverageHoursBySubject(
     options.subjects,
@@ -1966,11 +1995,6 @@ export function generateStudyPlanForWeek(options: {
     freeSlots: initialFreeSlots,
     requiredMinutes,
     preferences: options.preferences,
-  });
-  const focusedSubjectsByDate = buildFocusedSubjectsByDate({
-    weekStart,
-    focusedDays,
-    focusedWeeks,
   });
   const passPolicies = buildAllocationPasses(
     Math.max(options.dailyCapBoostMinutes ?? 0, automaticDailyCapBoostMinutes),
@@ -2002,6 +2026,7 @@ export function generateStudyPlanForWeek(options: {
       existingPlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
       referenceDate,
       subjectDeadlinesById,
+      availabilityOverrideSubjectIds,
     }).filter(
       (task) =>
         task.subjectId === "olympiad" &&
@@ -2083,6 +2108,7 @@ export function generateStudyPlanForWeek(options: {
       existingPlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
       referenceDate,
       subjectDeadlinesById,
+      availabilityOverrideSubjectIds,
     });
     const passRequiredHoursBySubject = {
       ...recordFromKeys(subjectIds, () => 0),
@@ -2151,6 +2177,7 @@ export function generateStudyPlanForWeek(options: {
     existingPlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
     referenceDate,
     subjectDeadlinesById,
+    availabilityOverrideSubjectIds,
   }).filter(
     (task) => task.subjectId === "olympiad" && task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
   );
@@ -2217,6 +2244,7 @@ export function generateStudyPlanForWeek(options: {
     existingPlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
     referenceDate,
     subjectDeadlinesById,
+    availabilityOverrideSubjectIds,
   });
   const finalAssignedMinutesBySubject = sumAssignedMinutesBySubject([...lockedBlocks, ...scheduledBlocks]);
   const remainingRequiredHoursBySubject = getRemainingRequiredHoursBySubject(

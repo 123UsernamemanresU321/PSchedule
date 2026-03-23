@@ -144,8 +144,10 @@ function resolveTopicTimingWindow(
   plannedMinutesByTopic: Record<string, number>,
   topics: Topic[],
   topicById: Map<string, Topic>,
+  options?: { allowAvailabilityPullForward?: boolean },
 ) {
-  let availableAt: Date | null = topic.availableFrom ? fromDateKey(topic.availableFrom) : null;
+  const roadmapAvailableAt = topic.availableFrom ? fromDateKey(topic.availableFrom) : null;
+  let availableAt: Date | null = roadmapAvailableAt;
   let reviewDue = topic.reviewDue;
 
   const stageGateStatus = getOlympiadStageGateStatus({
@@ -254,6 +256,15 @@ function resolveTopicTimingWindow(
     }
   }
 
+  if (
+    options?.allowAvailabilityPullForward &&
+    roadmapAvailableAt &&
+    availableAt &&
+    availableAt.getTime() === roadmapAvailableAt.getTime()
+  ) {
+    availableAt = null;
+  }
+
   return {
     blocked: false,
     availableAt,
@@ -267,12 +278,14 @@ export function buildTaskCandidates(options: {
   existingPlannedBlocks?: StudyBlock[];
   referenceDate?: Date;
   subjectDeadlinesById?: Record<string, string>;
+  availabilityOverrideSubjectIds?: string[];
 }) {
   const {
     topics,
     existingPlannedBlocks = [],
     referenceDate = new Date(),
     subjectDeadlinesById = {},
+    availabilityOverrideSubjectIds = [],
   } = options;
   const planningWeekEnd = endOfPlannerWeek(referenceDate);
   const weekEnd = addDays(endOfPlannerWeek(referenceDate), 3);
@@ -312,6 +325,9 @@ export function buildTaskCandidates(options: {
       plannedMinutesByTopic,
       topics,
       topicById,
+      {
+        allowAvailabilityPullForward: availabilityOverrideSubjectIds.includes(topic.subjectId),
+      },
     );
 
     if (timingWindow.blocked || (timingWindow.availableAt && timingWindow.availableAt > planningWeekEnd)) {
@@ -359,6 +375,9 @@ export function buildTaskCandidates(options: {
       plannedMinutesByTopic,
       topics,
       topicById,
+      {
+        allowAvailabilityPullForward: availabilityOverrideSubjectIds.includes(topic.subjectId),
+      },
     );
 
     if (timingWindow.blocked || (timingWindow.availableAt && timingWindow.availableAt > planningWeekEnd)) {
