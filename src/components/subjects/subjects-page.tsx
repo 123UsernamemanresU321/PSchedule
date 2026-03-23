@@ -20,12 +20,56 @@ export function SubjectsPage() {
   const subjects = usePlannerStore((state) => state.subjects);
   const topics = usePlannerStore((state) => state.topics);
   const studyBlocks = usePlannerStore((state) => state.studyBlocks);
+  const loading = usePlannerStore((state) => state.loading);
+  const updateTopicCompletedHoursBatch = usePlannerStore(
+    (state) => state.updateTopicCompletedHoursBatch,
+  );
   const [activeTab, setActiveTab] = useState<string>("all");
+  const [topicHourDrafts, setTopicHourDrafts] = useState<Record<string, string>>({});
+
+  const completedHoursDraftStates = new Map(
+    topics.map((topic) => [topic.id, getTopicCompletedHoursDraftState(topic, topicHourDrafts[topic.id])]),
+  );
+  const changedTopicUpdates = topics.flatMap((topic) => {
+    const draftState = completedHoursDraftStates.get(topic.id);
+
+    if (!draftState?.hasChanges) {
+      return [];
+    }
+
+    return [
+      {
+        topicId: topic.id,
+        completedHours: draftState.normalizedHours,
+      },
+    ];
+  });
+  const hasInvalidDrafts = topics.some(
+    (topic) => completedHoursDraftStates.get(topic.id)?.hasInvalidInput,
+  );
+  const hasDraftEntries = Object.keys(topicHourDrafts).length > 0;
 
   const visibleSubjects =
     activeTab === "all"
       ? subjects.filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
       : subjects.filter((subject) => subject.id === activeTab);
+
+  async function handleSaveCompletedHoursChanges() {
+    if (loading || hasInvalidDrafts || changedTopicUpdates.length === 0) {
+      return;
+    }
+
+    try {
+      await updateTopicCompletedHoursBatch(changedTopicUpdates);
+      setTopicHourDrafts({});
+    } catch {
+      // Store state already captures the failure message.
+    }
+  }
+
+  function handleResetCompletedHoursChanges() {
+    setTopicHourDrafts({});
+  }
 
   return (
     <div className="space-y-6">
@@ -33,7 +77,7 @@ export function SubjectsPage() {
         title="Subjects"
         description="Track what is completed, what is already placed later on the calendar, and what still has no scheduled slot yet. These values feed directly into the deterministic scheduler."
         actions={
-          <>
+          <div className="flex w-full flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex flex-wrap gap-2">
               <Button
                 variant={activeTab === "all" ? "default" : "ghost"}
@@ -53,7 +97,35 @@ export function SubjectsPage() {
                   </Button>
                 ))}
             </div>
-          </>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge
+                variant={
+                  hasInvalidDrafts ? "danger" : changedTopicUpdates.length > 0 ? "warning" : "muted"
+                }
+              >
+                {hasInvalidDrafts
+                  ? "Fix invalid completed-hours entries before saving"
+                  : changedTopicUpdates.length > 0
+                    ? `${changedTopicUpdates.length} unsaved topic change${changedTopicUpdates.length === 1 ? "" : "s"}`
+                    : "No pending completed-hours changes"}
+              </Badge>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={loading || !hasDraftEntries}
+                onClick={handleResetCompletedHoursChanges}
+              >
+                Reset edits
+              </Button>
+              <Button
+                type="button"
+                disabled={loading || hasInvalidDrafts || changedTopicUpdates.length === 0}
+                onClick={() => void handleSaveCompletedHoursChanges()}
+              >
+                Save changes
+              </Button>
+            </div>
+          </div>
         }
       />
 
@@ -193,8 +265,17 @@ export function SubjectsPage() {
                                 <p className="mt-1">Mastery {topic.mastery}/5</p>
                               </div>
                               <TopicCompletedHoursEditor
-                                key={`${topic.id}:${topic.completedHours}`}
                                 topic={topic}
+                                draftHours={
+                                  completedHoursDraftStates.get(topic.id)?.draftHours ??
+                                  formatHoursInput(topic.completedHours)
+                                }
+                                onDraftHoursChange={(nextValue) => {
+                                  setTopicHourDrafts((current) => ({
+                                    ...current,
+                                    [topic.id]: nextValue,
+                                  }));
+                                }}
                               />
                               <div className="flex items-center justify-end">
                                 <Badge
@@ -225,64 +306,57 @@ export function SubjectsPage() {
   );
 }
 
-function TopicCompletedHoursEditor({ topic }: { topic: Topic }) {
-  const loading = usePlannerStore((state) => state.loading);
-  const updateTopicCompletedHours = usePlannerStore((state) => state.updateTopicCompletedHours);
-  const [draftHours, setDraftHours] = useState(formatHoursInput(topic.completedHours));
-
-  const parsedHours = Number(draftHours);
-  const normalizedHours = Number.isFinite(parsedHours)
-    ? clampHours(parsedHours, topic.estHours)
-    : topic.completedHours;
-  const hasValidInput = draftHours.trim().length > 0 && Number.isFinite(parsedHours);
-  const hasChanges = hasValidInput && Math.abs(normalizedHours - topic.completedHours) > 0.001;
-
-  async function handleSave() {
-    if (!hasValidInput) {
-      setDraftHours(formatHoursInput(topic.completedHours));
-      return;
-    }
-
-    await updateTopicCompletedHours({
-      topicId: topic.id,
-      completedHours: normalizedHours,
-    });
-  }
+function TopicCompletedHoursEditor({
+  topic,
+  draftHours,
+  onDraftHoursChange,
+}: {
+  topic: Topic;
+  draftHours: string;
+  onDraftHoursChange: (value: string) => void;
+}) {
+  const draftState = getTopicCompletedHoursDraftState(topic, draftHours);
 
   return (
     <div className="space-y-2 text-sm text-muted-foreground">
       <p className="uppercase tracking-[0.2em] text-[11px]">Completed hours</p>
-      <div className="flex items-center gap-2">
-        <Input
-          type="number"
-          min={0}
-          max={topic.estHours}
-          step="0.1"
-          value={draftHours}
-          onChange={(event) => setDraftHours(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              void handleSave();
-            }
-          }}
-          className="h-9"
-        />
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={loading || !hasChanges}
-          onClick={() => void handleSave()}
-        >
-          Save
-        </Button>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        0 to {topic.estHours.toFixed(1)}h
+      <Input
+        type="number"
+        min={0}
+        max={topic.estHours}
+        step="0.1"
+        value={draftHours}
+        onChange={(event) => onDraftHoursChange(event.target.value)}
+        className="h-9"
+      />
+      <p
+        className={`text-xs ${
+          draftState.hasInvalidInput ? "text-destructive" : "text-muted-foreground"
+        }`}
+      >
+        {draftState.hasInvalidInput
+          ? `Enter a valid number from 0 to ${topic.estHours.toFixed(1)}h before saving.`
+          : draftState.hasChanges
+            ? `Unsaved change: ${formatHoursInput(draftState.normalizedHours)}h will apply when you save.`
+            : `0 to ${topic.estHours.toFixed(1)}h`}
       </p>
     </div>
   );
+}
+
+function getTopicCompletedHoursDraftState(topic: Topic, draftHoursInput?: string) {
+  const draftHours = draftHoursInput ?? formatHoursInput(topic.completedHours);
+  const trimmedDraftHours = draftHours.trim();
+  const parsedHours = Number(draftHours);
+  const hasValidInput = trimmedDraftHours.length > 0 && Number.isFinite(parsedHours);
+  const normalizedHours = hasValidInput ? clampHours(parsedHours, topic.estHours) : topic.completedHours;
+
+  return {
+    draftHours,
+    normalizedHours,
+    hasChanges: hasValidInput && Math.abs(normalizedHours - topic.completedHours) > 0.001,
+    hasInvalidInput: draftHoursInput !== undefined && !hasValidInput,
+  };
 }
 
 function clampHours(value: number, maxHours: number) {

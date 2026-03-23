@@ -103,6 +103,12 @@ interface PlannerState {
     topicId: string;
     completedHours: number;
   }) => Promise<void>;
+  updateTopicCompletedHoursBatch: (
+    updates: Array<{
+      topicId: string;
+      completedHours: number;
+    }>,
+  ) => Promise<void>;
   updateStudyBlockStatus: (options: {
     blockId: string;
     status: Extract<StudyBlockStatus, "planned" | "done" | "partial" | "missed" | "rescheduled">;
@@ -504,23 +510,63 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
   updateTopicCompletedHours: async ({ topicId, completedHours }) => {
+    await get().updateTopicCompletedHoursBatch([
+      {
+        topicId,
+        completedHours,
+      },
+    ]);
+  },
+  updateTopicCompletedHoursBatch: async (updates) => {
     set({ loading: true, error: null });
 
     try {
-      const snapshot = await loadPlannerSnapshot();
-      const topic = snapshot.topics.find((candidate) => candidate.id === topicId);
-
-      if (!topic) {
-        set({ loading: false, error: "Topic not found." });
+      if (updates.length === 0) {
+        const nextSnapshot = await loadPlannerSnapshot();
+        set({
+          ...nextSnapshot,
+          loading: false,
+          error: null,
+        });
         return;
       }
 
-      const nextTopic: Topic = {
-        ...topic,
-        completedHours: clampCompletedHours(completedHours, topic.estHours),
-      };
-      nextTopic.status = deriveTopicStatus(nextTopic);
-      await updateTopic(nextTopic);
+      const snapshot = await loadPlannerSnapshot();
+      const topicsById = new Map(snapshot.topics.map((topic) => [topic.id, topic]));
+      let changedTopicCount = 0;
+
+      for (const update of updates) {
+        const topic = topicsById.get(update.topicId);
+
+        if (!topic) {
+          throw new Error("Topic not found.");
+        }
+
+        const nextCompletedHours = clampCompletedHours(update.completedHours, topic.estHours);
+
+        if (Math.abs(nextCompletedHours - topic.completedHours) <= 0.001) {
+          continue;
+        }
+
+        const nextTopic: Topic = {
+          ...topic,
+          completedHours: nextCompletedHours,
+        };
+        nextTopic.status = deriveTopicStatus(nextTopic);
+        await updateTopic(nextTopic);
+        topicsById.set(nextTopic.id, nextTopic);
+        changedTopicCount += 1;
+      }
+
+      if (changedTopicCount === 0) {
+        const nextSnapshot = await loadPlannerSnapshot();
+        set({
+          ...nextSnapshot,
+          loading: false,
+          error: null,
+        });
+        return;
+      }
 
       const nextSnapshot = await recalculateCurrentWeek({
         preserveFlexibleFutureBlocks: false,
@@ -535,6 +581,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         loading: false,
         error: error instanceof Error ? error.message : "Failed to update topic progress.",
       });
+      throw error;
     }
   },
   updateStudyBlockStatus: async ({
