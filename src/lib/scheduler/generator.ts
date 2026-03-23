@@ -9,9 +9,7 @@ import {
 import { calculateFreeSlots } from "@/lib/scheduler/free-slots";
 import {
   getOlympiadNumberTheoryEligibilityStatus,
-  getOlympiadNumberTheoryFrontierStatus,
   getOlympiadStageGateStatus,
-  isOlympiadFoundationTopic,
 } from "@/lib/scheduler/olympiad-stage-gates";
 import { scoreTaskCandidate, buildGeneratedReason } from "@/lib/scheduler/scoring";
 import type { BlockSelectionPolicy } from "@/lib/scheduler/slot-classifier";
@@ -43,8 +41,6 @@ import type {
 const MIN_ALLOCATABLE_MINUTES = 30;
 const FOCUSED_DAY_RESERVED_SHARE = 0.7;
 const FOCUS_STRICT_TOLERANCE_MINUTES = 10;
-const OLYMPIAD_BRIDGE_WEEKLY_TARGET_MINUTES = 240;
-
 function getAllowedBlockTypesForSlot(slot: CalendarSlot) {
   switch (slot.sickDaySeverity) {
     case "moderate":
@@ -769,23 +765,6 @@ function allocateTasksToSlots(options: {
 
   function hasReachedWeeklyTarget(task: TaskCandidate, dateKey?: string) {
     if (options.fillAvailableStudyDays) {
-      if (
-        task.subjectId === "olympiad" &&
-        dateKey &&
-        !isOlympiadGoldPushDate(dateKey) &&
-        !workingTasks.some((candidate) => {
-          if (candidate.subjectId !== "olympiad" || !candidate.topicId) {
-            return false;
-          }
-
-          return isOlympiadFoundationTopic(topicMap.get(candidate.topicId));
-        })
-      ) {
-        const assignedMinutesThisWeek =
-          subjectMinutesByWeekStart[getWeekKeyForDate(dateKey)]?.olympiad ?? 0;
-        return assignedMinutesThisWeek >= OLYMPIAD_BRIDGE_WEEKLY_TARGET_MINUTES;
-      }
-
       return false;
     }
 
@@ -1121,51 +1100,6 @@ function allocateTasksToSlots(options: {
     );
   }
 
-  function getCadenceReservedSubjectIds(dateKey: string) {
-    const reservedSubjectIds: string[] = [];
-    const olympiadAssignedMinutes = subjectMinutesByDate[dateKey]?.olympiad ?? 0;
-    const olympiadAssignedMinutesThisWeek =
-      subjectMinutesByWeekStart[getWeekKeyForDate(dateKey)]?.olympiad ?? 0;
-    const olympiadStillActive = workingTasks.some(
-      (task) => task.subjectId === "olympiad" && task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
-    );
-    const olympiadFoundationStillActive = workingTasks.some((task) => {
-      if (task.subjectId !== "olympiad" || !task.topicId) {
-        return false;
-      }
-
-      return isOlympiadFoundationTopic(topicMap.get(task.topicId));
-    });
-
-    if (
-      olympiadStillActive &&
-      olympiadFoundationStillActive &&
-      olympiadAssignedMinutes <= 0
-    ) {
-      reservedSubjectIds.push("olympiad");
-    }
-
-    if (
-      olympiadStillActive &&
-      !olympiadFoundationStillActive &&
-      !isOlympiadGoldPushDate(dateKey) &&
-      olympiadAssignedMinutesThisWeek + 14 < OLYMPIAD_BRIDGE_WEEKLY_TARGET_MINUTES &&
-      olympiadAssignedMinutes <= 0
-    ) {
-      reservedSubjectIds.push("olympiad");
-    }
-
-    if (
-      olympiadStillActive &&
-      isOlympiadGoldPushDate(dateKey) &&
-      olympiadAssignedMinutes <= 0
-    ) {
-      reservedSubjectIds.push("olympiad");
-    }
-
-    return reservedSubjectIds;
-  }
-
   function getOverflowPracticeSubjectId(dateKey: string) {
     return [...mainSubjectIds]
       .sort((left, right) => {
@@ -1269,107 +1203,6 @@ function allocateTasksToSlots(options: {
     return true;
   }
 
-  function isOlympiadGoldPushDate(dateKey: string) {
-    return dateKey >= "2026-07-01" && dateKey <= "2027-03-16";
-  }
-
-  function getNumberTheoryFrontierTopicIdForSlot(slotStart: Date) {
-    const frontierStatus = getOlympiadNumberTheoryFrontierStatus({
-      topics: options.topics,
-      blocks: [
-        ...(options.priorPlannedBlocks ?? []),
-        ...options.lockedBlocks,
-        ...scheduledBlocks,
-      ],
-      cutoff: slotStart,
-    });
-
-    if (!frontierStatus.frontierTopicId || frontierStatus.remainingMinutes <= 0) {
-      return null;
-    }
-
-    return frontierStatus.frontierTopicId;
-  }
-
-  function getCadenceBonus(task: TaskCandidate, dateKey: string) {
-    if (!task.subjectId) {
-      return 0;
-    }
-
-    const alreadyScheduledMinutes = subjectMinutesByDate[dateKey]?.[task.subjectId] ?? 0;
-    const alreadyScheduledMinutesThisWeek =
-      subjectMinutesByWeekStart[getWeekKeyForDate(dateKey)]?.[task.subjectId] ?? 0;
-    if (alreadyScheduledMinutes > 0) {
-      return 0;
-    }
-
-    if (task.subjectId === "olympiad") {
-      const olympiadFoundationStillActive = workingTasks.some((candidate) => {
-        if (candidate.subjectId !== "olympiad" || !candidate.topicId) {
-          return false;
-        }
-
-        return isOlympiadFoundationTopic(topicMap.get(candidate.topicId));
-      });
-
-      if (
-        !olympiadFoundationStillActive &&
-        !isOlympiadGoldPushDate(dateKey) &&
-        alreadyScheduledMinutesThisWeek + 14 < OLYMPIAD_BRIDGE_WEEKLY_TARGET_MINUTES
-      ) {
-        return 20;
-      }
-
-      return isOlympiadGoldPushDate(dateKey) ? 42 : 16;
-    }
-
-    const requiredMinutes = requiredMinutesBySubject[task.subjectId] ?? 0;
-    const assignedMinutes = assignedMinutesBySubject[task.subjectId] ?? 0;
-    return requiredMinutes > assignedMinutes ? 3 : 0;
-  }
-
-  function getCadencePenalty(task: TaskCandidate, dateKey: string) {
-    const olympiadAssignedMinutesThisWeek =
-      subjectMinutesByWeekStart[getWeekKeyForDate(dateKey)]?.olympiad ?? 0;
-    const olympiadFoundationStillActive = workingTasks.some((candidate) => {
-      if (candidate.subjectId !== "olympiad" || !candidate.topicId) {
-        return false;
-      }
-
-      return isOlympiadFoundationTopic(topicMap.get(candidate.topicId));
-    });
-
-    if (
-      isOlympiadGoldPushDate(dateKey) &&
-      task.subjectId !== "olympiad" &&
-      (subjectMinutesByDate[dateKey]?.olympiad ?? 0) === 0 &&
-      workingTasks.some(
-        (candidate) =>
-          candidate.subjectId === "olympiad" &&
-          candidate.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
-      )
-    ) {
-      return 14;
-    }
-
-    if (
-      !olympiadFoundationStillActive &&
-      !isOlympiadGoldPushDate(dateKey) &&
-      task.subjectId !== "olympiad" &&
-      olympiadAssignedMinutesThisWeek + 14 < OLYMPIAD_BRIDGE_WEEKLY_TARGET_MINUTES &&
-      (subjectMinutesByDate[dateKey]?.olympiad ?? 0) === 0 &&
-      workingTasks.some(
-        (candidate) =>
-          candidate.subjectId === "olympiad" &&
-          candidate.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
-      )
-    ) {
-      return 8;
-    }
-
-    return 0;
-  }
-
   function shouldHoldCapacityForLaterDays(dateKey: string) {
     if (options.fillAvailableStudyDays) {
       return false;
@@ -1406,18 +1239,10 @@ function allocateTasksToSlots(options: {
       strongFocusDemand = false,
     } = config;
     const allowedBlockTypes = getAllowedBlockTypesForSlot(slot);
-    const requiredNumberTheoryFrontierTopicId = getNumberTheoryFrontierTopicIdForSlot(slot.start);
     return workingTasks
       .filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES)
       .filter((task) => !restrictedSubjectIds || (!!task.subjectId && restrictedSubjectIds.includes(task.subjectId)))
       .filter((task) => !restrictedTopicIds || (!!task.topicId && restrictedTopicIds.includes(task.topicId)))
-      .filter((task) => {
-        if (!requiredNumberTheoryFrontierTopicId || task.subjectId !== "olympiad") {
-          return true;
-        }
-
-        return task.topicId === requiredNumberTheoryFrontierTopicId;
-      })
       .filter((task) => !task.availableAt || new Date(task.availableAt) <= slot.start)
       .filter((task) => !task.latestAt || new Date(task.latestAt) >= slot.start)
       .filter((task) => isTaskDependencySatisfied(task, slot.start))
@@ -1482,11 +1307,9 @@ function allocateTasksToSlots(options: {
           },
           referenceDate: options.referenceDate,
         });
-        const cadenceBonus = getCadenceBonus(task, slot.dateKey);
-        const cadencePenalty = getCadencePenalty(task, slot.dateKey);
         const adjustedScoreBreakdown = {
           ...scoreBreakdown,
-          total: Math.round((scoreBreakdown.total + cadenceBonus - cadencePenalty) * 10) / 10,
+          total: scoreBreakdown.total,
         };
 
         return {
@@ -1567,8 +1390,6 @@ function allocateTasksToSlots(options: {
         durationMinutes: Math.min(remainingSlotMinutes, availableToday),
       };
       const unmetFocusedSubjectIds = getUnmetFocusedSubjectIds(slot.dateKey);
-      const cadenceReservedSubjectIds =
-        unmetFocusedSubjectIds.length > 0 ? [] : getCadenceReservedSubjectIds(slot.dateKey);
       let focusedOnlyOptions = unmetFocusedSubjectIds.length > 0
         ? buildScoredOptionsForSlot({
             slot: slotSlice,
@@ -1641,33 +1462,9 @@ function allocateTasksToSlots(options: {
         continue;
       }
 
-      let cadenceOnlyOptions =
-        cadenceReservedSubjectIds.length > 0
-          ? buildScoredOptionsForSlot({
-              slot: slotSlice,
-              allowWeeklyTargetOverride: true,
-              restrictedSubjectIds: cadenceReservedSubjectIds,
-              mustFillEndOfDaySlot,
-              strongFocusDemand: false,
-            })
-          : [];
-
-      if (cadenceReservedSubjectIds.length > 0 && cadenceOnlyOptions.length === 0) {
-        syncWorkingTasks(cadenceReservedSubjectIds);
-        cadenceOnlyOptions = buildScoredOptionsForSlot({
-          slot: slotSlice,
-          allowWeeklyTargetOverride: true,
-          restrictedSubjectIds: cadenceReservedSubjectIds,
-          mustFillEndOfDaySlot,
-          strongFocusDemand: false,
-        });
-      }
-
       const scoredOptions =
         focusedOnlyOptions.length > 0
           ? focusedOnlyOptions
-          : cadenceOnlyOptions.length > 0
-            ? cadenceOnlyOptions
           : buildScoredOptionsForSlot({
               slot: slotSlice,
               mustFillEndOfDaySlot,
@@ -2091,96 +1888,6 @@ export function generateStudyPlanForWeek(options: {
   let usedSundayMinutes = 0;
   let forcedCoverageMinutes = 0;
 
-  while (true) {
-    const plannedOlympiadBlocks = [
-      ...existingPlannedBlocks,
-      ...scheduledBlocks.filter((block) => block.subjectId === "olympiad"),
-    ];
-    const numberTheoryFrontierStatus = getOlympiadNumberTheoryFrontierStatus({
-      topics: options.topics,
-      blocks: plannedOlympiadBlocks,
-    });
-
-    if (
-      !numberTheoryFrontierStatus.frontierTopicId ||
-      numberTheoryFrontierStatus.remainingMinutes <= 0
-    ) {
-      break;
-    }
-
-    const numberTheoryFrontierTasks = buildTaskCandidates({
-      topics: options.topics,
-      existingPlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
-      referenceDate,
-      subjectDeadlinesById,
-      availabilityOverrideSubjectIds,
-    }).filter(
-      (task) =>
-        task.subjectId === "olympiad" &&
-        task.topicId === numberTheoryFrontierStatus.frontierTopicId,
-    );
-
-    if (!numberTheoryFrontierTasks.length) {
-      break;
-    }
-
-    const frontierFreeSlots = calculateFreeSlots({
-      weekStart,
-      fixedEvents: options.fixedEvents,
-      sickDays,
-      preferences: options.preferences,
-      blockedStudyBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
-      planningStart: referenceDate,
-      skipMovableRecovery: true,
-    });
-
-    if (!frontierFreeSlots.some((slot) => slot.durationMinutes >= MIN_ALLOCATABLE_MINUTES)) {
-      break;
-    }
-
-    const frontierResult = allocateTasksToSlots({
-      weekStart,
-      referenceDate,
-      freeSlots: frontierFreeSlots,
-      tasks: numberTheoryFrontierTasks,
-      subjects: options.subjects,
-      goals: options.goals,
-      topics: options.topics,
-      preferences: options.preferences,
-      lockedBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
-      priorPlannedBlocks: existingPlannedBlocks,
-      requiredHoursBySubject: {
-        ...recordFromKeys(subjectIds, () => 0),
-        olympiad: numberTheoryFrontierTasks.reduce(
-          (total, task) => total + task.remainingMinutes,
-          0,
-        ) / 60,
-      },
-      dailyCapBoostMinutes: Math.max(options.dailyCapBoostMinutes ?? 0, automaticDailyCapBoostMinutes) + 600,
-      heavySessionBoost: 2,
-      minBreakMinutes: 5,
-      protectRecovery: false,
-      blockSelectionPolicy: {
-        preferLongerBlocks: true,
-        allowLowEnergyHeavy: true,
-        allowLateNightDeepWork: true,
-      },
-      fillAvailableStudyDays: false,
-      focusedSubjectsByDate,
-      futureFocusedReserveMinutesBySubject: options.futureFocusedReserveMinutesBySubject,
-      allowLargeGapAbsorption: false,
-      availabilityOverrideSubjectIds,
-    });
-
-    if (!frontierResult.scheduledBlocks.length) {
-      break;
-    }
-
-    scheduledBlocks.push(...frontierResult.scheduledBlocks);
-    usedSundayMinutes += frontierResult.usedSundayMinutes;
-    forcedCoverageMinutes += frontierResult.scheduledStudyMinutes;
-  }
-
   for (const passPolicy of passPolicies) {
     if (passPolicy.countAsForcedCoverage && scheduledBlocks.some((block) => !block.subjectId)) {
       const reclaimedRecoveryIds = new Set(
@@ -2255,69 +1962,6 @@ export function generateStudyPlanForWeek(options: {
     usedSundayMinutes += result.usedSundayMinutes;
     if (passPolicy.countAsForcedCoverage) {
       forcedCoverageMinutes += result.scheduledStudyMinutes;
-    }
-  }
-
-  const hasOlympiadThisWeek = [...lockedBlocks, ...scheduledBlocks].some(
-    (block) => block.subjectId === "olympiad",
-  );
-  const olympiadContinuityTasks = buildTaskCandidates({
-    topics: options.topics,
-    existingPlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
-    referenceDate,
-    subjectDeadlinesById,
-    availabilityOverrideSubjectIds,
-  }).filter(
-    (task) => task.subjectId === "olympiad" && task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
-  );
-
-  if (!hasOlympiadThisWeek && olympiadContinuityTasks.length > 0) {
-    const continuityFreeSlots = calculateFreeSlots({
-      weekStart,
-      fixedEvents: options.fixedEvents,
-      sickDays,
-      preferences: options.preferences,
-      blockedStudyBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
-      planningStart: referenceDate,
-      skipMovableRecovery: true,
-    });
-
-    if (continuityFreeSlots.some((slot) => slot.durationMinutes >= MIN_ALLOCATABLE_MINUTES)) {
-      const olympiadOnlyResult = allocateTasksToSlots({
-        weekStart,
-        referenceDate,
-        freeSlots: continuityFreeSlots,
-        tasks: olympiadContinuityTasks,
-        subjects: options.subjects,
-        goals: options.goals,
-        topics: options.topics,
-        preferences: options.preferences,
-        lockedBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
-        priorPlannedBlocks: existingPlannedBlocks,
-        requiredHoursBySubject: {
-          ...recordFromKeys(subjectIds, () => 0),
-          ...buildFullCoverageHoursBySubject(options.subjects, olympiadContinuityTasks),
-        },
-        dailyCapBoostMinutes: Math.max(options.dailyCapBoostMinutes ?? 0, automaticDailyCapBoostMinutes) + 600,
-        heavySessionBoost: 2,
-        minBreakMinutes: 5,
-        protectRecovery: false,
-        blockSelectionPolicy: {
-          preferLongerBlocks: true,
-          allowLowEnergyHeavy: true,
-          allowLateNightDeepWork: true,
-        },
-        fillAvailableStudyDays: true,
-        focusedSubjectsByDate,
-        futureFocusedReserveMinutesBySubject: options.futureFocusedReserveMinutesBySubject,
-        availabilityOverrideSubjectIds,
-      });
-
-      if (olympiadOnlyResult.scheduledBlocks.length) {
-        scheduledBlocks.push(...olympiadOnlyResult.scheduledBlocks);
-        usedSundayMinutes += olympiadOnlyResult.usedSundayMinutes;
-        forcedCoverageMinutes += olympiadOnlyResult.scheduledStudyMinutes;
-      }
     }
   }
 
