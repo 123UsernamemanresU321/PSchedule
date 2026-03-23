@@ -31,7 +31,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-23-olympiad-repair-v34";
+const PLANNING_MODEL_VERSION = "2026-03-23-olympiad-repair-v35";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v8";
@@ -369,16 +369,36 @@ export function getOlympiadCoverageRepairState(
       new Date(block.end).getTime() > referenceDate.getTime(),
   );
   const futureOlympiadTopicBlocks = futureOlympiadBlocks.filter((block) => !!block.topicId);
+  const scheduledCoverageRatio = olympiadProgress
+    ? olympiadProgress.scheduledFutureHours / Math.max(olympiadProgress.remainingHours, 0.1)
+    : 1;
+  const futureOlympiadTopicHours =
+    futureOlympiadTopicBlocks.reduce((total, block) => total + block.estimatedMinutes, 0) / 60;
+  const topicCoverageRatio = olympiadProgress
+    ? futureOlympiadTopicHours / Math.max(olympiadProgress.remainingHours, 0.1)
+    : 1;
+  const hasCollapsedPartialCoverage =
+    !!olympiadProgress &&
+    olympiadProgress.remainingHours > 8 &&
+    olympiadProgress.unscheduledHours > Math.max(8, olympiadProgress.remainingHours * 0.2) &&
+    (scheduledCoverageRatio < 0.8 || topicCoverageRatio < 0.8);
   const hasSuspiciousCoverageGap =
     !!olympiadProgress &&
-    olympiadProgress.remainingHours > 1 &&
-    olympiadProgress.unscheduledHours > Math.max(1, olympiadProgress.remainingHours - 1) &&
-    (olympiadProgress.scheduledFutureHours < 0.5 || futureOlympiadTopicBlocks.length === 0);
+    (
+      (
+        olympiadProgress.remainingHours > 1 &&
+        olympiadProgress.unscheduledHours > Math.max(1, olympiadProgress.remainingHours - 1) &&
+        (olympiadProgress.scheduledFutureHours < 0.5 || futureOlympiadTopicBlocks.length === 0)
+      ) ||
+      hasCollapsedPartialCoverage
+    );
 
   return {
     olympiadProgress,
     futureOlympiadBlocks,
     futureOlympiadTopicBlocks,
+    scheduledCoverageRatio,
+    topicCoverageRatio,
     hasSuspiciousCoverageGap,
   };
 }

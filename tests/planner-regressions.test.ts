@@ -22,6 +22,7 @@ import {
 } from "@/lib/store/planner-store";
 import {
   buildOlympiadRepairBaselineStudyBlocks,
+  getOlympiadCoverageRepairState,
   normalizeStudyBlock,
 } from "@/lib/storage/planner-repository";
 import {
@@ -3131,6 +3132,105 @@ test("olympiad repair rebuild restores olympiad coverage when the future horizon
   assert.ok(
     repairedProgress.scheduledFutureHours > 100,
     `expected repaired horizon to restore substantial olympiad coverage, got ${repairedProgress.scheduledFutureHours}h`,
+  );
+  assert.equal(repairedProgress.unscheduledHours, 0);
+});
+
+test("olympiad repair detection catches severely collapsed partial coverage, not just zero coverage", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const base = generateStudyPlanHorizon({
+    startWeek: referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+  });
+
+  let retainedOlympiadMinutes = 0;
+  const collapsedOlympiadBlocks = base.studyBlocks.filter((block) => {
+    if (block.subjectId !== "olympiad" || !block.topicId) {
+      return false;
+    }
+
+    if (retainedOlympiadMinutes >= 37 * 60) {
+      return false;
+    }
+
+    retainedOlympiadMinutes += block.estimatedMinutes;
+    return true;
+  });
+  const brokenStudyBlocks = [
+    ...base.studyBlocks.filter((block) => block.subjectId !== "olympiad"),
+    ...collapsedOlympiadBlocks,
+  ];
+  const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
+
+  assert.ok(olympiadSubject, "expected olympiad subject");
+
+  const brokenProgress = getSubjectProgress(
+    olympiadSubject,
+    dataset.topics,
+    brokenStudyBlocks,
+    referenceDate,
+  );
+
+  assert.ok(
+    brokenProgress.scheduledFutureHours <= 40,
+    `expected broken horizon to keep only a small slice of olympiad coverage, got ${brokenProgress.scheduledFutureHours}h`,
+  );
+  assert.ok(
+    brokenProgress.unscheduledHours >= 500,
+    `expected broken horizon to leave most olympiad work unscheduled, got ${brokenProgress.unscheduledHours}h`,
+  );
+
+  const repairState = getOlympiadCoverageRepairState(
+    {
+      goals: dataset.goals,
+      subjects: dataset.subjects,
+      topics: dataset.topics,
+      fixedEvents: dataset.fixedEvents,
+      sickDays: dataset.sickDays,
+      focusedDays: dataset.focusedDays,
+      focusedWeeks: dataset.focusedWeeks,
+      studyBlocks: brokenStudyBlocks,
+      completionLogs: [],
+      weeklyPlans: base.weeklyPlans,
+      preferences: dataset.preferences,
+    },
+    referenceDate,
+  );
+
+  assert.equal(repairState.hasSuspiciousCoverageGap, true);
+
+  const repaired = generateStudyPlanHorizon({
+    startWeek: referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+    existingStudyBlocks: buildOlympiadRepairBaselineStudyBlocks(brokenStudyBlocks, referenceDate),
+    preserveFlexibleFutureBlocks: false,
+    availabilityOverrideSubjectIds: ["olympiad"],
+  });
+  const repairedProgress = getSubjectProgress(
+    olympiadSubject,
+    dataset.topics,
+    repaired.studyBlocks,
+    referenceDate,
+  );
+
+  assert.ok(
+    repairedProgress.scheduledFutureHours > 500,
+    `expected repaired horizon to restore most olympiad coverage, got ${repairedProgress.scheduledFutureHours}h`,
   );
   assert.equal(repairedProgress.unscheduledHours, 0);
 });
