@@ -3091,6 +3091,68 @@ test("olympiad repair rebuild restores olympiad coverage when the future horizon
   assert.equal(repairedProgress.unscheduledHours, 0);
 });
 
+test("horizon generation retries olympiad recovery when stale flexible future blocks would otherwise starve olympiad completely", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const base = generateStudyPlanHorizon({
+    startWeek: referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+  });
+  const pollutedExistingStudyBlocks = base.studyBlocks
+    .filter((block) => block.subjectId !== "olympiad")
+    .map((block) =>
+      new Date(block.end).getTime() > referenceDate.getTime()
+        ? {
+            ...block,
+            status: "rescheduled" as const,
+          }
+        : block,
+    );
+  const recovered = generateStudyPlanHorizon({
+    startWeek: referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+    existingStudyBlocks: pollutedExistingStudyBlocks,
+  });
+  const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
+
+  assert.ok(olympiadSubject, "expected olympiad subject");
+
+  const recoveredProgress = getSubjectProgress(
+    olympiadSubject,
+    dataset.topics,
+    recovered.studyBlocks,
+    referenceDate,
+  );
+
+  assert.ok(
+    recovered.studyBlocks.some(
+      (block) =>
+        block.subjectId === "olympiad" &&
+        !!block.topicId &&
+        new Date(block.end).getTime() > referenceDate.getTime(),
+    ),
+    "expected horizon recovery to restore future olympiad topic blocks",
+  );
+  assert.ok(
+    recoveredProgress.scheduledFutureHours > 100,
+    `expected recovered horizon to restore substantial olympiad coverage, got ${recoveredProgress.scheduledFutureHours}h`,
+  );
+});
+
 test("multi-subject focus on a low-capacity day relaxes once the reserved share is nearly met", () => {
   const referenceDate = new Date("2026-03-16T08:00:00");
   const dataset = buildSeedDataset(referenceDate);

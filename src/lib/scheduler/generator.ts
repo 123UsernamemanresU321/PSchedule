@@ -2438,6 +2438,7 @@ export function generateStudyPlanHorizon(options: {
   preservedStudyBlockIds?: string[];
   preserveFlexibleFutureBlocks?: boolean;
   availabilityOverrideSubjectIds?: Subject["id"][];
+  _olympiadRecoveryAttempted?: boolean;
 }) {
   const startWeek = startOfPlannerWeek(options.startWeek ?? new Date());
   const horizonStartDate = getPlannerReferenceDate(startWeek);
@@ -2505,6 +2506,46 @@ export function generateStudyPlanHorizon(options: {
     horizonStudyBlocks.push(...result.studyBlocks);
     weeklyPlans.push(result.weeklyPlan);
     accumulatedBlocks.push(...result.studyBlocks);
+  }
+
+  const hasFutureOlympiadTopicBlocks = horizonStudyBlocks.some(
+    (block) =>
+      block.subjectId === "olympiad" &&
+      !!block.topicId &&
+      ["planned", "rescheduled"].includes(block.status) &&
+      new Date(block.end).getTime() > horizonStartDate.getTime(),
+  );
+  const remainingOlympiadCandidates = buildTaskCandidates({
+    topics: options.topics,
+    existingPlannedBlocks: horizonStudyBlocks,
+    referenceDate: horizonStartDate,
+    subjectDeadlinesById,
+    availabilityOverrideSubjectIds: Array.from(
+      new Set([...(options.availabilityOverrideSubjectIds ?? []), "olympiad"]),
+    ),
+  }).filter(
+    (task) => task.subjectId === "olympiad" && task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
+  );
+
+  if (
+    !options._olympiadRecoveryAttempted &&
+    !hasFutureOlympiadTopicBlocks &&
+    remainingOlympiadCandidates.length > 0
+  ) {
+    const olympiadRecoveryBaselineBlocks = existingStudyBlocks.filter(
+      (block) =>
+        shouldAlwaysPreserveStudyBlockOnRegeneration(block) || extraPreservedIds.has(block.id),
+    );
+
+    return generateStudyPlanHorizon({
+      ...options,
+      existingStudyBlocks: olympiadRecoveryBaselineBlocks,
+      preserveFlexibleFutureBlocks: false,
+      availabilityOverrideSubjectIds: Array.from(
+        new Set([...(options.availabilityOverrideSubjectIds ?? []), "olympiad"]),
+      ),
+      _olympiadRecoveryAttempted: true,
+    });
   }
 
   return {
