@@ -497,8 +497,10 @@ export function expandReservedCommitmentWindowsForWeek(
   preferences: Preferences,
   fixedEvents: FixedEvent[] = [],
   sickDays: SickDay[] = [],
+  excludedRuleIds: string[] = [],
 ): ReservedCommitmentOccurrence[] {
   const expandedFixedEvents = expandPlannerFixedEventsForWeek(weekStart, fixedEvents, preferences);
+  const excludedRuleIdSet = new Set(excludedRuleIds);
 
   return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)).flatMap((day) => {
     const inSchoolTerm = isDateInActiveSchoolTerm(day, preferences);
@@ -514,6 +516,10 @@ export function expandReservedCommitmentWindowsForWeek(
     const resolvedIntervals: TimeInterval[] = [];
 
     return preferences.reservedCommitmentRules.flatMap((rule) => {
+      if (excludedRuleIdSet.has(rule.id)) {
+        return [];
+      }
+
       if (!isReservedCommitmentRuleActiveOnDate(rule, day, inSchoolTerm)) {
         return [];
       }
@@ -628,6 +634,7 @@ export function calculateFreeSlots(options: {
   blockedStudyBlocks?: StudyBlock[];
   planningStart?: Date;
   skipMovableRecovery?: boolean;
+  excludedReservedCommitmentRuleIds?: string[];
 }) {
   const { weekStart, preferences, planningStart } = options;
   const sickDays = options.sickDays ?? [];
@@ -637,6 +644,7 @@ export function calculateFreeSlots(options: {
     preferences,
     options.fixedEvents,
     sickDays,
+    options.excludedReservedCommitmentRuleIds ?? [],
   );
   const blockedStudyBlocks = options.blockedStudyBlocks ?? [];
   const recoveryWindows = expandLockedRecoveryWindowsForWeek(

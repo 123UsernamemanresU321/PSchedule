@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { addDays } from "date-fns";
 
 import { buildSeedDataset } from "@/lib/seed";
+import { buildSeedPreferences } from "@/lib/seed/preferences";
 import { getCalendarCompletionForecast, getSubjectProgress } from "@/lib/analytics/metrics";
 import { createDateAtTime, fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import {
@@ -3389,6 +3390,143 @@ test("collapsed coverage repair also catches a non-Olympiad subject and does not
     `expected recovered horizon to restore substantial physics coverage, got ${recoveredProgress.scheduledFutureHours}h`,
   );
   assert.equal(recoveredProgress.unscheduledHours, 0);
+});
+
+test("excluding homework commitment windows opens extra study capacity before piano is removed", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const seedPreferences = buildSeedPreferences();
+  const homeworkRule = seedPreferences.reservedCommitmentRules.find(
+    (rule) => rule.id === "term-homework",
+  );
+  const pianoRule = seedPreferences.reservedCommitmentRules.find(
+    (rule) => rule.id === "piano-practice",
+  );
+  const weekStart = startOfPlannerWeek(referenceDate);
+  const preferences = {
+    ...seedPreferences,
+    schoolSchedule: {
+      ...seedPreferences.schoolSchedule,
+      enabled: false,
+      terms: [],
+    },
+    holidaySchedule: {
+      ...seedPreferences.holidaySchedule,
+      enabled: true,
+      dailyStudyWindow: {
+        start: "08:00",
+        end: "20:00",
+      },
+    },
+    reservedCommitmentRules: [
+      {
+        ...homeworkRule!,
+        appliesDuring: "all" as const,
+        days: [1],
+        preferredStart: "10:00",
+        durationMinutes: 120,
+      },
+      {
+        ...pianoRule!,
+        appliesDuring: "all" as const,
+        days: [1],
+        preferredStart: "14:00",
+        durationMinutes: 60,
+      },
+    ],
+  };
+  const totalSlotMinutes = (slots: ReturnType<typeof calculateFreeSlots>) =>
+    slots.reduce((total, slot) => total + slot.durationMinutes, 0);
+
+  const baseSlots = calculateFreeSlots({
+    weekStart,
+    fixedEvents: [],
+    preferences,
+  });
+  const withoutHomeworkSlots = calculateFreeSlots({
+    weekStart,
+    fixedEvents: [],
+    preferences,
+    excludedReservedCommitmentRuleIds: ["term-homework"],
+  });
+  const withoutHomeworkOrPianoSlots = calculateFreeSlots({
+    weekStart,
+    fixedEvents: [],
+    preferences,
+    excludedReservedCommitmentRuleIds: ["term-homework", "piano-practice"],
+  });
+
+  assert.ok(homeworkRule, "expected seeded homework rule");
+  assert.ok(pianoRule, "expected seeded piano rule");
+
+  assert.ok(
+    totalSlotMinutes(withoutHomeworkSlots) > totalSlotMinutes(baseSlots),
+    "expected dropping homework windows to open extra study capacity",
+  );
+  assert.ok(
+    totalSlotMinutes(withoutHomeworkOrPianoSlots) >= totalSlotMinutes(withoutHomeworkSlots),
+    "expected dropping piano after homework to never reduce study capacity",
+  );
+});
+
+test("horizon extends beyond the configured end week until the remaining workload is fully planned", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const physicsSubject = dataset.subjects.find((subject) => subject.id === "physics-hl");
+  const extensionTopic: Topic = {
+    id: "physics-extension-topic",
+    subjectId: "physics-hl",
+    unitId: "physics-extension",
+    unitTitle: "Physics extension",
+    title: "Physics extension workload",
+    subtopics: ["bulk workload"],
+    estHours: 120,
+    completedHours: 0,
+    difficulty: 3,
+    status: "not_started",
+    mastery: 0,
+    reviewDue: null,
+    lastStudiedAt: null,
+    sourceMaterials: [],
+    preferredBlockTypes: ["standard_focus"],
+    order: 1,
+  };
+
+  assert.ok(physicsSubject, "expected seeded physics subject");
+
+  const result = generateStudyPlanHorizon({
+    startWeek: referenceDate,
+    endWeek: startOfPlannerWeek(referenceDate),
+    goals: [
+      {
+        id: "physics-extension-goal",
+        title: "Physics extension goal",
+        subjectId: "physics-hl",
+        deadline: "2026-03-29",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [physicsSubject],
+    topics: [extensionTopic],
+    fixedEvents: [],
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    preferences: dataset.preferences,
+    existingStudyBlocks: [],
+  });
+  const progress = getSubjectProgress(
+    physicsSubject,
+    [extensionTopic],
+    result.studyBlocks,
+    referenceDate,
+  );
+
+  assert.equal(progress.unscheduledHours, 0);
+  assert.ok(
+    result.weeklyPlans.some((plan) => plan.weekStart > "2026-03-23"),
+    "expected the horizon to extend beyond the configured single week",
+  );
 });
 
 test("multi-subject focus on a low-capacity day relaxes once the reserved share is nearly met", () => {

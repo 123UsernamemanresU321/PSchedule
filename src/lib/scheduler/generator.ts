@@ -41,6 +41,13 @@ import type {
 const MIN_ALLOCATABLE_MINUTES = 30;
 const FOCUSED_DAY_RESERVED_SHARE = 0.7;
 const FOCUS_STRICT_TOLERANCE_MINUTES = 10;
+const MAX_HORIZON_EXTENSION_WEEKS = 104;
+const SOFT_COMMITMENT_FALLBACK_PHASES = [
+  [] as string[],
+  ["term-homework"],
+  ["term-homework", "piano-practice"],
+];
+
 function getAllowedBlockTypesForSlot(slot: CalendarSlot) {
   switch (slot.sickDaySeverity) {
     case "moderate":
@@ -560,6 +567,7 @@ function buildFutureFocusedReserveMinutesBySubject(options: {
   subjectDeadlinesById: Record<string, string>;
   existingPlannedBlocks: StudyBlock[];
   availabilityOverrideSubjectIds?: Subject["id"][];
+  excludedReservedCommitmentRuleIds?: string[];
 }) {
   const futureFocusedSubjectIds = new Set<string>();
 
@@ -625,6 +633,7 @@ function buildFutureFocusedReserveMinutesBySubject(options: {
       preferences: options.preferences,
       blockedStudyBlocks: [],
       planningStart: futureWeek,
+      excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
     });
     const dayCapacityByDate = buildDayCapacityByDate(futureWeekSlots, 0);
     const focusedTargetMinutesByDate = buildFocusedTargetMinutesByDate({
@@ -1771,6 +1780,7 @@ export function generateStudyPlanForWeek(options: {
   dailyCapBoostMinutes?: number;
   horizonStartDate?: Date;
   availabilityOverrideSubjectIds?: Subject["id"][];
+  excludedReservedCommitmentRuleIds?: string[];
 }): SchedulerResult {
   const weekStart = startOfPlannerWeek(options.weekStart ?? new Date());
   const referenceDate = getPlannerReferenceDate(weekStart);
@@ -1849,6 +1859,7 @@ export function generateStudyPlanForWeek(options: {
     preferences: options.preferences,
     blockedStudyBlocks: lockedBlocks,
     planningStart: referenceDate,
+    excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
   });
   const capacityFreeSlots = calculateFreeSlots({
     weekStart,
@@ -1858,6 +1869,7 @@ export function generateStudyPlanForWeek(options: {
     blockedStudyBlocks: lockedBlocks,
     planningStart: referenceDate,
     skipMovableRecovery: true,
+    excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
   });
   const shouldFillAvailableStudyDays = true;
   const fullCoverageTasks = buildTaskCandidates({
@@ -1924,6 +1936,7 @@ export function generateStudyPlanForWeek(options: {
       blockedStudyBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
       planningStart: referenceDate,
       skipMovableRecovery: passPolicy.skipMovableRecovery,
+      excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
     });
 
     if (!freeSlots.length) {
@@ -1971,6 +1984,7 @@ export function generateStudyPlanForWeek(options: {
     preferences: options.preferences,
     blockedStudyBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
     planningStart: referenceDate,
+    excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
   });
   const finalTasks = buildTaskCandidates({
     topics: options.topics,
@@ -2089,7 +2103,7 @@ export function generateStudyPlanHorizon(options: {
 }) {
   const startWeek = startOfPlannerWeek(options.startWeek ?? new Date());
   const horizonStartDate = getPlannerReferenceDate(startWeek);
-  const endWeek = options.endWeek
+  const configuredEndWeek = options.endWeek
     ? startOfPlannerWeek(options.endWeek)
     : getPlanningHorizonEndWeek(options.goals, options.subjects, startWeek);
   const existingStudyBlocks = options.existingStudyBlocks ?? [];
@@ -2100,66 +2114,118 @@ export function generateStudyPlanHorizon(options: {
         preserveFlexibleFutureBlocks: options.preserveFlexibleFutureBlocks,
       }) || extraPreservedIds.has(block.id),
   );
-  const horizonStudyBlocks: StudyBlock[] = [];
-  const weeklyPlans: WeeklyPlan[] = [];
-  const accumulatedBlocks: StudyBlock[] = [];
   const subjectDeadlinesById = Object.fromEntries(
     options.subjects.map((subject) => [subject.id, subject.deadline]),
   );
 
-  for (
-    let currentWeek = startWeek;
-    currentWeek.getTime() <= endWeek.getTime();
-    currentWeek = addDays(currentWeek, 7)
-  ) {
-    const weekKey = toDateKey(currentWeek);
-    const lockedBlocks = preservedLockedBlocks.filter((block) => {
-      if (block.weekStart === weekKey) {
-        return true;
+  const countRemainingAllocatableTasks = (tasks: TaskCandidate[]) =>
+    tasks.filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES).length;
+
+  const buildHorizonForPhase = (excludedReservedCommitmentRuleIds: string[], allowExtension: boolean) => {
+    const horizonStudyBlocks: StudyBlock[] = [];
+    const weeklyPlans: WeeklyPlan[] = [];
+    const accumulatedBlocks: StudyBlock[] = [];
+    let effectiveEndWeek = configuredEndWeek;
+    let extensionWeeksUsed = 0;
+    let finalWeek = configuredEndWeek;
+    let remainingTaskCount = 0;
+
+    for (
+      let currentWeek = startWeek;
+      currentWeek.getTime() <= effectiveEndWeek.getTime();
+      currentWeek = addDays(currentWeek, 7)
+    ) {
+      finalWeek = currentWeek;
+      const weekKey = toDateKey(currentWeek);
+      const lockedBlocks = preservedLockedBlocks.filter((block) => {
+        if (block.weekStart === weekKey) {
+          return true;
+        }
+
+        return toDateKey(startOfPlannerWeek(new Date(block.start))) === weekKey;
+      });
+      const futureFocusedReserveMinutesBySubject = buildFutureFocusedReserveMinutesBySubject({
+        currentWeek,
+        endWeek: effectiveEndWeek,
+        topics: options.topics,
+        fixedEvents: options.fixedEvents,
+        sickDays: options.sickDays,
+        focusedDays: options.focusedDays,
+        focusedWeeks: options.focusedWeeks,
+        preferences: options.preferences,
+        subjectDeadlinesById,
+        existingPlannedBlocks: [...accumulatedBlocks, ...lockedBlocks],
+        availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+        excludedReservedCommitmentRuleIds,
+      });
+      const result = generateStudyPlanForWeek({
+        weekStart: currentWeek,
+        goals: options.goals,
+        subjects: options.subjects,
+        topics: options.topics,
+        fixedEvents: options.fixedEvents,
+        sickDays: options.sickDays,
+        focusedDays: options.focusedDays,
+        focusedWeeks: options.focusedWeeks,
+        preferences: options.preferences,
+        lockedBlocks,
+        existingPlannedBlocks: [...accumulatedBlocks, ...lockedBlocks],
+        futureFocusedReserveMinutesBySubject,
+        horizonStartDate,
+        availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+        excludedReservedCommitmentRuleIds,
+      });
+
+      horizonStudyBlocks.push(...result.studyBlocks);
+      weeklyPlans.push(result.weeklyPlan);
+      accumulatedBlocks.push(...result.studyBlocks);
+
+      remainingTaskCount = countRemainingAllocatableTasks(result.unscheduledTasks);
+      if (
+        currentWeek.getTime() >= effectiveEndWeek.getTime() &&
+        remainingTaskCount > 0 &&
+        allowExtension &&
+        extensionWeeksUsed < MAX_HORIZON_EXTENSION_WEEKS
+      ) {
+        effectiveEndWeek = addDays(effectiveEndWeek, 7);
+        extensionWeeksUsed += 1;
       }
+    }
 
-      return toDateKey(startOfPlannerWeek(new Date(block.start))) === weekKey;
-    });
-    const futureFocusedReserveMinutesBySubject = buildFutureFocusedReserveMinutesBySubject({
-      currentWeek,
-      endWeek,
-      topics: options.topics,
-      fixedEvents: options.fixedEvents,
-      sickDays: options.sickDays,
-      focusedDays: options.focusedDays,
-      focusedWeeks: options.focusedWeeks,
-      preferences: options.preferences,
-      subjectDeadlinesById,
-      existingPlannedBlocks: [...accumulatedBlocks, ...lockedBlocks],
-      availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
-    });
-    const result = generateStudyPlanForWeek({
-      weekStart: currentWeek,
-      goals: options.goals,
-      subjects: options.subjects,
-      topics: options.topics,
-      fixedEvents: options.fixedEvents,
-      sickDays: options.sickDays,
-      focusedDays: options.focusedDays,
-      focusedWeeks: options.focusedWeeks,
-      preferences: options.preferences,
-      lockedBlocks,
-      existingPlannedBlocks: [...accumulatedBlocks, ...lockedBlocks],
-      futureFocusedReserveMinutesBySubject,
-      horizonStartDate,
-      availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
-    });
+    const horizonEndDate = toDateKey(finalWeek);
 
-    horizonStudyBlocks.push(...result.studyBlocks);
-    weeklyPlans.push(result.weeklyPlan);
-    accumulatedBlocks.push(...result.studyBlocks);
+    return {
+      studyBlocks: horizonStudyBlocks.sort(
+        (left, right) => new Date(left.start).getTime() - new Date(right.start).getTime(),
+      ),
+      weeklyPlans: weeklyPlans.map((plan) => ({
+        ...plan,
+        horizonEndDate,
+      })),
+      remainingTaskCount,
+    };
+  };
+
+  for (const [phaseIndex, excludedReservedCommitmentRuleIds] of SOFT_COMMITMENT_FALLBACK_PHASES.entries()) {
+    const phaseResult = buildHorizonForPhase(
+      excludedReservedCommitmentRuleIds,
+      phaseIndex === SOFT_COMMITMENT_FALLBACK_PHASES.length - 1,
+    );
+
+    if (
+      phaseResult.remainingTaskCount === 0 ||
+      phaseIndex === SOFT_COMMITMENT_FALLBACK_PHASES.length - 1
+    ) {
+      return {
+        studyBlocks: phaseResult.studyBlocks,
+        weeklyPlans: phaseResult.weeklyPlans,
+      };
+    }
   }
 
   return {
-    studyBlocks: horizonStudyBlocks.sort(
-      (left, right) => new Date(left.start).getTime() - new Date(right.start).getTime(),
-    ),
-    weeklyPlans,
+    studyBlocks: [],
+    weeklyPlans: [],
   };
 }
 

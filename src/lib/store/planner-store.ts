@@ -139,6 +139,18 @@ async function recalculateCurrentWeek(options?: {
   const planningStartWeek = startOfPlannerWeek(referenceDate);
   const buildAndReplaceHorizon = async (snapshot: Awaited<ReturnType<typeof loadPlannerSnapshot>>) => {
     const repairState = getCollapsedCoverageRepairState(snapshot, referenceDate);
+    const preservedStudyBlockIds = Array.from(
+      new Set([
+        ...(options?.preservedStudyBlockIds ?? []),
+        ...snapshot.studyBlocks
+          .filter(
+            (block) =>
+              ["planned", "rescheduled"].includes(block.status) &&
+              isStudyBlockActiveAt(block, referenceDate),
+          )
+          .map((block) => block.id),
+      ]),
+    );
     const preserveFlexibleFutureBlocks = repairState.hasCollapsedCoverage
       ? false
       : options?.preserveFlexibleFutureBlocks;
@@ -156,10 +168,10 @@ async function recalculateCurrentWeek(options?: {
         ? buildCollapsedCoverageRepairBaselineStudyBlocks(
             snapshot.studyBlocks,
             referenceDate,
-            options?.preservedStudyBlockIds,
+            preservedStudyBlockIds,
           )
         : snapshot.studyBlocks,
-      preservedStudyBlockIds: options?.preservedStudyBlockIds,
+      preservedStudyBlockIds,
       preserveFlexibleFutureBlocks,
     });
 
@@ -168,7 +180,7 @@ async function recalculateCurrentWeek(options?: {
       replanned.weeklyPlans,
       toDateKey(planningStartWeek),
       {
-        preservedStudyBlockIds: options?.preservedStudyBlockIds,
+        preservedStudyBlockIds,
         preserveFlexibleFutureBlocks,
         aggressiveFutureReset: repairState.hasCollapsedCoverage,
       },
@@ -646,11 +658,21 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
 
     const referenceDate = new Date();
+    const hasExpiredUncompletedBlocks = snapshot.studyBlocks.some(
+      (candidate) =>
+        !!candidate.subjectId &&
+        !!candidate.topicId &&
+        ["planned", "rescheduled"].includes(candidate.status) &&
+        new Date(candidate.end).getTime() <= referenceDate.getTime() &&
+        !isStudyBlockActiveAt(candidate, referenceDate),
+    );
     const nextSnapshot = shouldStatusUpdateTriggerReplan({
       previousBlock: block,
       nextBlock: updatedBlock,
       referenceDate,
-    })
+    }) ||
+      hasExpiredUncompletedBlocks ||
+      getCollapsedCoverageRepairState(snapshot, referenceDate).hasCollapsedCoverage
       ? await recalculateCurrentWeek({
           preserveFlexibleFutureBlocks: false,
           preservedStudyBlockIds: getStatusUpdatePreservedStudyBlockIds({
@@ -698,16 +720,17 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     const now = new Date();
     const preservedStudyBlockIds = snapshot.studyBlocks
       .filter((candidate) => {
-        if (candidate.status !== "planned") {
+        if (!["planned", "rescheduled"].includes(candidate.status)) {
           return false;
         }
 
-        return new Date(candidate.end) > now;
+        return isStudyBlockActiveAt(candidate, now);
       })
       .map((candidate) => candidate.id);
 
     const nextSnapshot = await recalculateCurrentWeek({
       preservedStudyBlockIds,
+      preserveFlexibleFutureBlocks: false,
     });
     set({
       ...nextSnapshot,
@@ -929,7 +952,11 @@ function getContainingHardConstraintFreeSlot(options: {
       return false;
     }
 
-    return shouldAlwaysPreserveStudyBlockOnRegeneration(block);
+    return (
+      shouldAlwaysPreserveStudyBlockOnRegeneration(block) ||
+      (["planned", "rescheduled"].includes(block.status) &&
+        isStudyBlockActiveAt(block, new Date()))
+    );
   });
 
   return calculateFreeSlots({

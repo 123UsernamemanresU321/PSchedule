@@ -15,8 +15,9 @@ import { hasLegacySeedTopics } from "@/lib/seed/topic-catalog";
 import { db } from "@/lib/storage/db";
 import { parsePlannerJson } from "@/lib/storage/json-transfer";
 import { normalizeTopicProgress } from "@/lib/topics/status";
-import { mainSubjectIds, subjectIds } from "@/lib/constants/planner";
+import { subjectIds } from "@/lib/constants/planner";
 import { getSubjectProgress } from "@/lib/analytics/metrics";
+import { createId } from "@/lib/utils";
 import type {
   CompletionLog,
   FocusedDay,
@@ -30,7 +31,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-26-horizon-damage-repair-v38";
+const PLANNING_MODEL_VERSION = "2026-03-26-workload-preserving-rebuild-v39";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v8";
@@ -210,6 +211,73 @@ export function normalizeStudyBlock(block: StudyBlock) {
   } satisfies StudyBlock;
 }
 
+function isStudyBlockActiveAt(block: Pick<StudyBlock, "start" | "end">, referenceDate: Date) {
+  const blockStart = new Date(block.start).getTime();
+  const blockEnd = new Date(block.end).getTime();
+  const now = referenceDate.getTime();
+  return blockStart <= now && now < blockEnd;
+}
+
+function collectActiveStudyBlockIds(studyBlocks: StudyBlock[], referenceDate: Date) {
+  return studyBlocks
+    .filter(
+      (block) =>
+        ["planned", "rescheduled"].includes(block.status) &&
+        isStudyBlockActiveAt(block, referenceDate),
+    )
+    .map((block) => block.id);
+}
+
+async function autoMarkExpiredUncompletedStudyBlocks(referenceDate = new Date()) {
+  const expiredBlocks = (await db.studyBlocks.toArray())
+    .map(normalizeStudyBlock)
+    .filter(
+      (block) =>
+        !!block.subjectId &&
+        !!block.topicId &&
+        ["planned", "rescheduled"].includes(block.status) &&
+        new Date(block.end).getTime() <= referenceDate.getTime() &&
+        !isStudyBlockActiveAt(block, referenceDate),
+    );
+
+  if (!expiredBlocks.length) {
+    return false;
+  }
+
+  const existingLogs = await db.completionLogs.toArray();
+  const loggedStudyBlockIds = new Set(existingLogs.map((log) => log.studyBlockId));
+  const nextBlocks = expiredBlocks.map((block) =>
+    normalizeStudyBlock({
+      ...block,
+      status: "missed",
+      actualMinutes: 0,
+    }),
+  );
+  const missingLogs = expiredBlocks
+    .filter((block) => !loggedStudyBlockIds.has(block.id))
+    .map(
+      (block) =>
+        ({
+          id: createId("log"),
+          studyBlockId: block.id,
+          outcome: "missed",
+          actualMinutes: 0,
+          perceivedDifficulty: 3,
+          notes: "Auto-marked missed after the block ended without completion being recorded.",
+          recordedAt: referenceDate.toISOString(),
+        }) satisfies CompletionLog,
+    );
+
+  await db.transaction("rw", [db.studyBlocks, db.completionLogs], async () => {
+    await db.studyBlocks.bulkPut(nextBlocks);
+    if (missingLogs.length) {
+      await db.completionLogs.bulkPut(missingLogs);
+    }
+  });
+
+  return true;
+}
+
 function normalizeSickDay(sickDay: SickDay) {
   const [startDate, endDate] = [sickDay.startDate, sickDay.endDate].sort((left, right) =>
     left.localeCompare(right),
@@ -366,9 +434,7 @@ export function getCollapsedCoverageRepairState(
   snapshot: PlannerSnapshot,
   referenceDate = new Date(),
 ) {
-  const states = mainSubjectIds
-    .map((subjectId) => snapshot.subjects.find((subject) => subject.id === subjectId))
-    .filter((subject): subject is NonNullable<typeof subject> => !!subject)
+  const states = snapshot.subjects
     .map((subject) => {
       const progress = getSubjectProgress(subject, snapshot.topics, snapshot.studyBlocks, referenceDate);
       const futureBlocks = snapshot.studyBlocks.filter(
@@ -383,14 +449,16 @@ export function getCollapsedCoverageRepairState(
       const futureTopicHours =
         futureTopicBlocks.reduce((total, block) => total + block.estimatedMinutes, 0) / 60;
       const topicCoverageRatio = futureTopicHours / Math.max(progress.remainingHours, 0.1);
+      const hasMeaningfulUnscheduledWork =
+        progress.remainingHours > 0.25 && progress.unscheduledHours > 0.25;
       const hasNearZeroCoverage =
         progress.remainingHours > 1 &&
         progress.unscheduledHours > Math.max(1, progress.remainingHours - 1) &&
         (progress.scheduledFutureHours < 0.5 || futureTopicBlocks.length === 0);
       const hasCollapsedPartialCoverage =
-        progress.remainingHours > 8 &&
-        progress.unscheduledHours > Math.max(8, progress.remainingHours * 0.2) &&
-        (scheduledCoverageRatio < 0.8 || topicCoverageRatio < 0.8);
+        progress.remainingHours > 2 &&
+        progress.unscheduledHours > 0.25 &&
+        (scheduledCoverageRatio < 0.98 || topicCoverageRatio < 0.98);
 
       return {
         subjectId: subject.id,
@@ -399,7 +467,9 @@ export function getCollapsedCoverageRepairState(
         futureTopicBlocks,
         scheduledCoverageRatio,
         topicCoverageRatio,
-        isCollapsed: hasNearZeroCoverage || hasCollapsedPartialCoverage,
+        isCollapsed:
+          hasMeaningfulUnscheduledWork &&
+          (hasNearZeroCoverage || hasCollapsedPartialCoverage),
       };
     });
   const collapsedSubjectIds = states
@@ -434,6 +504,7 @@ export function buildCollapsedCoverageRepairBaselineStudyBlocks(
 }
 
 export async function repairCollapsedCoveragePlanningState(referenceDate = new Date()) {
+  await autoMarkExpiredUncompletedStudyBlocks(referenceDate);
   const snapshot = await loadPlannerSnapshot();
   const repairState = getCollapsedCoverageRepairState(snapshot, referenceDate);
 
@@ -451,6 +522,7 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
     getPlanningHorizonEndWeek(snapshot.goals, snapshot.subjects, referenceDate),
   );
   let workingSnapshot = snapshot;
+  const preservedStudyBlockIds = collectActiveStudyBlockIds(workingSnapshot.studyBlocks, referenceDate);
   let repairState = getCollapsedCoverageRepairState(workingSnapshot, referenceDate);
 
   if (
@@ -482,10 +554,12 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
     focusedWeeks: workingSnapshot.focusedWeeks,
     preferences: workingSnapshot.preferences,
     existingStudyBlocks,
+    preservedStudyBlockIds,
     preserveFlexibleFutureBlocks: repairState.hasCollapsedCoverage ? false : undefined,
   });
 
   await replacePlanningHorizon(replanned.studyBlocks, replanned.weeklyPlans, weekStartKey, {
+    preservedStudyBlockIds,
     preserveFlexibleFutureBlocks: repairState.hasCollapsedCoverage ? false : undefined,
     aggressiveFutureReset: repairState.hasCollapsedCoverage,
   });
@@ -508,11 +582,14 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
     existingStudyBlocks: buildCollapsedCoverageRepairBaselineStudyBlocks(
       nextSnapshot.studyBlocks,
       referenceDate,
+      preservedStudyBlockIds,
     ),
+    preservedStudyBlockIds,
     preserveFlexibleFutureBlocks: false,
   });
 
   await replacePlanningHorizon(repaired.studyBlocks, repaired.weeklyPlans, weekStartKey, {
+    preservedStudyBlockIds,
     preserveFlexibleFutureBlocks: false,
     aggressiveFutureReset: true,
   });
@@ -523,6 +600,7 @@ async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Da
   const weekStart = startOfPlannerWeek(referenceDate);
   const weekStartKey = toDateKey(weekStart);
   const syncedSnapshot = await syncPlanningSubjectsToCurrentSeed(snapshot, referenceDate);
+  const preservedStudyBlockIds = collectActiveStudyBlockIds(syncedSnapshot.studyBlocks, referenceDate);
   const replanned = generateStudyPlanHorizon({
     startWeek: weekStart,
     goals: syncedSnapshot.goals,
@@ -534,10 +612,12 @@ async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Da
     focusedWeeks: syncedSnapshot.focusedWeeks,
     preferences: syncedSnapshot.preferences,
     existingStudyBlocks: syncedSnapshot.studyBlocks,
+    preservedStudyBlockIds,
     preserveFlexibleFutureBlocks: false,
   });
 
   await replacePlanningHorizon(replanned.studyBlocks, replanned.weeklyPlans, weekStartKey, {
+    preservedStudyBlockIds,
     preserveFlexibleFutureBlocks: false,
     aggressiveFutureReset: true,
   });
@@ -1088,6 +1168,7 @@ export async function initializePlannerDatabase(referenceDate = new Date()) {
   if (planningModelVersion?.value !== PLANNING_MODEL_VERSION) {
     snapshot = await refreshPlanningModel(snapshot, referenceDate);
   }
+  snapshot = await repairCollapsedCoveragePlanningState(referenceDate);
   snapshot = await ensureCurrentWeekPlan(snapshot, referenceDate);
   return snapshot;
 }
