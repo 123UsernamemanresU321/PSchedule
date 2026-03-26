@@ -1,12 +1,18 @@
 import { differenceInCalendarDays } from "date-fns";
 
 import {
+  expandPlannerFixedEventsForWeek,
+  expandLockedRecoveryWindowsForWeek,
+  expandReservedCommitmentWindowsForWeek,
+  studyBlockOverlapsFixedEvent,
+} from "@/lib/scheduler/free-slots";
+import {
   getOlympiadNumberTheoryEligibilityStatus,
   getOlympiadStageGateStatus,
   isOlympiadNumberTheoryFoundationTopic,
 } from "@/lib/scheduler/olympiad-stage-gates";
 import { startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
-import type { StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
+import type { FixedEvent, Preferences, SickDay, StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
 
 export interface PlannerValidationIssue {
   code:
@@ -29,9 +35,14 @@ export function validateGeneratedHorizon(options: {
   studyBlocks: StudyBlock[];
   topics: Topic[];
   weeklyPlans: WeeklyPlan[];
+  fixedEvents?: FixedEvent[];
+  preferences?: Preferences;
+  sickDays?: SickDay[];
+  referenceDate?: Date;
 }) {
   const issues: PlannerValidationIssue[] = [];
   const topicById = new Map(options.topics.map((topic) => [topic.id, topic]));
+  const referenceDate = options.referenceDate ?? null;
   const firstPlannedWeekStart = [...options.weeklyPlans]
     .sort((left, right) => left.weekStart.localeCompare(right.weekStart))[0]?.weekStart ?? null;
   const futureHorizonStartMs = firstPlannedWeekStart
@@ -82,6 +93,138 @@ export function validateGeneratedHorizon(options: {
       }
     });
   });
+
+  if (options.fixedEvents && options.preferences) {
+    const relevantWeekStarts = Array.from(
+      new Set(
+        options.studyBlocks
+          .filter((block) => !referenceDate || new Date(block.end).getTime() > referenceDate.getTime())
+          .map((block) => block.weekStart || toDateKey(startOfPlannerWeek(new Date(block.start)))),
+      ),
+    );
+
+    relevantWeekStarts.forEach((weekStartKey) => {
+      const weekStart = new Date(`${weekStartKey}T00:00:00`);
+      const reservedCommitments = expandReservedCommitmentWindowsForWeek(
+        weekStart,
+        options.preferences!,
+        options.fixedEvents!,
+        options.sickDays ?? [],
+      );
+      const recoveryWindows = expandLockedRecoveryWindowsForWeek(
+        weekStart,
+        options.preferences!,
+        options.fixedEvents!,
+        options.sickDays ?? [],
+        [],
+      );
+      const plannerControlledWindows = [
+        ...reservedCommitments.map((window) => ({
+          id: window.id,
+          label: window.label,
+          start: new Date(window.start),
+          end: new Date(window.end),
+        })),
+        ...recoveryWindows.map((window) => ({
+          id: window.id,
+          label: window.label,
+          start: new Date(window.start),
+          end: new Date(window.end),
+        })),
+      ].filter((window) => !referenceDate || window.end.getTime() > referenceDate.getTime());
+      const fixedEventWindows = expandPlannerFixedEventsForWeek(
+        weekStart,
+        options.fixedEvents!,
+        options.preferences!,
+      ).map((event) => ({
+        id: event.id,
+        label: event.title,
+        start: new Date(event.start),
+        end: new Date(event.end),
+      }));
+
+      const overlapBetween = (
+        left: { start: Date; end: Date },
+        right: { start: Date; end: Date },
+      ) => left.start.getTime() < right.end.getTime() && left.end.getTime() > right.start.getTime();
+
+      plannerControlledWindows
+        .sort((left, right) => left.start.getTime() - right.start.getTime())
+        .forEach((window, index, windows) => {
+          const nextWindow = windows[index + 1];
+          if (!nextWindow || !overlapBetween(window, nextWindow)) {
+            return;
+          }
+
+          issues.push({
+            code: "overlap",
+            severity: "error",
+            weekStart: weekStartKey,
+            message: `Planner-controlled windows ${window.label} and ${nextWindow.label} overlap during ${weekStartKey}.`,
+          });
+        });
+
+      plannerControlledWindows.forEach((window) => {
+        const overlappingFixedEvent = fixedEventWindows.find((event) => overlapBetween(window, event));
+
+        if (!overlappingFixedEvent) {
+          return;
+        }
+
+        issues.push({
+          code: "overlap",
+          severity: "error",
+          weekStart: weekStartKey,
+          message: `Planner-controlled window ${window.label} overlaps fixed event ${overlappingFixedEvent.label} during ${weekStartKey}.`,
+        });
+      });
+
+      options.studyBlocks
+        .filter((block) => {
+          const blockWeekStart = block.weekStart || toDateKey(startOfPlannerWeek(new Date(block.start)));
+          if (blockWeekStart !== weekStartKey) {
+            return false;
+          }
+
+          return !referenceDate || new Date(block.end).getTime() > referenceDate.getTime();
+        })
+        .forEach((block) => {
+          if (
+            studyBlockOverlapsFixedEvent(block, options.fixedEvents!, weekStart, options.preferences!)
+          ) {
+            issues.push({
+              code: "overlap",
+              severity: "error",
+              blockId: block.id,
+              weekStart: weekStartKey,
+              subjectId: block.subjectId ?? undefined,
+              topicId: block.topicId ?? undefined,
+              message: `Block ${block.id} overlaps a fixed or all-day event during ${block.date}.`,
+            });
+          }
+
+          const blockStart = new Date(block.start);
+          const blockEnd = new Date(block.end);
+          const overlappingWindow = plannerControlledWindows.find((window) =>
+            overlapBetween({ start: blockStart, end: blockEnd }, window),
+          );
+
+          if (!overlappingWindow) {
+            return;
+          }
+
+          issues.push({
+            code: "overlap",
+            severity: "error",
+            blockId: block.id,
+            weekStart: weekStartKey,
+            subjectId: block.subjectId ?? undefined,
+            topicId: block.topicId ?? undefined,
+            message: `Block ${block.id} overlaps planner-controlled time (${overlappingWindow.label}) on ${block.date}.`,
+          });
+        });
+    });
+  }
 
   options.studyBlocks.forEach((block) => {
     if (!block.topicId) {

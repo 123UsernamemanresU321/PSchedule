@@ -2461,6 +2461,9 @@ test("generated horizon passes core validation checks for a short seeded window"
     studyBlocks: result.studyBlocks,
     topics: dataset.topics,
     weeklyPlans: result.weeklyPlans,
+    fixedEvents: dataset.fixedEvents,
+    preferences: dataset.preferences,
+    sickDays: dataset.sickDays,
   });
 
   const errorIssues = issues.filter((issue) => issue.severity === "error");
@@ -2468,6 +2471,123 @@ test("generated horizon passes core validation checks for a short seeded window"
     errorIssues,
     [],
     `expected no blocking validation issues, got: ${errorIssues.map((issue) => issue.message).join(" | ")}`,
+  );
+});
+
+test("validation flags study blocks that overlap fixed events or planner-controlled windows", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const overlapDay = new Date("2026-03-24T00:00:00");
+  const overlapPreferences = {
+    ...dataset.preferences,
+    lockedRecoveryWindows: [],
+    reservedCommitmentRules: [
+      {
+        id: "term-homework",
+        label: "Homework",
+        durationMinutes: 60,
+        days: [2],
+        appliesDuring: "all" as const,
+        preferredStart: "18:00",
+      },
+    ],
+  };
+  const overlappingFixedEventBlock = createStudyBlock({
+    id: "overlap-fixed-event",
+    weekStart: "2026-03-23",
+    date: "2026-03-24",
+    start: createDateAtTime(overlapDay, "10:15").toISOString(),
+    end: createDateAtTime(overlapDay, "11:15").toISOString(),
+    subjectId: "physics-hl",
+    topicId: "physics-a1-kinematics",
+  });
+  const overlappingDinnerBlock = createStudyBlock({
+    id: "overlap-homework",
+    weekStart: "2026-03-23",
+    date: "2026-03-24",
+    start: createDateAtTime(overlapDay, "18:15").toISOString(),
+    end: createDateAtTime(overlapDay, "19:00").toISOString(),
+    subjectId: "maths-aa-hl",
+    topicId: "maths-topic1-proof",
+  });
+  const issues = validateGeneratedHorizon({
+    studyBlocks: [overlappingFixedEventBlock, overlappingDinnerBlock],
+    topics: dataset.topics,
+    weeklyPlans: [createWeeklyPlan({ weekStart: "2026-03-23" })],
+    fixedEvents: [
+      {
+        id: "fixed-overlap",
+        title: "Appointment",
+        start: createDateAtTime(overlapDay, "10:00").toISOString(),
+        end: createDateAtTime(overlapDay, "11:30").toISOString(),
+        isAllDay: false,
+        recurrence: "none",
+        flexibility: "fixed",
+        category: "activity",
+      },
+    ],
+    preferences: overlapPreferences,
+    sickDays: [],
+    referenceDate,
+  });
+
+  const overlapIssues = issues.filter((issue) => issue.code === "overlap");
+  assert.ok(
+    overlapIssues.some((issue) => issue.blockId === "overlap-fixed-event"),
+    "expected fixed-event overlap to be flagged",
+  );
+  assert.ok(
+    overlapIssues.some((issue) => issue.blockId === "overlap-homework"),
+    "expected planner-controlled window overlap to be flagged",
+  );
+});
+
+test("collapsed coverage repair state also flags illegal future overlaps", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const overlapDay = new Date("2026-03-24T00:00:00");
+  const overlappingFutureBlock = createStudyBlock({
+    id: "future-overlap",
+    weekStart: "2026-03-23",
+    date: "2026-03-24",
+    start: createDateAtTime(overlapDay, "09:30").toISOString(),
+    end: createDateAtTime(overlapDay, "10:30").toISOString(),
+    subjectId: "physics-hl",
+    topicId: "physics-a1-kinematics",
+  });
+
+  const repairState = getCollapsedCoverageRepairState(
+    {
+      goals: dataset.goals,
+      subjects: dataset.subjects,
+      topics: dataset.topics,
+      fixedEvents: [
+        {
+          id: "future-fixed-overlap",
+          title: "Appointment",
+          start: createDateAtTime(overlapDay, "09:00").toISOString(),
+          end: createDateAtTime(overlapDay, "10:45").toISOString(),
+          isAllDay: false,
+          recurrence: "none",
+          flexibility: "fixed",
+          category: "activity",
+        },
+      ],
+      sickDays: [],
+      focusedDays: dataset.focusedDays,
+      focusedWeeks: dataset.focusedWeeks,
+      studyBlocks: [overlappingFutureBlock],
+      completionLogs: [],
+      weeklyPlans: [createWeeklyPlan({ weekStart: "2026-03-23" })],
+      preferences: dataset.preferences,
+    },
+    referenceDate,
+  );
+
+  assert.equal(repairState.hasCollapsedCoverage, true);
+  assert.ok(
+    repairState.invalidOverlapIssues.length > 0,
+    "expected future overlap damage to trigger repair detection",
   );
 });
 

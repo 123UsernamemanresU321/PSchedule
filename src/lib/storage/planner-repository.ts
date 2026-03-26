@@ -7,6 +7,7 @@ import {
 } from "@/lib/scheduler/generator";
 import { buildSeedDataset } from "@/lib/seed";
 import { buildSeedPreferences } from "@/lib/seed/preferences";
+import { validateGeneratedHorizon } from "@/lib/scheduler/validation";
 import {
   hasLegacySeedFixedEvents,
   stripLegacySeedFixedEvents,
@@ -434,6 +435,15 @@ export function getCollapsedCoverageRepairState(
   snapshot: PlannerSnapshot,
   referenceDate = new Date(),
 ) {
+  const invalidOverlapIssues = validateGeneratedHorizon({
+    studyBlocks: snapshot.studyBlocks,
+    topics: snapshot.topics,
+    weeklyPlans: snapshot.weeklyPlans,
+    fixedEvents: snapshot.fixedEvents,
+    preferences: snapshot.preferences,
+    sickDays: snapshot.sickDays,
+    referenceDate,
+  }).filter((issue) => issue.severity === "error" && issue.code === "overlap");
   const states = snapshot.subjects
     .map((subject) => {
       const progress = getSubjectProgress(subject, snapshot.topics, snapshot.studyBlocks, referenceDate);
@@ -479,7 +489,8 @@ export function getCollapsedCoverageRepairState(
   return {
     states,
     collapsedSubjectIds,
-    hasCollapsedCoverage: collapsedSubjectIds.length > 0,
+    invalidOverlapIssues,
+    hasCollapsedCoverage: collapsedSubjectIds.length > 0 || invalidOverlapIssues.length > 0,
   };
 }
 
