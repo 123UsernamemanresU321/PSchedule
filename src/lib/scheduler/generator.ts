@@ -1840,6 +1840,7 @@ export function generateStudyPlanForWeek(options: {
         topics: options.topics,
         goals: options.goals,
         referenceDate,
+        excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
       }),
       freeSlots: [],
       unscheduledTasks: buildTaskCandidates({
@@ -2024,6 +2025,7 @@ export function generateStudyPlanForWeek(options: {
     }),
     priorPlannedBlocks: existingPlannedBlocks,
     cumulativePlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
+    excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
   });
 
   return {

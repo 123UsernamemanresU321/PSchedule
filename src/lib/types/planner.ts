@@ -202,6 +202,7 @@ export interface WeeklyPlan {
   usedSundayMinutes: number;
   overloadMinutes: number;
   coverageComplete: boolean;
+  excludedReservedCommitmentRuleIds: string[];
   weeksRemainingToDeadline: number;
   horizonEndDate: string;
   generatedAt: string;

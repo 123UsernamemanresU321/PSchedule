@@ -76,6 +76,7 @@ export function CalendarPage() {
   const hasConfiguredConstraints =
     !!fixedEvents.length || !!preferences?.schoolSchedule.enabled || !!preferences?.holidaySchedule.enabled;
   const roadmapSummary = getHorizonRoadmapSummary(weeklyPlans, topics, currentWeekStart);
+  const visibleWeekPlan = weeklyPlans.find((plan) => plan.weekStart === currentWeekStart) ?? null;
 
   const visibleWeekStart = startOfPlannerWeek(fromDateKey(currentWeekStart));
   const visibleWeekEnd = addDays(visibleWeekStart, 6);
@@ -279,6 +280,9 @@ export function CalendarPage() {
           sickDays={sickDays}
           focusedDays={focusedDays}
           focusedWeeks={focusedWeeks}
+          excludedReservedCommitmentRuleIds={
+            visibleWeekPlan?.excludedReservedCommitmentRuleIds ?? []
+          }
           preferences={preferences}
           studyBlocks={studyBlocks}
           subjects={subjects}

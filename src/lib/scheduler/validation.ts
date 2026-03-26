@@ -63,6 +63,9 @@ export function validateGeneratedHorizon(options: {
     },
     {},
   );
+  const weeklyPlanByWeekStart = new Map(
+    options.weeklyPlans.map((weeklyPlan) => [weeklyPlan.weekStart, weeklyPlan]),
+  );
   const blocksByDate = options.studyBlocks.reduce<Record<string, StudyBlock[]>>((accumulator, block) => {
     const current = accumulator[block.date] ?? [];
     current.push(block);
@@ -83,12 +86,20 @@ export function validateGeneratedHorizon(options: {
       }
 
       if (new Date(block.end).getTime() > new Date(nextBlock.start).getTime()) {
+        const overlapMessage = `Blocks ${block.id} and ${nextBlock.id} overlap on ${block.date}.`;
         issues.push({
           code: "overlap",
           severity: "error",
           blockId: block.id,
           weekStart: block.weekStart,
-          message: `Blocks ${block.id} and ${nextBlock.id} overlap on ${block.date}.`,
+          message: overlapMessage,
+        });
+        issues.push({
+          code: "overlap",
+          severity: "error",
+          blockId: nextBlock.id,
+          weekStart: nextBlock.weekStart,
+          message: overlapMessage,
         });
       }
     });
@@ -105,11 +116,14 @@ export function validateGeneratedHorizon(options: {
 
     relevantWeekStarts.forEach((weekStartKey) => {
       const weekStart = new Date(`${weekStartKey}T00:00:00`);
+      const excludedReservedCommitmentRuleIds =
+        weeklyPlanByWeekStart.get(weekStartKey)?.excludedReservedCommitmentRuleIds ?? [];
       const reservedCommitments = expandReservedCommitmentWindowsForWeek(
         weekStart,
         options.preferences!,
         options.fixedEvents!,
         options.sickDays ?? [],
+        excludedReservedCommitmentRuleIds,
       );
       const recoveryWindows = expandLockedRecoveryWindowsForWeek(
         weekStart,

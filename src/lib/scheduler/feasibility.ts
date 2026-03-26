@@ -278,6 +278,7 @@ export function buildWeeklyPlan(options: {
   deadlinePaceHoursBySubject?: Record<string, number>;
   forcedCoverageMinutes?: number;
   usedSundayMinutes?: number;
+  excludedReservedCommitmentRuleIds?: string[];
   unscheduledTasks?: Array<{ subjectId: string | null; remainingMinutes: number }>;
   priorPlannedBlocks?: StudyBlock[];
   cumulativePlannedBlocks?: StudyBlock[];
@@ -493,6 +494,9 @@ export function buildWeeklyPlan(options: {
     usedSundayMinutes,
     overloadMinutes,
     coverageComplete,
+    excludedReservedCommitmentRuleIds: Array.from(
+      new Set(options.excludedReservedCommitmentRuleIds ?? []),
+    ).sort((left, right) => left.localeCompare(right)),
     weeksRemainingToDeadline,
     horizonEndDate,
     generatedAt: new Date().toISOString(),
@@ -506,6 +510,7 @@ export function buildUnconfiguredWeeklyPlan(options: {
   topics: Topic[];
   goals: Goal[];
   referenceDate: Date;
+  excludedReservedCommitmentRuleIds?: string[];
 }) {
   const requiredHoursBySubject = computeWeeklyRequiredHours({
     subjects: options.subjects,
@@ -580,6 +585,9 @@ export function buildUnconfiguredWeeklyPlan(options: {
     usedSundayMinutes: 0,
     overloadMinutes: 0,
     coverageComplete: false,
+    excludedReservedCommitmentRuleIds: Array.from(
+      new Set(options.excludedReservedCommitmentRuleIds ?? []),
+    ).sort((left, right) => left.localeCompare(right)),
     weeksRemainingToDeadline: Math.max(
       Math.ceil(
         differenceInCalendarDays(

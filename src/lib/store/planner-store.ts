@@ -169,6 +169,7 @@ async function recalculateCurrentWeek(options?: {
             snapshot.studyBlocks,
             referenceDate,
             preservedStudyBlockIds,
+            repairState.invalidOverlapBlockIds,
           )
         : snapshot.studyBlocks,
       preservedStudyBlockIds,

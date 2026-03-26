@@ -120,6 +120,7 @@ interface PlannerCalendarProps {
   sickDays: SickDay[];
   focusedDays: FocusedDay[];
   focusedWeeks: FocusedWeek[];
+  excludedReservedCommitmentRuleIds?: string[];
   preferences: Preferences;
   studyBlocks: StudyBlock[];
   subjects: Subject[];
@@ -148,6 +149,7 @@ export function PlannerCalendar({
   sickDays,
   focusedDays,
   focusedWeeks,
+  excludedReservedCommitmentRuleIds = [],
   preferences,
   studyBlocks,
   subjects,
@@ -195,6 +197,7 @@ export function PlannerCalendar({
     preferences,
     fixedEvents,
     sickDays,
+    excludedReservedCommitmentRuleIds,
   );
   const sickDayEvents = Array.from({ length: 7 }, (_, index) => addDays(visibleWeekStart, index)).flatMap((day) => {
     const severity = getActiveSickDaySeverity(day, sickDays);

@@ -32,7 +32,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-26-workload-preserving-rebuild-v39";
+const PLANNING_MODEL_VERSION = "2026-03-26-workload-preserving-rebuild-v40";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v8";
@@ -412,6 +412,9 @@ function normalizeWeeklyPlan(
     usedSundayMinutes: weeklyPlan.usedSundayMinutes ?? 0,
     overloadMinutes: weeklyPlan.overloadMinutes ?? 0,
     coverageComplete: weeklyPlan.coverageComplete ?? false,
+    excludedReservedCommitmentRuleIds: Array.from(
+      new Set(weeklyPlan.excludedReservedCommitmentRuleIds ?? []),
+    ).sort((left, right) => left.localeCompare(right)),
     weeksRemainingToDeadline: weeklyPlan.weeksRemainingToDeadline ?? 1,
     horizonEndDate: weeklyPlan.horizonEndDate ?? horizonEndDate,
   };
@@ -444,6 +447,13 @@ export function getCollapsedCoverageRepairState(
     sickDays: snapshot.sickDays,
     referenceDate,
   }).filter((issue) => issue.severity === "error" && issue.code === "overlap");
+  const invalidOverlapBlockIds = Array.from(
+    new Set(
+      invalidOverlapIssues
+        .map((issue) => issue.blockId)
+        .filter((blockId): blockId is string => typeof blockId === "string" && blockId.length > 0),
+    ),
+  );
   const states = snapshot.subjects
     .map((subject) => {
       const progress = getSubjectProgress(subject, snapshot.topics, snapshot.studyBlocks, referenceDate);
@@ -490,6 +500,7 @@ export function getCollapsedCoverageRepairState(
     states,
     collapsedSubjectIds,
     invalidOverlapIssues,
+    invalidOverlapBlockIds,
     hasCollapsedCoverage: collapsedSubjectIds.length > 0 || invalidOverlapIssues.length > 0,
   };
 }
@@ -498,8 +509,10 @@ export function buildCollapsedCoverageRepairBaselineStudyBlocks(
   studyBlocks: StudyBlock[],
   referenceDate = new Date(),
   preservedStudyBlockIds: string[] = [],
+  invalidOverlapBlockIds: string[] = [],
 ) {
   const preservedIds = new Set(preservedStudyBlockIds);
+  const invalidFutureOverlapIds = new Set(invalidOverlapBlockIds);
 
   return studyBlocks.filter((block) => {
     if (preservedIds.has(block.id)) {
@@ -508,6 +521,10 @@ export function buildCollapsedCoverageRepairBaselineStudyBlocks(
 
     if (new Date(block.end).getTime() <= referenceDate.getTime()) {
       return true;
+    }
+
+    if (invalidFutureOverlapIds.has(block.id)) {
+      return false;
     }
 
     return shouldAlwaysPreserveStudyBlockOnRegeneration(block);
@@ -551,7 +568,12 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
   }
 
   const existingStudyBlocks = repairState.hasCollapsedCoverage
-    ? buildCollapsedCoverageRepairBaselineStudyBlocks(workingSnapshot.studyBlocks, referenceDate)
+    ? buildCollapsedCoverageRepairBaselineStudyBlocks(
+        workingSnapshot.studyBlocks,
+        referenceDate,
+        preservedStudyBlockIds,
+        repairState.invalidOverlapBlockIds,
+      )
     : workingSnapshot.studyBlocks;
 
   const replanned = generateStudyPlanHorizon({
@@ -594,6 +616,7 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
       nextSnapshot.studyBlocks,
       referenceDate,
       preservedStudyBlockIds,
+      getCollapsedCoverageRepairState(nextSnapshot, referenceDate).invalidOverlapBlockIds,
     ),
     preservedStudyBlockIds,
     preserveFlexibleFutureBlocks: false,
@@ -612,6 +635,7 @@ async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Da
   const weekStartKey = toDateKey(weekStart);
   const syncedSnapshot = await syncPlanningSubjectsToCurrentSeed(snapshot, referenceDate);
   const preservedStudyBlockIds = collectActiveStudyBlockIds(syncedSnapshot.studyBlocks, referenceDate);
+  const repairState = getCollapsedCoverageRepairState(syncedSnapshot, referenceDate);
   const replanned = generateStudyPlanHorizon({
     startWeek: weekStart,
     goals: syncedSnapshot.goals,
@@ -622,7 +646,14 @@ async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Da
     focusedDays: syncedSnapshot.focusedDays,
     focusedWeeks: syncedSnapshot.focusedWeeks,
     preferences: syncedSnapshot.preferences,
-    existingStudyBlocks: syncedSnapshot.studyBlocks,
+    existingStudyBlocks: repairState.hasCollapsedCoverage
+      ? buildCollapsedCoverageRepairBaselineStudyBlocks(
+          syncedSnapshot.studyBlocks,
+          referenceDate,
+          preservedStudyBlockIds,
+          repairState.invalidOverlapBlockIds,
+        )
+      : syncedSnapshot.studyBlocks,
     preservedStudyBlockIds,
     preserveFlexibleFutureBlocks: false,
   });

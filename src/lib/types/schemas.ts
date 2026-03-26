@@ -180,6 +180,7 @@ export const weeklyPlanSchema = z.object({
   usedSundayMinutes: z.number().optional().default(0),
   overloadMinutes: z.number().optional().default(0),
   coverageComplete: z.boolean().optional().default(false),
+  excludedReservedCommitmentRuleIds: z.array(z.string()).optional().default([]),
   weeksRemainingToDeadline: z.number().optional().default(1),
   horizonEndDate: z.string().optional().default(""),
   generatedAt: z.string(),
