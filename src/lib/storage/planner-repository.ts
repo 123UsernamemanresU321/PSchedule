@@ -488,6 +488,32 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
   await replacePlanningHorizon(replanned.studyBlocks, replanned.weeklyPlans, weekStartKey, {
     preserveFlexibleFutureBlocks: repairState.hasCollapsedCoverage ? false : undefined,
   });
+  let nextSnapshot = await loadPlannerSnapshot();
+  if (!getCollapsedCoverageRepairState(nextSnapshot, referenceDate).hasCollapsedCoverage) {
+    return nextSnapshot;
+  }
+
+  nextSnapshot = await syncPlanningSubjectsToCurrentSeed(nextSnapshot, referenceDate);
+  const repaired = generateStudyPlanHorizon({
+    startWeek: weekStart,
+    goals: nextSnapshot.goals,
+    subjects: nextSnapshot.subjects,
+    topics: nextSnapshot.topics,
+    fixedEvents: nextSnapshot.fixedEvents,
+    sickDays: nextSnapshot.sickDays,
+    focusedDays: nextSnapshot.focusedDays,
+    focusedWeeks: nextSnapshot.focusedWeeks,
+    preferences: nextSnapshot.preferences,
+    existingStudyBlocks: buildCollapsedCoverageRepairBaselineStudyBlocks(
+      nextSnapshot.studyBlocks,
+      referenceDate,
+    ),
+    preserveFlexibleFutureBlocks: false,
+  });
+
+  await replacePlanningHorizon(repaired.studyBlocks, repaired.weeklyPlans, weekStartKey, {
+    preserveFlexibleFutureBlocks: false,
+  });
   return loadPlannerSnapshot();
 }
 

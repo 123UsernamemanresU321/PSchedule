@@ -136,43 +136,54 @@ async function recalculateCurrentWeek(options?: {
   preserveFlexibleFutureBlocks?: boolean;
 }) {
   const referenceDate = new Date();
-  const snapshot = await repairCollapsedCoveragePlanningState(referenceDate);
-  const repairState = getCollapsedCoverageRepairState(snapshot, referenceDate);
   const planningStartWeek = startOfPlannerWeek(referenceDate);
-  const replanned = generateStudyPlanHorizon({
-    startWeek: planningStartWeek,
-    goals: snapshot.goals,
-    subjects: snapshot.subjects,
-    topics: snapshot.topics,
-    fixedEvents: snapshot.fixedEvents,
-    sickDays: snapshot.sickDays,
-    focusedDays: snapshot.focusedDays,
-    focusedWeeks: snapshot.focusedWeeks,
-    preferences: snapshot.preferences,
-    existingStudyBlocks: repairState.hasCollapsedCoverage
-      ? buildCollapsedCoverageRepairBaselineStudyBlocks(
-          snapshot.studyBlocks,
-          referenceDate,
-          options?.preservedStudyBlockIds,
-        )
-      : snapshot.studyBlocks,
-    preservedStudyBlockIds: options?.preservedStudyBlockIds,
-    preserveFlexibleFutureBlocks: repairState.hasCollapsedCoverage
+  const buildAndReplaceHorizon = async (snapshot: Awaited<ReturnType<typeof loadPlannerSnapshot>>) => {
+    const repairState = getCollapsedCoverageRepairState(snapshot, referenceDate);
+    const preserveFlexibleFutureBlocks = repairState.hasCollapsedCoverage
       ? false
-      : options?.preserveFlexibleFutureBlocks,
-  });
-
-  await replacePlanningHorizon(
-    replanned.studyBlocks,
-    replanned.weeklyPlans,
-    toDateKey(planningStartWeek),
-    {
+      : options?.preserveFlexibleFutureBlocks;
+    const replanned = generateStudyPlanHorizon({
+      startWeek: planningStartWeek,
+      goals: snapshot.goals,
+      subjects: snapshot.subjects,
+      topics: snapshot.topics,
+      fixedEvents: snapshot.fixedEvents,
+      sickDays: snapshot.sickDays,
+      focusedDays: snapshot.focusedDays,
+      focusedWeeks: snapshot.focusedWeeks,
+      preferences: snapshot.preferences,
+      existingStudyBlocks: repairState.hasCollapsedCoverage
+        ? buildCollapsedCoverageRepairBaselineStudyBlocks(
+            snapshot.studyBlocks,
+            referenceDate,
+            options?.preservedStudyBlockIds,
+          )
+        : snapshot.studyBlocks,
       preservedStudyBlockIds: options?.preservedStudyBlockIds,
-      preserveFlexibleFutureBlocks: repairState.hasCollapsedCoverage
-        ? false
-        : options?.preserveFlexibleFutureBlocks,
-    },
-  );
+      preserveFlexibleFutureBlocks,
+    });
+
+    await replacePlanningHorizon(
+      replanned.studyBlocks,
+      replanned.weeklyPlans,
+      toDateKey(planningStartWeek),
+      {
+        preservedStudyBlockIds: options?.preservedStudyBlockIds,
+        preserveFlexibleFutureBlocks,
+      },
+    );
+  };
+
+  const snapshot = await repairCollapsedCoveragePlanningState(referenceDate);
+  await buildAndReplaceHorizon(snapshot);
+
+  let nextSnapshot = await loadPlannerSnapshot();
+  if (!getCollapsedCoverageRepairState(nextSnapshot, referenceDate).hasCollapsedCoverage) {
+    return nextSnapshot;
+  }
+
+  nextSnapshot = await repairCollapsedCoveragePlanningState(referenceDate);
+  await buildAndReplaceHorizon(nextSnapshot);
   return loadPlannerSnapshot();
 }
 
