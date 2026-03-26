@@ -640,6 +640,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       referenceDate,
     })
       ? await recalculateCurrentWeek({
+          preserveFlexibleFutureBlocks: false,
           preservedStudyBlockIds: getStatusUpdatePreservedStudyBlockIds({
             studyBlocks: snapshot.studyBlocks,
             updatedBlockId: block.id,
@@ -754,6 +755,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
     const nextSnapshot = await recalculateCurrentWeek({
       preservedStudyBlockIds: [block.id],
+      preserveFlexibleFutureBlocks: false,
     });
     set({
       ...nextSnapshot,
@@ -1097,7 +1099,7 @@ export function getStatusUpdatePreservedStudyBlockIds(options: {
         return true;
       }
 
-      return block.status === "planned";
+      return false;
     })
     .map((block) => block.id);
 

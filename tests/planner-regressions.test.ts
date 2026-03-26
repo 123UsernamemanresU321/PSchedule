@@ -2043,7 +2043,7 @@ test("legacy planner study-block records with stale non-auto flags are normalize
   );
 });
 
-test("status-triggered replans preserve active planned and rescheduled blocks", () => {
+test("status-triggered replans preserve active blocks but let later flexible blocks reflow", () => {
   const referenceDate = new Date("2026-03-24T17:00:00.000Z");
   const ids = getStatusUpdatePreservedStudyBlockIds({
     studyBlocks: [
@@ -2079,7 +2079,7 @@ test("status-triggered replans preserve active planned and rescheduled blocks", 
 
   assert.deepEqual(
     ids.sort((left, right) => left.localeCompare(right)),
-    ["current-planned", "current-rescheduled", "future-planned"],
+    ["current-planned", "current-rescheduled"],
   );
 });
 
