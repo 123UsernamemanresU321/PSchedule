@@ -30,7 +30,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-26-horizon-damage-repair-v37";
+const PLANNING_MODEL_VERSION = "2026-03-26-horizon-damage-repair-v38";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v8";
@@ -487,6 +487,7 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
 
   await replacePlanningHorizon(replanned.studyBlocks, replanned.weeklyPlans, weekStartKey, {
     preserveFlexibleFutureBlocks: repairState.hasCollapsedCoverage ? false : undefined,
+    aggressiveFutureReset: repairState.hasCollapsedCoverage,
   });
   let nextSnapshot = await loadPlannerSnapshot();
   if (!getCollapsedCoverageRepairState(nextSnapshot, referenceDate).hasCollapsedCoverage) {
@@ -513,6 +514,7 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
 
   await replacePlanningHorizon(repaired.studyBlocks, repaired.weeklyPlans, weekStartKey, {
     preserveFlexibleFutureBlocks: false,
+    aggressiveFutureReset: true,
   });
   return loadPlannerSnapshot();
 }
@@ -537,6 +539,7 @@ async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Da
 
   await replacePlanningHorizon(replanned.studyBlocks, replanned.weeklyPlans, weekStartKey, {
     preserveFlexibleFutureBlocks: false,
+    aggressiveFutureReset: true,
   });
   await db.meta.put({ key: "planning-model-version", value: PLANNING_MODEL_VERSION });
   return loadPlannerSnapshot();
@@ -1106,9 +1109,14 @@ export async function replacePlanningHorizon(
   studyBlocks: StudyBlock[],
   weeklyPlans: WeeklyPlan[],
   horizonStartWeek: string,
-  options?: { preserveFlexibleFutureBlocks?: boolean; preservedStudyBlockIds?: string[] },
+  options?: {
+    preserveFlexibleFutureBlocks?: boolean;
+    preservedStudyBlockIds?: string[];
+    aggressiveFutureReset?: boolean;
+  },
 ) {
   const horizonStartDate = new Date(`${horizonStartWeek}T00:00:00`);
+  const referenceDate = new Date();
   const weekKeys = weeklyPlans.map((plan) => plan.weekStart);
   const preservedIds = new Set(options?.preservedStudyBlockIds ?? []);
 
@@ -1121,10 +1129,15 @@ export async function replacePlanningHorizon(
         .filter(
           (block) =>
             new Date(block.start).getTime() >= horizonStartDate.getTime() &&
+            new Date(block.end).getTime() > referenceDate.getTime() &&
             !preservedIds.has(block.id) &&
-            !shouldPreserveStudyBlockOnRegeneration(normalizeStudyBlock(block), {
-              preserveFlexibleFutureBlocks: options?.preserveFlexibleFutureBlocks,
-            }),
+            (
+              options?.aggressiveFutureReset
+                ? true
+                : !shouldPreserveStudyBlockOnRegeneration(normalizeStudyBlock(block), {
+                    preserveFlexibleFutureBlocks: options?.preserveFlexibleFutureBlocks,
+                  })
+            ),
         )
         .delete();
       await db.weeklyPlans

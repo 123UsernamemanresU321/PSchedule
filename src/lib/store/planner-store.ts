@@ -170,6 +170,7 @@ async function recalculateCurrentWeek(options?: {
       {
         preservedStudyBlockIds: options?.preservedStudyBlockIds,
         preserveFlexibleFutureBlocks,
+        aggressiveFutureReset: repairState.hasCollapsedCoverage,
       },
     );
   };
