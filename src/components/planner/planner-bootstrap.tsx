@@ -5,7 +5,8 @@ import { useEffect, type ReactNode } from "react";
 import { usePlannerStore } from "@/lib/store/planner-store";
 
 const STALE_CHUNK_RELOAD_KEY = "__planner_stale_chunk_reload__";
-const STALE_CHUNK_RELOAD_TTL_MS = 15_000;
+const STALE_CHUNK_RELOAD_PARAM = "__planner_chunk_reload__";
+const STALE_CHUNK_RELOAD_TTL_MS = 60_000;
 
 function isStaleChunkMessage(message: string) {
   return (
@@ -22,18 +23,15 @@ function reloadForStaleChunkOnce(reason: string) {
   }
 
   const now = Date.now();
-  const path = window.location.pathname;
   const previousAttempt = window.sessionStorage.getItem(STALE_CHUNK_RELOAD_KEY);
 
   if (previousAttempt) {
     try {
       const parsed = JSON.parse(previousAttempt) as {
-        path?: string;
         timestamp?: number;
       };
 
       if (
-        parsed.path === path &&
         typeof parsed.timestamp === "number" &&
         now - parsed.timestamp < STALE_CHUNK_RELOAD_TTL_MS
       ) {
@@ -44,11 +42,13 @@ function reloadForStaleChunkOnce(reason: string) {
     }
   }
 
+  const nextUrl = new URL(window.location.href);
+  nextUrl.searchParams.set(STALE_CHUNK_RELOAD_PARAM, String(now));
   window.sessionStorage.setItem(
     STALE_CHUNK_RELOAD_KEY,
-    JSON.stringify({ path, reason, timestamp: now }),
+    JSON.stringify({ reason, timestamp: now }),
   );
-  window.location.reload();
+  window.location.replace(nextUrl.toString());
 }
 
 export function PlannerBootstrap({
@@ -64,6 +64,20 @@ export function PlannerBootstrap({
       void initialize();
     }
   }, [initialize, initialized]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const currentUrl = new URL(window.location.href);
+    if (!currentUrl.searchParams.has(STALE_CHUNK_RELOAD_PARAM)) {
+      return;
+    }
+
+    currentUrl.searchParams.delete(STALE_CHUNK_RELOAD_PARAM);
+    window.history.replaceState(window.history.state, "", currentUrl.toString());
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
