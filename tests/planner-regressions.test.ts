@@ -3732,6 +3732,163 @@ test("excluding homework commitment windows opens extra study capacity before pi
   );
 });
 
+test("later overloaded weeks drop soft commitments without stripping them from earlier healthy weeks", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const weekStart = startOfPlannerWeek(referenceDate);
+  const seedPreferences = buildSeedPreferences();
+  const homeworkRule = seedPreferences.reservedCommitmentRules.find(
+    (rule) => rule.id === "term-homework",
+  );
+  const pianoRule = seedPreferences.reservedCommitmentRules.find(
+    (rule) => rule.id === "piano-practice",
+  );
+  const preferences = {
+    ...seedPreferences,
+    schoolSchedule: {
+      ...seedPreferences.schoolSchedule,
+      enabled: false,
+      terms: [],
+    },
+    holidaySchedule: {
+      ...seedPreferences.holidaySchedule,
+      enabled: true,
+      dailyStudyWindow: {
+        start: "08:00",
+        end: "20:00",
+      },
+    },
+    reservedCommitmentRules: [
+      {
+        ...homeworkRule!,
+        appliesDuring: "all" as const,
+        days: [1, 2, 3, 4, 5],
+        preferredStart: "16:00",
+        durationMinutes: 120,
+      },
+      {
+        ...pianoRule!,
+        appliesDuring: "all" as const,
+        days: [1, 3, 5],
+        preferredStart: "18:30",
+        durationMinutes: 60,
+      },
+    ],
+  };
+
+  const result = generateStudyPlanHorizon({
+    startWeek: weekStart,
+    endWeek: addDays(weekStart, 7),
+    goals: [
+      {
+        id: "physics-soft-commitment-goal",
+        title: "Physics soft commitment goal",
+        subjectId: "physics-hl",
+        deadline: "2026-04-05",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [
+      {
+        id: "physics-hl",
+        name: "Physics HL",
+        shortName: "Physics",
+        category: "physics",
+        description: "",
+        defaultPriority: 0.7,
+        weeklyMinimumHours: 0,
+        examMode: "syllabus",
+        colorToken: "",
+        gradientClassName: "",
+        deadline: "2026-04-05",
+      },
+    ],
+    topics: [
+      {
+        id: "physics-soft-commitment-topic",
+        subjectId: "physics-hl",
+        unitId: "physics-soft-commitment-unit",
+        unitTitle: "Physics soft commitment unit",
+        title: "Physics soft commitment topic",
+        subtopics: [],
+        availableFrom: "2026-03-30",
+        estHours: 25,
+        completedHours: 0,
+        difficulty: 3,
+        status: "not_started",
+        mastery: 0,
+        reviewDue: null,
+        lastStudiedAt: null,
+        sourceMaterials: [],
+        preferredBlockTypes: ["standard_focus"],
+        order: 1,
+      },
+    ],
+    fixedEvents: [
+      {
+        id: "soft-commitment-busy-1",
+        title: "Busy 1",
+        start: "2026-03-30T08:00:00.000Z",
+        end: "2026-03-30T17:00:00.000Z",
+        recurrence: "none",
+        flexibility: "fixed",
+        category: "activity",
+      },
+      {
+        id: "soft-commitment-busy-2",
+        title: "Busy 2",
+        start: "2026-03-31T08:00:00.000Z",
+        end: "2026-03-31T17:00:00.000Z",
+        recurrence: "none",
+        flexibility: "fixed",
+        category: "activity",
+      },
+      {
+        id: "soft-commitment-busy-3",
+        title: "Busy 3",
+        start: "2026-04-01T08:00:00.000Z",
+        end: "2026-04-01T17:00:00.000Z",
+        recurrence: "none",
+        flexibility: "fixed",
+        category: "activity",
+      },
+      {
+        id: "soft-commitment-busy-4",
+        title: "Busy 4",
+        start: "2026-04-02T08:00:00.000Z",
+        end: "2026-04-02T17:00:00.000Z",
+        recurrence: "none",
+        flexibility: "fixed",
+        category: "activity",
+      },
+      {
+        id: "soft-commitment-busy-5",
+        title: "Busy 5",
+        start: "2026-04-03T08:00:00.000Z",
+        end: "2026-04-03T17:00:00.000Z",
+        recurrence: "none",
+        flexibility: "fixed",
+        category: "activity",
+      },
+    ],
+    preferences,
+    existingStudyBlocks: [],
+    focusedDays: [],
+    focusedWeeks: [],
+  });
+
+  const firstWeekPlan = result.weeklyPlans.find((plan) => plan.weekStart === "2026-03-23");
+  const overloadedWeekPlan = result.weeklyPlans.find((plan) => plan.weekStart === "2026-03-30");
+
+  assert.ok(firstWeekPlan, "expected a weekly plan for the first week");
+  assert.ok(overloadedWeekPlan, "expected a weekly plan for the overloaded week");
+  assert.deepEqual(firstWeekPlan.excludedReservedCommitmentRuleIds, []);
+  assert.ok(
+    overloadedWeekPlan.excludedReservedCommitmentRuleIds.includes("term-homework"),
+    "expected the overloaded week to drop homework before falling behind",
+  );
+});
+
 test("horizon extends beyond the configured end week until the remaining workload is fully planned", () => {
   const referenceDate = new Date("2026-03-23T08:00:00");
   const dataset = buildSeedDataset(referenceDate);
@@ -3790,6 +3947,161 @@ test("horizon extends beyond the configured end week until the remaining workloa
   assert.ok(
     result.weeklyPlans.some((plan) => plan.weekStart > "2026-03-23"),
     "expected the horizon to extend beyond the configured single week",
+  );
+});
+
+test("weekly allocation keeps multiple active subjects represented instead of letting one subject swallow the whole week", () => {
+  const seedPreferences = buildSeedPreferences();
+  const preferences = {
+    ...seedPreferences,
+    reservedCommitmentRules: [],
+    schoolSchedule: {
+      ...seedPreferences.schoolSchedule,
+      enabled: false,
+      terms: [],
+    },
+    holidaySchedule: {
+      ...seedPreferences.holidaySchedule,
+      enabled: true,
+      dailyStudyWindow: {
+        start: "08:00",
+        end: "20:00",
+      },
+    },
+  };
+  const subjects = [
+    {
+      id: "chemistry-hl",
+      name: "Chemistry HL",
+      shortName: "Chem",
+      category: "chemistry" as const,
+      description: "",
+      defaultPriority: 0.95,
+      weeklyMinimumHours: 0,
+      examMode: "syllabus" as const,
+      colorToken: "",
+      gradientClassName: "",
+      deadline: "2026-04-05",
+    },
+    {
+      id: "physics-hl",
+      name: "Physics HL",
+      shortName: "Physics",
+      category: "physics" as const,
+      description: "",
+      defaultPriority: 0.55,
+      weeklyMinimumHours: 0,
+      examMode: "syllabus" as const,
+      colorToken: "",
+      gradientClassName: "",
+      deadline: "2026-04-20",
+    },
+    {
+      id: "maths-aa-hl",
+      name: "Maths AA HL",
+      shortName: "Maths",
+      category: "maths" as const,
+      description: "",
+      defaultPriority: 0.55,
+      weeklyMinimumHours: 0,
+      examMode: "syllabus" as const,
+      colorToken: "",
+      gradientClassName: "",
+      deadline: "2026-04-20",
+    },
+  ] satisfies import("@/lib/types/planner").Subject[];
+
+  const result = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T00:00:00"),
+    goals: subjects.map((subject, index) => ({
+      id: `weekly-diversity-goal-${index + 1}`,
+      title: `${subject.name} goal`,
+      subjectId: subject.id,
+      deadline: subject.deadline,
+      targetCompletion: 1,
+      priorityWeight: 1,
+    })),
+    subjects,
+    topics: [
+      {
+        id: "weekly-diversity-chemistry-topic",
+        subjectId: "chemistry-hl",
+        unitId: "weekly-diversity-chemistry",
+        unitTitle: "Chemistry",
+        title: "Chemistry topic",
+        subtopics: [],
+        estHours: 30,
+        completedHours: 0,
+        difficulty: 4,
+        status: "not_started",
+        mastery: 0,
+        reviewDue: null,
+        lastStudiedAt: null,
+        sourceMaterials: [],
+        preferredBlockTypes: ["standard_focus"],
+        order: 1,
+      },
+      {
+        id: "weekly-diversity-physics-topic",
+        subjectId: "physics-hl",
+        unitId: "weekly-diversity-physics",
+        unitTitle: "Physics",
+        title: "Physics topic",
+        subtopics: [],
+        estHours: 12,
+        completedHours: 0,
+        difficulty: 3,
+        status: "not_started",
+        mastery: 0,
+        reviewDue: null,
+        lastStudiedAt: null,
+        sourceMaterials: [],
+        preferredBlockTypes: ["standard_focus"],
+        order: 1,
+      },
+      {
+        id: "weekly-diversity-maths-topic",
+        subjectId: "maths-aa-hl",
+        unitId: "weekly-diversity-maths",
+        unitTitle: "Maths",
+        title: "Maths topic",
+        subtopics: [],
+        estHours: 12,
+        completedHours: 0,
+        difficulty: 3,
+        status: "not_started",
+        mastery: 0,
+        reviewDue: null,
+        lastStudiedAt: null,
+        sourceMaterials: [],
+        preferredBlockTypes: ["standard_focus"],
+        order: 1,
+      },
+    ],
+    fixedEvents: [],
+    preferences,
+    focusedDays: [],
+    focusedWeeks: [],
+  });
+
+  const minutesBySubject = Object.fromEntries(
+    subjects.map((subject) => [
+      subject.id,
+      result.studyBlocks
+        .filter((block) => block.subjectId === subject.id)
+        .reduce((total, block) => total + block.estimatedMinutes, 0),
+    ]),
+  );
+  const totalMinutes = Object.values(minutesBySubject).reduce(
+    (total, value) => total + value,
+    0,
+  );
+
+  assert.ok(minutesBySubject["physics-hl"] >= 600);
+  assert.ok(minutesBySubject["maths-aa-hl"] >= 600);
+  assert.ok(
+    minutesBySubject["chemistry-hl"] / totalMinutes < 0.65,
+    "expected the most urgent subject to stay below a whole-week monoculture share",
   );
 });
 
