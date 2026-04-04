@@ -659,21 +659,13 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
 
     const referenceDate = new Date();
-    const hasExpiredUncompletedBlocks = snapshot.studyBlocks.some(
-      (candidate) =>
-        !!candidate.subjectId &&
-        !!candidate.topicId &&
-        ["planned", "rescheduled"].includes(candidate.status) &&
-        new Date(candidate.end).getTime() <= referenceDate.getTime() &&
-        !isStudyBlockActiveAt(candidate, referenceDate),
-    );
-    const nextSnapshot = shouldStatusUpdateTriggerReplan({
+    const nextSnapshot = shouldRunStatusUpdateReplan({
       previousBlock: block,
       nextBlock: updatedBlock,
+      studyBlocks: snapshot.studyBlocks,
       referenceDate,
-    }) ||
-      hasExpiredUncompletedBlocks ||
-      getCollapsedCoverageRepairState(snapshot, referenceDate).hasCollapsedCoverage
+      hasCollapsedCoverage: getCollapsedCoverageRepairState(snapshot, referenceDate).hasCollapsedCoverage,
+    })
       ? await recalculateCurrentWeek({
           preserveFlexibleFutureBlocks: false,
           preservedStudyBlockIds: getStatusUpdatePreservedStudyBlockIds({
@@ -1092,11 +1084,26 @@ function isStudyBlockActiveAt(block: StudyBlock, referenceDate: Date) {
   return blockStart <= now && now < blockEnd;
 }
 
+function isSubjectStudyBlock(block: StudyBlock) {
+  return !!block.subjectId && !!block.topicId;
+}
+
+export function shouldDoneStatusBypassReplan(options: {
+  previousBlock: StudyBlock;
+  nextBlock: StudyBlock;
+}) {
+  return isSubjectStudyBlock(options.previousBlock) && options.nextBlock.status === "done";
+}
+
 export function shouldStatusUpdateTriggerReplan(options: {
   previousBlock: StudyBlock;
   nextBlock: StudyBlock;
   referenceDate: Date;
 }) {
+  if (shouldDoneStatusBypassReplan(options)) {
+    return false;
+  }
+
   const previousStatus = options.previousBlock.status;
   const nextStatus = options.nextBlock.status;
   const blockEnded = new Date(options.previousBlock.end).getTime() <= options.referenceDate.getTime();
@@ -1112,6 +1119,33 @@ export function shouldStatusUpdateTriggerReplan(options: {
   }
 
   return true;
+}
+
+export function shouldRunStatusUpdateReplan(options: {
+  previousBlock: StudyBlock;
+  nextBlock: StudyBlock;
+  studyBlocks: StudyBlock[];
+  referenceDate: Date;
+  hasCollapsedCoverage: boolean;
+}) {
+  if (shouldDoneStatusBypassReplan(options)) {
+    return false;
+  }
+
+  const hasExpiredUncompletedBlocks = options.studyBlocks.some(
+    (candidate) =>
+      !!candidate.subjectId &&
+      !!candidate.topicId &&
+      ["planned", "rescheduled"].includes(candidate.status) &&
+      new Date(candidate.end).getTime() <= options.referenceDate.getTime() &&
+      !isStudyBlockActiveAt(candidate, options.referenceDate),
+  );
+
+  return (
+    shouldStatusUpdateTriggerReplan(options) ||
+    hasExpiredUncompletedBlocks ||
+    options.hasCollapsedCoverage
+  );
 }
 
 export function getStatusUpdatePreservedStudyBlockIds(options: {

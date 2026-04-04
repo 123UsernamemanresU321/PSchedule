@@ -19,6 +19,8 @@ import {
 } from "@/lib/scheduler/generator";
 import {
   getStatusUpdatePreservedStudyBlockIds,
+  shouldDoneStatusBypassReplan,
+  shouldRunStatusUpdateReplan,
   shouldStatusUpdateTriggerReplan,
 } from "@/lib/store/planner-store";
 import {
@@ -2109,7 +2111,76 @@ test("marking a past planned block done with the expected minutes does not requi
   );
 });
 
-test("partial or mismatched completions still trigger a horizon rebuild", () => {
+test("done subject-block updates bypass replanning even if minutes differ", () => {
+  const previousBlock = createStudyBlock({
+    status: "planned",
+    estimatedMinutes: 90,
+    actualMinutes: null,
+    start: "2026-03-24T14:00:00.000Z",
+    end: "2026-03-24T15:30:00.000Z",
+  });
+
+  assert.equal(
+    shouldDoneStatusBypassReplan({
+      previousBlock,
+      nextBlock: {
+        ...previousBlock,
+        status: "done",
+        actualMinutes: 60,
+      },
+    }),
+    true,
+  );
+
+  assert.equal(
+    shouldStatusUpdateTriggerReplan({
+      previousBlock,
+      nextBlock: {
+        ...previousBlock,
+        status: "done",
+        actualMinutes: 60,
+      },
+      referenceDate: new Date("2026-03-24T16:00:00.000Z"),
+    }),
+    false,
+  );
+});
+
+test("done subject-block updates do not get forced into replanning by unrelated expired blocks", () => {
+  const previousBlock = createStudyBlock({
+    id: "updated-block",
+    status: "planned",
+    estimatedMinutes: 90,
+    actualMinutes: null,
+    start: "2026-03-24T14:00:00.000Z",
+    end: "2026-03-24T15:30:00.000Z",
+  });
+
+  assert.equal(
+    shouldRunStatusUpdateReplan({
+      previousBlock,
+      nextBlock: {
+        ...previousBlock,
+        status: "done",
+        actualMinutes: 90,
+      },
+      studyBlocks: [
+        previousBlock,
+        createStudyBlock({
+          id: "other-expired-planned",
+          status: "planned",
+          start: "2026-03-24T10:00:00.000Z",
+          end: "2026-03-24T11:00:00.000Z",
+        }),
+      ],
+      referenceDate: new Date("2026-03-24T18:00:00.000Z"),
+      hasCollapsedCoverage: true,
+    }),
+    false,
+  );
+});
+
+test("partial completions still trigger a horizon rebuild", () => {
   const previousBlock = createStudyBlock({
     status: "planned",
     estimatedMinutes: 90,
@@ -2125,19 +2196,6 @@ test("partial or mismatched completions still trigger a horizon rebuild", () => 
         ...previousBlock,
         status: "partial",
         actualMinutes: 45,
-      },
-      referenceDate: new Date("2026-03-24T16:00:00.000Z"),
-    }),
-    true,
-  );
-
-  assert.equal(
-    shouldStatusUpdateTriggerReplan({
-      previousBlock,
-      nextBlock: {
-        ...previousBlock,
-        status: "done",
-        actualMinutes: 60,
       },
       referenceDate: new Date("2026-03-24T16:00:00.000Z"),
     }),
