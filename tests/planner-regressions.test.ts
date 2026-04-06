@@ -26,6 +26,7 @@ import {
 import {
   buildCollapsedCoverageRepairBaselineStudyBlocks,
   getCollapsedCoverageRepairState,
+  normalizePreferences,
   normalizeStudyBlock,
 } from "@/lib/storage/planner-repository";
 import {
@@ -42,7 +43,7 @@ import {
   getAssignableTaskCandidatesForBlock,
 } from "@/lib/scheduler/task-candidates";
 import { validateGeneratedHorizon } from "@/lib/scheduler/validation";
-import type { StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
+import type { Preferences, StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
 
 function createStudyBlock(overrides: Partial<StudyBlock> = {}): StudyBlock {
   return {
@@ -4883,4 +4884,84 @@ test("english is no longer auto-seeded for study and french is only light gramma
         topic.availableFrom !== undefined,
     ),
   );
+});
+
+test("normalizePreferences repairs malformed nested settings arrays", () => {
+  const seedPreferences = buildSeedPreferences();
+  const malformedPreferences = {
+    ...seedPreferences,
+    preferredDeepWorkWindows: null,
+    lockedRecoveryWindows: { broken: true },
+    reservedCommitmentRules: "broken",
+    schoolSchedule: {
+      ...seedPreferences.schoolSchedule,
+      weekdays: "not-an-array",
+      terms: { broken: true },
+    },
+    holidaySchedule: {
+      ...seedPreferences.holidaySchedule,
+      dailyStudyWindow: null,
+      preferredDeepWorkWindows: { broken: true },
+    },
+  } as unknown as Partial<Preferences>;
+
+  const normalized = normalizePreferences(malformedPreferences);
+
+  assert.deepEqual(
+    normalized.preferredDeepWorkWindows,
+    seedPreferences.preferredDeepWorkWindows,
+  );
+  assert.deepEqual(
+    normalized.lockedRecoveryWindows,
+    seedPreferences.lockedRecoveryWindows,
+  );
+  assert.deepEqual(
+    normalized.reservedCommitmentRules,
+    seedPreferences.reservedCommitmentRules,
+  );
+  assert.deepEqual(
+    normalized.schoolSchedule.weekdays,
+    seedPreferences.schoolSchedule.weekdays,
+  );
+  assert.deepEqual(
+    normalized.schoolSchedule.terms,
+    seedPreferences.schoolSchedule.terms,
+  );
+  assert.deepEqual(
+    normalized.holidaySchedule.dailyStudyWindow,
+    seedPreferences.holidaySchedule.dailyStudyWindow,
+  );
+  assert.deepEqual(
+    normalized.holidaySchedule.preferredDeepWorkWindows,
+    seedPreferences.holidaySchedule.preferredDeepWorkWindows,
+  );
+});
+
+test("normalizePreferences keeps valid nested settings arrays while normalizing invalid day values", () => {
+  const seedPreferences = buildSeedPreferences();
+  const normalized = normalizePreferences({
+    ...seedPreferences,
+    preferredDeepWorkWindows: [
+      {
+        ...seedPreferences.preferredDeepWorkWindows[0],
+        start: "16:00",
+        days: [1, 9, 4, 4],
+      },
+    ],
+    schoolSchedule: {
+      ...seedPreferences.schoolSchedule,
+      weekdays: [5, 12, 1, 1],
+      terms: [
+        {
+          ...seedPreferences.schoolSchedule.terms[0],
+          label: "Custom term",
+        },
+      ],
+    },
+  });
+
+  assert.equal(normalized.preferredDeepWorkWindows[0]?.start, "16:00");
+  assert.deepEqual(normalized.preferredDeepWorkWindows[0]?.days, [1, 4]);
+  assert.deepEqual(normalized.schoolSchedule.weekdays, [1, 5]);
+  assert.equal(normalized.schoolSchedule.terms[0]?.label, "Custom term");
 });

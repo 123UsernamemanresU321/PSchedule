@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toDateKey } from "@/lib/dates/helpers";
 import { createExportFilename } from "@/lib/storage/json-transfer";
+import { normalizePreferences } from "@/lib/storage/planner-repository";
 import { usePlannerStore } from "@/lib/store/planner-store";
 import type { Preferences, SickDay } from "@/lib/types/planner";
 import { createId } from "@/lib/utils";
@@ -53,14 +54,16 @@ export function SettingsPage() {
   const updatePreferences = usePlannerStore((state) => state.updatePreferences);
   const exportToJson = usePlannerStore((state) => state.exportToJson);
   const importFromJson = usePlannerStore((state) => state.importFromJson);
-  const [form, setForm] = useState<Preferences | null>(preferences);
+  const [form, setForm] = useState<Preferences | null>(() =>
+    preferences ? normalizePreferences(preferences) : null,
+  );
   const [sickDayDrafts, setSickDayDrafts] = useState<SickDay[]>(sickDays);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (preferences) {
       // Sync the editable settings form when IndexedDB state finishes bootstrapping.
-      setForm(preferences);
+      setForm(normalizePreferences(preferences));
     }
   }, [preferences]);
 

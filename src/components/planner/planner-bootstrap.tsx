@@ -12,6 +12,8 @@ function isStaleChunkMessage(message: string) {
   return (
     message.includes("ChunkLoadError") ||
     message.includes("Loading chunk") ||
+    message.includes("Failed to load module script") ||
+    message.includes("Importing a module script failed") ||
     message.includes("Failed to fetch dynamically imported module") ||
     (message.includes("/_next/static/chunks/") && message.includes("page.js"))
   );

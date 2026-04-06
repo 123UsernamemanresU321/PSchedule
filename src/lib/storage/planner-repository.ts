@@ -49,19 +49,32 @@ const PLANNING_SYNC_SUBJECT_IDS: SubjectId[] = [
   "geography-transition",
 ];
 
-function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreferences: Preferences) {
+function normalizeLockedRecoveryWindows(
+  preferences: Partial<Preferences> | null | undefined,
+  seedPreferences: Preferences,
+) {
+  const rawLockedRecoveryWindows = Array.isArray(preferences?.lockedRecoveryWindows)
+    ? preferences.lockedRecoveryWindows
+    : [];
   const mergedWindows = new Map(
     seedPreferences.lockedRecoveryWindows.map((window) => [window.label, window]),
   );
 
-  (preferences.lockedRecoveryWindows ?? []).forEach((window) => {
+  rawLockedRecoveryWindows.forEach((window) => {
+    if (!window || typeof window !== "object" || typeof window.label !== "string") {
+      return;
+    }
+
     mergedWindows.set(window.label, {
       ...(mergedWindows.get(window.label) ?? {}),
       ...window,
     });
   });
 
-  return Array.from(mergedWindows.values()).map((window) => {
+  return Array.from(mergedWindows.entries()).map(([label, window]) => {
+    const seedWindow =
+      seedPreferences.lockedRecoveryWindows.find((candidate) => candidate.label === label) ?? window;
+    const normalizedDays = normalizeDays(window.days, seedWindow.days);
     const normalizedTimeOverrides = Object.fromEntries(
       Object.entries(window.timeOverrides ?? {})
         .filter(
@@ -106,25 +119,34 @@ function normalizeLockedRecoveryWindows(preferences: Preferences, seedPreference
       window.label === "Sunday recovery" &&
       window.start === "18:00" &&
       window.end === "22:00" &&
-      window.days.length === 1 &&
-      window.days[0] === 0
+      normalizedDays.length === 1 &&
+      normalizedDays[0] === 0
     ) {
       return {
         ...window,
         start: "20:00",
+        days: normalizedDays,
         timeOverrides: normalizedTimeOverrides,
       };
     }
 
     return {
       ...window,
+      days: normalizedDays,
       timeOverrides: normalizedTimeOverrides,
     };
   });
 }
 
-function normalizeReservedCommitmentRules(preferences: Preferences, seedPreferences: Preferences) {
-  if (!preferences.reservedCommitmentRules?.length) {
+function normalizeReservedCommitmentRules(
+  preferences: Partial<Preferences> | null | undefined,
+  seedPreferences: Preferences,
+) {
+  const rawReservedCommitmentRules = Array.isArray(preferences?.reservedCommitmentRules)
+    ? preferences.reservedCommitmentRules
+    : [];
+
+  if (!rawReservedCommitmentRules.length) {
     return seedPreferences.reservedCommitmentRules;
   }
 
@@ -132,38 +154,52 @@ function normalizeReservedCommitmentRules(preferences: Preferences, seedPreferen
     seedPreferences.reservedCommitmentRules.map((rule) => [rule.id, rule]),
   );
 
-  preferences.reservedCommitmentRules.forEach((rule) => {
+  rawReservedCommitmentRules.forEach((rule) => {
+    if (!rule || typeof rule !== "object" || typeof rule.id !== "string") {
+      return;
+    }
+
     mergedRules.set(rule.id, {
       ...(mergedRules.get(rule.id) ?? {}),
       ...rule,
     });
   });
 
-  return Array.from(mergedRules.values()).map((rule) => ({
-    ...rule,
-    additionalDates: Array.from(new Set(rule.additionalDates ?? [])).sort((left, right) =>
-      left.localeCompare(right),
-    ),
-    excludedDates: Array.from(new Set(rule.excludedDates ?? [])).sort((left, right) =>
-      left.localeCompare(right),
-    ),
-    durationOverrides: Object.fromEntries(
-      Object.entries(rule.durationOverrides ?? {})
-        .filter(([, minutes]) => Number.isFinite(minutes) && minutes >= 0)
-        .sort(([left], [right]) => left.localeCompare(right)),
-    ),
-    timeOverrides: Object.fromEntries(
-      Object.entries(rule.timeOverrides ?? {})
-        .filter(
-          ([dateKey, override]) =>
-            typeof dateKey === "string" &&
-            !!override &&
-            typeof override.start === "string" &&
-            override.start.length > 0,
-        )
-        .sort(([left], [right]) => left.localeCompare(right)),
-    ),
-  }));
+  return Array.from(mergedRules.entries()).map(([ruleId, rule]) => {
+    const seedRule =
+      seedPreferences.reservedCommitmentRules.find((candidate) => candidate.id === ruleId) ?? rule;
+
+    return {
+      ...rule,
+      days: normalizeDays(rule.days, seedRule.days),
+      additionalDates: Array.isArray(rule.additionalDates)
+        ? Array.from(new Set(rule.additionalDates)).sort((left, right) =>
+            left.localeCompare(right),
+          )
+        : [],
+      excludedDates: Array.isArray(rule.excludedDates)
+        ? Array.from(new Set(rule.excludedDates)).sort((left, right) =>
+            left.localeCompare(right),
+          )
+        : [],
+      durationOverrides: Object.fromEntries(
+        Object.entries(rule.durationOverrides ?? {})
+          .filter(([, minutes]) => Number.isFinite(minutes) && minutes >= 0)
+          .sort(([left], [right]) => left.localeCompare(right)),
+      ),
+      timeOverrides: Object.fromEntries(
+        Object.entries(rule.timeOverrides ?? {})
+          .filter(
+            ([dateKey, override]) =>
+              typeof dateKey === "string" &&
+              !!override &&
+              typeof override.start === "string" &&
+              override.start.length > 0,
+          )
+          .sort(([left], [right]) => left.localeCompare(right)),
+      ),
+    };
+  });
 }
 
 function normalizeFixedEvent(event: PlannerExportPayload["fixedEvents"][number]) {
@@ -319,53 +355,115 @@ function normalizeFocusedWeek(focusedWeek: FocusedWeek) {
   } satisfies FocusedWeek;
 }
 
-function normalizePreferences(preferences: Preferences): Preferences {
+function normalizeDays(days: unknown, fallbackDays: number[]) {
+  if (!Array.isArray(days)) {
+    return fallbackDays;
+  }
+
+  const normalizedDays = Array.from(
+    new Set(
+      days.filter(
+        (day): day is number =>
+          Number.isInteger(day) && day >= 0 && day <= 6,
+      ),
+    ),
+  ).sort((left, right) => left - right);
+
+  return normalizedDays.length ? normalizedDays : fallbackDays;
+}
+
+function normalizeTimeWindows<T extends Preferences["preferredDeepWorkWindows"][number]>(
+  timeWindows: unknown,
+  seedTimeWindows: T[],
+) {
+  if (!Array.isArray(timeWindows) || !timeWindows.length) {
+    return seedTimeWindows;
+  }
+
+  return timeWindows.map((timeWindow, index) => {
+    const seedTimeWindow = seedTimeWindows[index % seedTimeWindows.length];
+    const timeWindowPatch =
+      timeWindow && typeof timeWindow === "object"
+        ? (timeWindow as Partial<T> & { days?: unknown })
+        : ({} as Partial<T> & { days?: unknown });
+    return {
+      ...seedTimeWindow,
+      ...timeWindowPatch,
+      days: normalizeDays(timeWindowPatch.days, seedTimeWindow.days),
+    };
+  });
+}
+
+export function normalizePreferences(preferences?: Partial<Preferences> | null): Preferences {
   const seedPreferences = buildSeedPreferences();
+  const schoolSchedule: Partial<Preferences["schoolSchedule"]> =
+    preferences?.schoolSchedule && typeof preferences.schoolSchedule === "object"
+      ? preferences.schoolSchedule
+      : {};
+  const holidaySchedule: Partial<Preferences["holidaySchedule"]> =
+    preferences?.holidaySchedule && typeof preferences.holidaySchedule === "object"
+      ? preferences.holidaySchedule
+      : {};
+  const sundayStudy: Partial<Preferences["sundayStudy"]> =
+    preferences?.sundayStudy && typeof preferences.sundayStudy === "object"
+      ? preferences.sundayStudy
+      : {};
 
   return {
     ...seedPreferences,
     ...preferences,
     dailyStudyWindow: {
       ...seedPreferences.dailyStudyWindow,
-      ...preferences.dailyStudyWindow,
+      ...(preferences?.dailyStudyWindow ?? {}),
     },
     subjectWeightOverrides: {
       ...seedPreferences.subjectWeightOverrides,
-      ...preferences.subjectWeightOverrides,
+      ...(preferences?.subjectWeightOverrides ?? {}),
     },
-    lockedRecoveryWindows: normalizeLockedRecoveryWindows(preferences, seedPreferences),
-    reservedCommitmentRules: normalizeReservedCommitmentRules(preferences, seedPreferences),
+    preferredDeepWorkWindows: normalizeTimeWindows(
+      preferences?.preferredDeepWorkWindows,
+      seedPreferences.preferredDeepWorkWindows,
+    ),
+    lockedRecoveryWindows: normalizeLockedRecoveryWindows(
+      preferences,
+      seedPreferences,
+    ),
+    reservedCommitmentRules: normalizeReservedCommitmentRules(
+      preferences,
+      seedPreferences,
+    ),
     schoolSchedule: {
       ...seedPreferences.schoolSchedule,
-      ...preferences.schoolSchedule,
-      weekdays: preferences.schoolSchedule?.weekdays?.length
-        ? preferences.schoolSchedule.weekdays
-        : seedPreferences.schoolSchedule.weekdays,
+      ...schoolSchedule,
+      weekdays: normalizeDays(
+        schoolSchedule.weekdays,
+        seedPreferences.schoolSchedule.weekdays,
+      ),
       terms:
-        preferences.schoolSchedule?.terms?.length
-          ? preferences.schoolSchedule.terms.map((term, index) => ({
+        Array.isArray(schoolSchedule.terms) && schoolSchedule.terms.length
+          ? schoolSchedule.terms.map((term, index) => ({
               ...seedPreferences.schoolSchedule.terms[index % seedPreferences.schoolSchedule.terms.length],
-              ...term,
+              ...(term ?? {}),
             }))
           : seedPreferences.schoolSchedule.terms,
     },
     holidaySchedule: {
       ...seedPreferences.holidaySchedule,
-      ...preferences.holidaySchedule,
+      ...holidaySchedule,
       dailyStudyWindow: {
         ...seedPreferences.holidaySchedule.dailyStudyWindow,
-        ...preferences.holidaySchedule?.dailyStudyWindow,
+        ...(holidaySchedule.dailyStudyWindow ?? {}),
       },
-      preferredDeepWorkWindows:
-        preferences.holidaySchedule?.preferredDeepWorkWindows?.length
-          ? preferences.holidaySchedule.preferredDeepWorkWindows
-          : seedPreferences.holidaySchedule.preferredDeepWorkWindows,
+      preferredDeepWorkWindows: normalizeTimeWindows(
+        holidaySchedule.preferredDeepWorkWindows,
+        seedPreferences.holidaySchedule.preferredDeepWorkWindows,
+      ),
     },
     sundayStudy: {
       ...seedPreferences.sundayStudy,
-      ...preferences.sundayStudy,
+      ...sundayStudy,
       workloadIntensity:
-        preferences.sundayStudy?.workloadIntensity ?? seedPreferences.sundayStudy.workloadIntensity,
+        sundayStudy.workloadIntensity ?? seedPreferences.sundayStudy.workloadIntensity,
     },
   };
 }
