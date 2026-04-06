@@ -5,6 +5,7 @@ import { addDays } from "date-fns";
 import { buildSeedDataset } from "@/lib/seed";
 import { buildSeedPreferences } from "@/lib/seed/preferences";
 import { getCalendarCompletionForecast, getSubjectProgress } from "@/lib/analytics/metrics";
+import { isStaleChunkMessage } from "@/components/planner/planner-bootstrap";
 import { createDateAtTime, fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import {
   calculateFreeSlots,
@@ -4964,4 +4965,22 @@ test("normalizePreferences keeps valid nested settings arrays while normalizing 
   assert.deepEqual(normalized.preferredDeepWorkWindows[0]?.days, [1, 4]);
   assert.deepEqual(normalized.schoolSchedule.weekdays, [1, 5]);
   assert.equal(normalized.schoolSchedule.terms[0]?.label, "Custom term");
+});
+
+test("stale chunk detection catches webpack runtime module factory crashes", () => {
+  assert.equal(
+    isStaleChunkMessage(
+      "TypeError: undefined is not an object (evaluating 'l[e].call')",
+      "reportError (webpack-f6022508bce67525.js:1:144)\nM (794-6caf4ff290008e31.js:1:41294)",
+    ),
+    true,
+  );
+
+  assert.equal(
+    isStaleChunkMessage(
+      "TypeError: Cannot read properties of undefined (reading 'call')",
+      "at __webpack_require__ (/_next/static/chunks/webpack-abc123.js:1:1)",
+    ),
+    true,
+  );
 });

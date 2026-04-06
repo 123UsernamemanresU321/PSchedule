@@ -8,14 +8,22 @@ const STALE_CHUNK_RELOAD_KEY = "__planner_stale_chunk_reload__";
 const STALE_CHUNK_RELOAD_PARAM = "__planner_chunk_reload__";
 const STALE_CHUNK_RELOAD_TTL_MS = 60_000;
 
-function isStaleChunkMessage(message: string) {
+export function isStaleChunkMessage(message: string, stack = "", filename = "") {
+  const signal = [message, stack, filename].filter(Boolean).join("\n");
+  const looksLikeWebpackRuntimeMismatch =
+    (signal.includes("l[e].call") ||
+      signal.includes("reading 'call'") ||
+      signal.includes('reading "call"')) &&
+    (signal.includes("webpack-") || signal.includes("/_next/static/chunks/"));
+
   return (
-    message.includes("ChunkLoadError") ||
-    message.includes("Loading chunk") ||
-    message.includes("Failed to load module script") ||
-    message.includes("Importing a module script failed") ||
-    message.includes("Failed to fetch dynamically imported module") ||
-    (message.includes("/_next/static/chunks/") && message.includes("page.js"))
+    signal.includes("ChunkLoadError") ||
+    signal.includes("Loading chunk") ||
+    signal.includes("Failed to load module script") ||
+    signal.includes("Importing a module script failed") ||
+    signal.includes("Failed to fetch dynamically imported module") ||
+    (signal.includes("/_next/static/chunks/") && signal.includes("page.js")) ||
+    looksLikeWebpackRuntimeMismatch
   );
 }
 
@@ -90,23 +98,34 @@ export function PlannerBootstrap({
       const message =
         event.message ||
         event.error?.message ||
-        (typeof event.filename === "string" ? event.filename : "");
+        "";
+      const stack =
+        typeof event.error?.stack === "string" ? event.error.stack : "";
+      const filename = typeof event.filename === "string" ? event.filename : "";
 
-      if (isStaleChunkMessage(message)) {
-        reloadForStaleChunkOnce(message);
+      if (isStaleChunkMessage(message, stack, filename)) {
+        reloadForStaleChunkOnce([message, stack, filename].filter(Boolean).join("\n"));
       }
     };
 
     const handleRejection = (event: PromiseRejectionEvent) => {
-      const reason =
+      const reasonMessage =
         typeof event.reason === "string"
           ? event.reason
           : event.reason instanceof Error
             ? event.reason.message
+            : typeof event.reason?.message === "string"
+              ? event.reason.message
+              : "";
+      const reasonStack =
+        event.reason instanceof Error
+          ? (event.reason.stack ?? "")
+          : typeof event.reason?.stack === "string"
+            ? event.reason.stack
             : "";
 
-      if (isStaleChunkMessage(reason)) {
-        reloadForStaleChunkOnce(reason);
+      if (isStaleChunkMessage(reasonMessage, reasonStack)) {
+        reloadForStaleChunkOnce([reasonMessage, reasonStack].filter(Boolean).join("\n"));
       }
     };
 
