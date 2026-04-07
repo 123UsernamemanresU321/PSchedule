@@ -1,4 +1,4 @@
-import { differenceInCalendarDays, min as minDate } from "date-fns";
+import { addDays, differenceInCalendarDays, min as minDate } from "date-fns";
 
 import { mainSubjectIds, subjectIds } from "@/lib/constants/planner";
 import {
@@ -7,10 +7,12 @@ import {
   hoursFromMinutes,
   toDateKey,
 } from "@/lib/dates/helpers";
+import { isDateInActiveSchoolTerm } from "@/lib/scheduler/schedule-regime";
 import { clamp, roundToTenth, sum } from "@/lib/utils";
 import type {
   CalendarSlot,
   Goal,
+  Preferences,
   RiskFlag,
   StudyBlock,
   Subject,
@@ -19,6 +21,46 @@ import type {
 } from "@/lib/types/planner";
 
 const MIN_ALLOCATABLE_HOURS = 0.5;
+
+function getTopicsForGoal(subjectTopics: Topic[], goal: Goal | null | undefined) {
+  if (!goal?.topicIds?.length) {
+    return subjectTopics;
+  }
+
+  const topicIdSet = new Set(goal.topicIds);
+  return subjectTopics.filter((topic) => topicIdSet.has(topic.id));
+}
+
+function getGoalProgressState(options: {
+  goal: Goal | null | undefined;
+  subjectTopics: Topic[];
+  plannedMinutesByTopic: Record<string, number>;
+}) {
+  const goalTopics = getTopicsForGoal(options.subjectTopics, options.goal);
+  const totalHours = goalTopics.reduce((total, topic) => total + topic.estHours, 0);
+  const completedHours = goalTopics.reduce(
+    (total, topic) => total + Math.min(topic.completedHours, topic.estHours),
+    0,
+  );
+  const targetHours = totalHours * (options.goal?.targetCompletion ?? 1);
+  const plannedTowardTargetHours = goalTopics.reduce((total, topic) => {
+    const plannedHours = (options.plannedMinutesByTopic[topic.id] ?? 0) / 60;
+    const cappedPlannedHours = Math.min(
+      plannedHours,
+      Math.max(topic.estHours - topic.completedHours, 0),
+    );
+    return total + cappedPlannedHours;
+  }, 0);
+
+  return {
+    goalTopics,
+    totalHours,
+    completedHours,
+    targetHours,
+    completionRatio: totalHours > 0 ? completedHours / totalHours : 1,
+    scheduledToGoalHours: Math.min(targetHours, completedHours + plannedTowardTargetHours),
+  };
+}
 
 function getSortedSubjectGoals(subject: Subject, goals: Goal[]) {
   return goals
@@ -56,21 +98,23 @@ export function computeRemainingHoursBySubject(topics: Topic[]) {
   }, {});
 }
 
-function computeTopicHoursBySubject(topics: Topic[]) {
-  return topics.reduce<Record<string, { total: number; completed: number }>>((accumulator, topic) => {
-    const current = accumulator[topic.subjectId] ?? { total: 0, completed: 0 };
-    current.total += topic.estHours;
-    current.completed += Math.min(topic.completedHours, topic.estHours);
-    accumulator[topic.subjectId] = current;
-    return accumulator;
-  }, {});
-}
-
-function getSubjectGoal(subject: Subject, goals: Goal[], completionRatio: number) {
+function getSubjectGoal(
+  subject: Subject,
+  goals: Goal[],
+  subjectTopics: Topic[],
+  plannedMinutesByTopic: Record<string, number>,
+) {
   const subjectGoals = getSortedSubjectGoals(subject, goals);
 
   return (
-    subjectGoals.find((goal) => goal.targetCompletion > completionRatio + 0.001) ??
+    subjectGoals.find((goal) => {
+      const progressState = getGoalProgressState({
+        goal,
+        subjectTopics,
+        plannedMinutesByTopic,
+      });
+      return progressState.completedHours + 0.001 < progressState.targetHours;
+    }) ??
     subjectGoals[subjectGoals.length - 1]
   );
 }
@@ -81,27 +125,58 @@ function computeScheduledHoursBySubjectToGoal(options: {
   topics: Topic[];
   plannedMinutesByTopic: Record<string, number>;
 }) {
-  const topicHoursBySubject = computeTopicHoursBySubject(options.topics);
-
   return options.subjects.reduce<Record<string, number>>((accumulator, subject) => {
     const subjectTopics = options.topics.filter((topic) => topic.subjectId === subject.id);
-    const progress = topicHoursBySubject[subject.id] ?? { total: 0, completed: 0 };
     const finalGoal = getSortedSubjectGoals(subject, options.goals).at(-1);
-    const targetHours = progress.total * (finalGoal?.targetCompletion ?? 1);
-    const plannedTowardTargetHours = subjectTopics.reduce((total, topic) => {
-      const plannedHours = (options.plannedMinutesByTopic[topic.id] ?? 0) / 60;
-      const cappedPlannedHours = Math.min(
-        plannedHours,
-        Math.max(topic.estHours - topic.completedHours, 0),
-      );
-      return total + cappedPlannedHours;
-    }, 0);
+    const goalProgress = getGoalProgressState({
+      goal: finalGoal,
+      subjectTopics,
+      plannedMinutesByTopic: options.plannedMinutesByTopic,
+    });
 
-    accumulator[subject.id] = roundToTenth(
-      Math.min(targetHours, progress.completed + plannedTowardTargetHours),
-    );
+    accumulator[subject.id] = roundToTenth(goalProgress.scheduledToGoalHours);
     return accumulator;
   }, {});
+}
+
+function isSchoolTermWeek(options: {
+  weekStartDate?: Date;
+  preferences?: Preferences;
+}) {
+  if (!options.weekStartDate || !options.preferences) {
+    return false;
+  }
+
+  return Array.from({ length: 7 }, (_, offset) => addDays(options.weekStartDate!, offset)).some((day) =>
+    isDateInActiveSchoolTerm(day, options.preferences!),
+  );
+}
+
+function getSeasonalSubjectMinimumHours(options: {
+  subject: Subject;
+  referenceDate: Date;
+  weekStartDate?: Date;
+  preferences?: Preferences;
+}) {
+  const schoolTermWeek = isSchoolTermWeek(options);
+
+  if (options.subject.id === "olympiad") {
+    const latePhaseStart = new Date(`${options.referenceDate.getFullYear()}-09-28T00:00:00`);
+    const comparisonDate = options.weekStartDate ?? options.referenceDate;
+    const isLatePhase = comparisonDate.getTime() >= latePhaseStart.getTime();
+
+    if (schoolTermWeek) {
+      return isLatePhase ? 12 : 10;
+    }
+
+    return isLatePhase ? 18 : 16;
+  }
+
+  if (options.subject.id === "cpp-book") {
+    return schoolTermWeek ? 0 : 2;
+  }
+
+  return options.subject.weeklyMinimumHours;
 }
 
 export function computeSubjectDeadlineTracks(options: {
@@ -113,9 +188,9 @@ export function computeSubjectDeadlineTracks(options: {
   weekStartDate?: Date;
   weekEndDate?: Date;
   priorPlannedBlocks?: StudyBlock[];
+  preferences?: Preferences;
 }) {
   const remainingHoursBySubject = computeRemainingHoursBySubject(options.topics);
-  const topicHoursBySubject = computeTopicHoursBySubject(options.topics);
   const plannedMinutesByTopic = computePlannedMinutesByTopic(options.priorPlannedBlocks);
   const horizonStartDate = options.horizonStartDate ?? options.referenceDate;
   const weekStartDate = options.weekStartDate ?? options.referenceDate;
@@ -140,26 +215,26 @@ export function computeSubjectDeadlineTracks(options: {
   >((accumulator, subject) => {
     const remainingHours = roundToTenth(remainingHoursBySubject[subject.id] ?? 0);
     const subjectTopics = options.topics.filter((topic) => topic.subjectId === subject.id);
-    const progress = topicHoursBySubject[subject.id] ?? { total: 0, completed: 0 };
-    const completionRatio = progress.total > 0 ? progress.completed / progress.total : 1;
-    const activeGoal = getSubjectGoal(subject, options.goals, completionRatio);
+    const activeGoal = getSubjectGoal(
+      subject,
+      options.goals,
+      subjectTopics,
+      plannedMinutesByTopic,
+    );
     const subjectGoals = getSortedSubjectGoals(subject, options.goals);
     const finalGoal = subjectGoals[subjectGoals.length - 1] ?? activeGoal;
     const deadline = new Date(activeGoal?.deadline ?? subject.deadline);
     const finalDeadline = new Date(finalGoal?.deadline ?? deadline);
     const daysRemaining = Math.max(differenceInCalendarDays(finalDeadline, options.referenceDate), 7);
     const weeksRemaining = Math.max(Math.ceil(daysRemaining / 7), 1);
-    const targetHours = progress.total * (finalGoal?.targetCompletion ?? 1);
-    const plannedTowardTargetHours = subjectTopics.reduce((total, topic) => {
-      const plannedHours = (plannedMinutesByTopic[topic.id] ?? 0) / 60;
-      const cappedPlannedHours = Math.min(
-        plannedHours,
-        Math.max(topic.estHours - topic.completedHours, 0),
-      );
-      return total + cappedPlannedHours;
-    }, 0);
-    const totalRemainingTargetHours = Math.max(targetHours - progress.completed, 0);
-    const scheduledToGoalHours = Math.min(targetHours, progress.completed + plannedTowardTargetHours);
+    const finalGoalProgress = getGoalProgressState({
+      goal: finalGoal,
+      subjectTopics,
+      plannedMinutesByTopic,
+    });
+    const targetHours = roundToTenth(finalGoalProgress.targetHours);
+    const scheduledToGoalHours = roundToTenth(finalGoalProgress.scheduledToGoalHours);
+    const totalRemainingTargetHours = Math.max(targetHours - finalGoalProgress.completedHours, 0);
     const targetRemainingHours = roundToTenth(Math.max(targetHours - scheduledToGoalHours, 0));
     const cumulativeWindowEnd = minDate([finalDeadline, weekEndDate]);
     const effectiveWeekStart =
@@ -175,7 +250,11 @@ export function computeSubjectDeadlineTracks(options: {
     const cumulativeTargetHoursByWeekEnd = roundToTenth(
       subjectGoals.reduce((requiredHoursByWeekEnd, goal) => {
         const goalDeadline = new Date(goal.deadline);
-        const goalTargetHours = progress.total * goal.targetCompletion;
+        const goalTargetHours = getGoalProgressState({
+          goal,
+          subjectTopics,
+          plannedMinutesByTopic,
+        }).targetHours;
         const goalPlanningDays = Math.max(
           differenceInCalendarDays(goalDeadline, horizonStartDate) + 1,
           1,
@@ -197,8 +276,14 @@ export function computeSubjectDeadlineTracks(options: {
     const baselineWeeklyHours =
       totalRemainingTargetHours > 0 ? totalRemainingTargetHours / weeksRemaining : 0;
     const hasExplicitGoal = Boolean(activeGoal);
+    const seasonalMinimumHours = getSeasonalSubjectMinimumHours({
+      subject,
+      referenceDate: options.referenceDate,
+      weekStartDate: options.weekStartDate,
+      preferences: options.preferences,
+    });
     const minimumGuidanceHours =
-      hasExplicitGoal && subject.examMode !== "maintenance" ? 0 : subject.weeklyMinimumHours;
+      hasExplicitGoal && subject.examMode !== "maintenance" ? 0 : seasonalMinimumHours;
     const cumulativeGapHours = Math.max(cumulativeTargetHoursByWeekEnd - scheduledToGoalHours, 0);
     const evenWeekShareHours =
       targetRemainingHours > 0 && remainingPlanningDaysFromWeek > 0
@@ -217,7 +302,7 @@ export function computeSubjectDeadlineTracks(options: {
                 : 0,
             ),
           );
-    const recommendedWeeklyHours =
+    let recommendedWeeklyHours =
       rawRecommendedWeeklyHours <= 0 && targetRemainingHours > 0 && weekPlanningDays > 0
         ? Math.min(targetRemainingHours, MIN_ALLOCATABLE_HOURS)
         : rawRecommendedWeeklyHours > 0
@@ -230,6 +315,26 @@ export function computeSubjectDeadlineTracks(options: {
               ),
             )
           : 0;
+
+    if (subject.id === "olympiad" && targetRemainingHours > 0) {
+      recommendedWeeklyHours = Math.min(
+        targetRemainingHours,
+        Math.max(recommendedWeeklyHours, seasonalMinimumHours),
+      );
+    }
+
+    if (subject.id === "cpp-book") {
+      const schoolTermWeek = isSchoolTermWeek({
+        weekStartDate: options.weekStartDate,
+        preferences: options.preferences,
+      });
+      recommendedWeeklyHours = schoolTermWeek
+        ? 0
+        : Math.min(
+            targetRemainingHours,
+            Math.max(recommendedWeeklyHours, seasonalMinimumHours),
+          );
+    }
 
     accumulator[subject.id] = {
       remainingHours,
@@ -255,6 +360,8 @@ export function computeWeeklyRequiredHours(options: {
   horizonStartDate?: Date;
   weekEndDate?: Date;
   priorPlannedBlocks?: StudyBlock[];
+  preferences?: Preferences;
+  weekStartDate?: Date;
 }) {
   const deadlineTracks = computeSubjectDeadlineTracks(options);
 
@@ -282,6 +389,7 @@ export function buildWeeklyPlan(options: {
   unscheduledTasks?: Array<{ subjectId: string | null; remainingMinutes: number }>;
   priorPlannedBlocks?: StudyBlock[];
   cumulativePlannedBlocks?: StudyBlock[];
+  preferences?: Preferences;
 }) {
   const emptyBySubject = subjectIds.reduce<Record<string, number>>((accumulator, key) => {
     accumulator[key] = 0;
@@ -297,6 +405,7 @@ export function buildWeeklyPlan(options: {
     weekStartDate: new Date(`${options.weekStart}T00:00:00`),
     weekEndDate,
     priorPlannedBlocks: options.cumulativePlannedBlocks ?? options.priorPlannedBlocks,
+    preferences: options.preferences,
   });
   const requiredHoursBySubject = {
     ...emptyBySubject,
@@ -511,18 +620,23 @@ export function buildUnconfiguredWeeklyPlan(options: {
   goals: Goal[];
   referenceDate: Date;
   excludedReservedCommitmentRuleIds?: string[];
+  preferences?: Preferences;
 }) {
   const requiredHoursBySubject = computeWeeklyRequiredHours({
     subjects: options.subjects,
     goals: options.goals,
     topics: options.topics,
     referenceDate: options.referenceDate,
+    preferences: options.preferences,
+    weekStartDate: new Date(`${options.weekStart}T00:00:00`),
   });
   const deadlineTracks = computeSubjectDeadlineTracks({
     subjects: options.subjects,
     goals: options.goals,
     topics: options.topics,
     referenceDate: options.referenceDate,
+    preferences: options.preferences,
+    weekStartDate: new Date(`${options.weekStart}T00:00:00`),
   });
 
   const assignedHoursBySubject = subjectIds.reduce<Record<string, number>>((accumulator, key) => {

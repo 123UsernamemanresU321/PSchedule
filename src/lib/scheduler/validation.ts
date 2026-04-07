@@ -9,7 +9,6 @@ import {
 import {
   getOlympiadNumberTheoryEligibilityStatus,
   getOlympiadStageGateStatus,
-  isOlympiadNumberTheoryFoundationTopic,
 } from "@/lib/scheduler/olympiad-stage-gates";
 import { startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import type { FixedEvent, Preferences, SickDay, StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
@@ -21,7 +20,6 @@ export interface PlannerValidationIssue {
     | "missing-review-dependency"
     | "review-window-violation"
     | "unused-capacity-with-gap"
-    | "olympiad-frontier-gap"
     | "olympiad-empty-week";
   message: string;
   severity: "error" | "warning";
@@ -43,26 +41,6 @@ export function validateGeneratedHorizon(options: {
   const issues: PlannerValidationIssue[] = [];
   const topicById = new Map(options.topics.map((topic) => [topic.id, topic]));
   const referenceDate = options.referenceDate ?? null;
-  const firstPlannedWeekStart = [...options.weeklyPlans]
-    .sort((left, right) => left.weekStart.localeCompare(right.weekStart))[0]?.weekStart ?? null;
-  const futureHorizonStartMs = firstPlannedWeekStart
-    ? new Date(`${firstPlannedWeekStart}T00:00:00`).getTime()
-    : Number.NEGATIVE_INFINITY;
-  const plannedFutureMinutesByTopic = options.studyBlocks.reduce<Record<string, number>>(
-    (accumulator, block) => {
-      if (
-        !block.topicId ||
-        !["planned", "rescheduled"].includes(block.status) ||
-        new Date(block.end).getTime() < futureHorizonStartMs
-      ) {
-        return accumulator;
-      }
-
-      accumulator[block.topicId] = (accumulator[block.topicId] ?? 0) + block.estimatedMinutes;
-      return accumulator;
-    },
-    {},
-  );
   const weeklyPlanByWeekStart = new Map(
     options.weeklyPlans.map((weeklyPlan) => [weeklyPlan.weekStart, weeklyPlan]),
   );
@@ -376,29 +354,6 @@ export function validateGeneratedHorizon(options: {
       });
     });
   });
-
-  const hasFutureOlympiadCapacity = options.weeklyPlans.some(
-    (plan) => (plan.remainingHoursBySubject.olympiad ?? 0) > 0.1 && plan.slackMinutes > 0,
-  );
-
-  options.topics
-    .filter((topic) => isOlympiadNumberTheoryFoundationTopic(topic))
-    .forEach((topic) => {
-      const remainingHours = Math.max(topic.estHours - topic.completedHours, 0);
-      const plannedFutureHours = (plannedFutureMinutesByTopic[topic.id] ?? 0) / 60;
-
-      if (remainingHours <= 0.1 || plannedFutureHours > 0.1 || !hasFutureOlympiadCapacity) {
-        return;
-      }
-
-      issues.push({
-        code: "olympiad-frontier-gap",
-        severity: "error",
-        subjectId: topic.subjectId,
-        topicId: topic.id,
-        message: `${topic.id} still has ${remainingHours.toFixed(1)}h remaining but no future planned coverage despite later Olympiad capacity.`,
-      });
-    });
 
   const olympiadWeekStarts = new Set(
     options.studyBlocks

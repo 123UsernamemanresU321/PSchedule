@@ -25,9 +25,16 @@ function buildSyllabusTargetCompletion(subjectId: Subject["id"]) {
   return totalHours > 0 ? Number((syllabusHours / totalHours).toFixed(4)) : 1;
 }
 
+function getOlympiadTopicsUpTo(deadline: string) {
+  return seedTopicBlueprints
+    .filter((topic) => topic.subjectId === "olympiad")
+    .filter((topic) => (topic.availableFrom ?? deadline) <= deadline)
+    .map((topic) => topic.id);
+}
+
 export function buildSeedSubjects(referenceDate = new Date()): Subject[] {
   const deadline = format(getAcademicDeadline(referenceDate), "yyyy-MM-dd");
-  const olympiadGoldDeadline = `${referenceDate.getFullYear() + 1}-06-30`;
+  const olympiadSelectionPeakDeadline = `${referenceDate.getFullYear() + 1}-04-06`;
   const paperPracticeDeadline = `${referenceDate.getFullYear() + 1}${FINAL_PAPER_PRACTICE_DEADLINE_SUFFIX}`;
 
   return [
@@ -76,13 +83,13 @@ export function buildSeedSubjects(referenceDate = new Date()): Subject[] {
       shortName: "Olympiad",
       category: "olympiad",
       description:
-        "Evidence-based April-camp-to-IMO-gold roadmap spanning algebra, number theory, combinatorics, geometry, inequalities, functional equations, and contest execution.",
-      defaultPriority: 0.85,
-      weeklyMinimumHours: 6,
+        "Track B+ Olympiad roadmap with continuous geometry, algebra/FE, NT/combi, proof conversion, and timed mock work through the next South African selection cycle.",
+      defaultPriority: 1,
+      weeklyMinimumHours: 10,
       examMode: "olympiad",
       colorToken: "subject-olympiad",
       gradientClassName: "from-subject-olympiad/25 via-subject-olympiad/10 to-transparent",
-      deadline: olympiadGoldDeadline,
+      deadline: olympiadSelectionPeakDeadline,
     },
     {
       id: "cpp-book",
@@ -90,13 +97,13 @@ export function buildSeedSubjects(referenceDate = new Date()): Subject[] {
       shortName: "C++ Book",
       category: "programming",
       description:
-        "Chapter-by-chapter completion of Stroustrup's Programming: Principles and Practice Using C++ (3rd edition), with time for drills and coded examples.",
-      defaultPriority: 0.45,
-      weeklyMinimumHours: 2.5,
+        "Maintenance-mode C++ reading from Stroustrup's Programming: Principles and Practice Using C++ (3rd edition), reserved for slack and holiday capacity after the academic anchors.",
+      defaultPriority: 0.15,
+      weeklyMinimumHours: 0,
       examMode: "syllabus",
       colorToken: "subject-programming",
       gradientClassName: "from-subject-programming/25 via-subject-programming/10 to-transparent",
-      deadline,
+      deadline: paperPracticeDeadline,
     },
     {
       id: "english-a-sl",
@@ -142,12 +149,18 @@ export function buildSeedSubjects(referenceDate = new Date()): Subject[] {
 
 export function buildSeedGoals(referenceDate = new Date()): Goal[] {
   const deadline = format(getAcademicDeadline(referenceDate), "yyyy-MM-dd");
-  const olympiadReadyDeadline = `${referenceDate.getFullYear()}-06-30`;
-  const olympiadGoldDeadline = `${referenceDate.getFullYear() + 1}-06-30`;
+  const olympiadPhaseOneDeadline = `${referenceDate.getFullYear()}-06-30`;
+  const olympiadPhaseTwoDeadline = `${referenceDate.getFullYear()}-09-30`;
+  const olympiadCampDeadline = `${referenceDate.getFullYear()}-11-30`;
+  const olympiadSelectionPeakDeadline = `${referenceDate.getFullYear() + 1}-04-06`;
   const paperPracticeDeadline = `${referenceDate.getFullYear() + 1}${FINAL_PAPER_PRACTICE_DEADLINE_SUFFIX}`;
   const physicsSyllabusTargetCompletion = buildSyllabusTargetCompletion("physics-hl");
   const mathsSyllabusTargetCompletion = buildSyllabusTargetCompletion("maths-aa-hl");
   const chemistrySyllabusTargetCompletion = buildSyllabusTargetCompletion("chemistry-hl");
+  const olympiadPhaseOneTopicIds = getOlympiadTopicsUpTo(olympiadPhaseOneDeadline);
+  const olympiadPhaseTwoTopicIds = getOlympiadTopicsUpTo(olympiadPhaseTwoDeadline);
+  const olympiadCampTopicIds = getOlympiadTopicsUpTo(olympiadCampDeadline);
+  const olympiadSelectionPeakTopicIds = getOlympiadTopicsUpTo(olympiadSelectionPeakDeadline);
 
   return [
     {
@@ -199,28 +212,48 @@ export function buildSeedGoals(referenceDate = new Date()): Goal[] {
       priorityWeight: 0.8,
     },
     {
-      id: "goal-olympiad-imo-ready",
-      title: `Reach the April-camp roadmap's pre-IMO coverage target by ${olympiadReadyDeadline}`,
+      id: "goal-olympiad-phase-1",
+      title: `Finish Olympiad foundations, first-pass core strand work, and the early mock ladder by ${olympiadPhaseOneDeadline}`,
       subjectId: "olympiad",
-      deadline: olympiadReadyDeadline,
-      targetCompletion: 0.65,
-      priorityWeight: 0.95,
+      deadline: olympiadPhaseOneDeadline,
+      targetCompletion: 1,
+      priorityWeight: 1,
+      topicIds: olympiadPhaseOneTopicIds,
     },
     {
-      id: "goal-olympiad-gold",
-      title: `Reach the April-camp roadmap's IMO gold depth target by ${olympiadGoldDeadline}`,
+      id: "goal-olympiad-phase-2",
+      title: `Complete the Olympiad main coverage layer by ${olympiadPhaseTwoDeadline}`,
       subjectId: "olympiad",
-      deadline: olympiadGoldDeadline,
+      deadline: olympiadPhaseTwoDeadline,
+      targetCompletion: 1,
+      priorityWeight: 0.95,
+      topicIds: olympiadPhaseTwoTopicIds,
+    },
+    {
+      id: "goal-olympiad-phase-3",
+      title: `Finish the Olympiad first pass before December camp by ${olympiadCampDeadline}`,
+      subjectId: "olympiad",
+      deadline: olympiadCampDeadline,
+      targetCompletion: 1,
+      priorityWeight: 0.95,
+      topicIds: olympiadCampTopicIds,
+    },
+    {
+      id: "goal-olympiad-phase-4",
+      title: `Finish the Olympiad selection-peak conversion phase by ${olympiadSelectionPeakDeadline}`,
+      subjectId: "olympiad",
+      deadline: olympiadSelectionPeakDeadline,
       targetCompletion: 1,
       priorityWeight: 0.9,
+      topicIds: olympiadSelectionPeakTopicIds,
     },
     {
       id: "goal-cpp-book",
-      title: "Finish Programming: Principles and Practice Using C++ (Ch. 0-21) by July 31",
+      title: `Keep steady maintenance progress through Programming: Principles and Practice Using C++ by ${paperPracticeDeadline}`,
       subjectId: "cpp-book",
-      deadline,
+      deadline: paperPracticeDeadline,
       targetCompletion: 1,
-      priorityWeight: 0.45,
+      priorityWeight: 0.15,
     },
   ];
 }

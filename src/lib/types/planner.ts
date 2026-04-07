@@ -48,6 +48,7 @@ export interface Goal {
   deadline: string;
   targetCompletion: number;
   priorityWeight: number;
+  topicIds?: string[];
 }
 
 export interface Subject {

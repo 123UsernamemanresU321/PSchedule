@@ -18,6 +18,32 @@ import type {
 } from "@/lib/types/planner";
 import { clamp } from "@/lib/utils";
 
+function getTopicsForGoal(subjectTopics: Topic[], goal: Goal | null | undefined) {
+  if (!goal?.topicIds?.length) {
+    return subjectTopics;
+  }
+
+  const topicIdSet = new Set(goal.topicIds);
+  return subjectTopics.filter((topic) => topicIdSet.has(topic.id));
+}
+
+function getGoalProgressState(subjectTopics: Topic[], goal: Goal | null | undefined) {
+  const goalTopics = getTopicsForGoal(subjectTopics, goal);
+  const totalHours = goalTopics.reduce((total, topic) => total + topic.estHours, 0);
+  const completedHours = goalTopics.reduce(
+    (total, topic) => total + Math.min(topic.completedHours, topic.estHours),
+    0,
+  );
+
+  return {
+    goalTopics,
+    totalHours,
+    completedHours,
+    completionRatio: totalHours > 0 ? completedHours / totalHours : 1,
+    targetHours: totalHours * (goal?.targetCompletion ?? 1),
+  };
+}
+
 export function getWeeklyPlan(weeklyPlans: WeeklyPlan[], weekStart: string) {
   return weeklyPlans.find((plan) => plan.weekStart === weekStart);
 }
@@ -252,18 +278,15 @@ export function getWeeklyCompletionRatio(weeklyPlan: WeeklyPlan | undefined, sub
 
 function getActiveGoalForSubject(subject: Subject, topics: Topic[], goals: Goal[]) {
   const subjectTopics = topics.filter((topic) => topic.subjectId === subject.id);
-  const totalHours = subjectTopics.reduce((total, topic) => total + topic.estHours, 0);
-  const completedHours = subjectTopics.reduce(
-    (total, topic) => total + Math.min(topic.completedHours, topic.estHours),
-    0,
-  );
-  const completionRatio = totalHours > 0 ? completedHours / totalHours : 1;
   const subjectGoals = goals
     .filter((goal) => goal.subjectId === subject.id)
     .sort((left, right) => left.deadline.localeCompare(right.deadline));
 
   return (
-    subjectGoals.find((goal) => goal.targetCompletion > completionRatio + 0.001) ??
+    subjectGoals.find((goal) => {
+      const progress = getGoalProgressState(subjectTopics, goal);
+      return progress.completedHours + 0.001 < progress.targetHours;
+    }) ??
     subjectGoals[subjectGoals.length - 1]
   );
 }
@@ -288,16 +311,18 @@ export function getCalendarCompletionForecast(options: {
   const referenceDate = options.referenceDate ?? new Date();
   const currentDate = options.currentDate ?? new Date();
   const subjectTopics = options.topics.filter((topic) => topic.subjectId === options.subject.id);
-  const totalHours = subjectTopics.reduce((total, topic) => total + topic.estHours, 0);
-  const completedHours = subjectTopics.reduce(
-    (total, topic) => total + Math.min(topic.completedHours, topic.estHours),
-    0,
-  );
   const activeGoal = getActiveGoalForSubject(options.subject, options.topics, options.goals);
   const finalGoal = getFinalGoalForSubject(options.subject, options.goals);
-  const targetHours = totalHours * (finalGoal?.targetCompletion ?? activeGoal?.targetCompletion ?? 1);
+  const finalGoalProgress = getGoalProgressState(subjectTopics, finalGoal ?? activeGoal);
+  const goalTopicIds = new Set(finalGoalProgress.goalTopics.map((topic) => topic.id));
+  const targetHours = finalGoalProgress.targetHours;
+  const completedHours = finalGoalProgress.completedHours;
   const assumedCompletedHoursBeforeReference = options.studyBlocks
-    .filter((block) => block.subjectId === options.subject.id)
+    .filter(
+      (block) =>
+        block.subjectId === options.subject.id &&
+        (!goalTopicIds.size || (block.topicId ? goalTopicIds.has(block.topicId) : false)),
+    )
     .filter((block) => ["planned", "rescheduled"].includes(block.status))
     .filter((block) => new Date(block.end) >= currentDate && new Date(block.end) < referenceDate)
     .reduce((total, block) => total + block.estimatedMinutes / 60, 0);
@@ -307,7 +332,11 @@ export function getCalendarCompletionForecast(options: {
   );
   const remainingTargetHours = Math.max(targetHours - effectiveCompletedHours, 0);
   const futureBlocks = options.studyBlocks
-    .filter((block) => block.subjectId === options.subject.id)
+    .filter(
+      (block) =>
+        block.subjectId === options.subject.id &&
+        (!goalTopicIds.size || (block.topicId ? goalTopicIds.has(block.topicId) : false)),
+    )
     .filter((block) => !["missed"].includes(block.status))
     .filter((block) => new Date(block.end) >= referenceDate)
     .sort((left, right) => new Date(left.end).getTime() - new Date(right.end).getTime());

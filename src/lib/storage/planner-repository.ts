@@ -32,10 +32,10 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-03-26-workload-preserving-rebuild-v40";
+const PLANNING_MODEL_VERSION = "2026-04-07-olympiad-bplus-v41";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
-const OLYMPIAD_ROADMAP_VERSION = "2026-03-20-april-camp-roadmap-v8";
+const OLYMPIAD_ROADMAP_VERSION = "2026-04-07-olympiad-bplus-roadmap-v9";
 const EXTENDED_GOALS_VERSION = "2026-03-19-post-syllabus-papers-v8";
 const LANGUAGE_MAINTENANCE_VERSION = "2026-03-19-languages-v1";
 const SEED_TOPIC_ORDERING_VERSION = "2026-03-19-seed-ordering-v3";
@@ -892,6 +892,121 @@ function mergeSeedTopicProgress<T extends PlannerSnapshot["topics"][number]>(
   });
 }
 
+type OlympiadMigrationBucket =
+  | "geometry"
+  | "algebra"
+  | "number-theory"
+  | "combinatorics"
+  | "contest";
+
+function inferOlympiadMigrationBucket(topic: Pick<
+  PlannerSnapshot["topics"][number],
+  "id" | "unitId" | "unitTitle" | "title" | "sequenceGroup"
+>): OlympiadMigrationBucket {
+  const raw = [
+    topic.id,
+    topic.unitId,
+    topic.unitTitle,
+    topic.title,
+    topic.sequenceGroup ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (raw.includes("geometry") || raw.includes(" olympiad-geo") || raw.includes("g1") || raw.includes("g2") || raw.includes("g3")) {
+    return "geometry";
+  }
+
+  if (
+    raw.includes("number theory") ||
+    raw.includes("number-theory") ||
+    raw.includes(" olympiad-nt")
+  ) {
+    return "number-theory";
+  }
+
+  if (
+    raw.includes("combinatorics") ||
+    raw.includes(" olympiad-combi") ||
+    raw.includes("counting") ||
+    raw.includes("graph")
+  ) {
+    return "combinatorics";
+  }
+
+  if (
+    raw.includes("contest") ||
+    raw.includes("mock") ||
+    raw.includes("pair review") ||
+    raw.includes("group critique") ||
+    raw.includes("assignment") ||
+    raw.includes("proof conversion") ||
+    raw.includes("rewrite")
+  ) {
+    return "contest";
+  }
+
+  return "algebra";
+}
+
+function buildMigratedOlympiadTopics(options: {
+  seededTopics: PlannerSnapshot["topics"];
+  existingTopics: PlannerSnapshot["topics"];
+}) {
+  const exactTopicsById = new Map(options.existingTopics.map((topic) => [topic.id, topic]));
+  const remainingHoursByBucket = options.existingTopics.reduce<
+    Record<OlympiadMigrationBucket, number>
+  >(
+    (accumulator, topic) => {
+      const bucket = inferOlympiadMigrationBucket(topic);
+      accumulator[bucket] += Math.min(topic.completedHours, topic.estHours);
+      return accumulator;
+    },
+    {
+      geometry: 0,
+      algebra: 0,
+      "number-theory": 0,
+      combinatorics: 0,
+      contest: 0,
+    },
+  );
+
+  return options.seededTopics.map((seededTopic) => {
+    const exactTopic = exactTopicsById.get(seededTopic.id);
+
+    if (exactTopic) {
+      const mergedTopic = mergeSeedTopicProgress(seededTopic, exactTopic);
+      const bucket = inferOlympiadMigrationBucket(seededTopic);
+      remainingHoursByBucket[bucket] = Math.max(
+        0,
+        remainingHoursByBucket[bucket] - Math.min(mergedTopic.completedHours, mergedTopic.estHours),
+      );
+      return mergedTopic;
+    }
+
+    const bucket = inferOlympiadMigrationBucket(seededTopic);
+    const migratedCompletedHours = Math.min(
+      seededTopic.estHours,
+      remainingHoursByBucket[bucket] ?? 0,
+    );
+    remainingHoursByBucket[bucket] = Math.max(
+      0,
+      (remainingHoursByBucket[bucket] ?? 0) - migratedCompletedHours,
+    );
+
+    return normalizeTopicProgress({
+      ...seededTopic,
+      completedHours: migratedCompletedHours,
+      mastery:
+        migratedCompletedHours >= seededTopic.estHours - 0.001
+          ? 5
+          : migratedCompletedHours > 0
+            ? 3
+            : seededTopic.mastery,
+    });
+  });
+}
+
 async function syncPlanningSubjectsToCurrentSeed(snapshot: PlannerSnapshot, referenceDate: Date) {
   const seedDataset = buildSeedDataset(referenceDate);
   const existingTopicsById = new Map(snapshot.topics.map((topic) => [topic.id, topic]));
@@ -968,24 +1083,26 @@ export async function syncOlympiadRoadmapToSeed(snapshot: PlannerSnapshot, refer
     return snapshot;
   }
 
-  const existingTopicsById = new Map(
-    snapshot.topics
-      .filter((topic) => topic.subjectId === OLYMPIAD_SUBJECT_ID)
-      .map((topic) => [topic.id, topic]),
-  );
+  const existingOlympiadTopics = snapshot.topics.filter((topic) => topic.subjectId === OLYMPIAD_SUBJECT_ID);
+  const seededGoalIds = new Set(seededGoals.map((goal) => goal.id));
   const seededTopicIds = new Set(seededTopics.map((topic) => topic.id));
-  const mergedTopics = seededTopics.map((seededTopic) =>
-    mergeSeedTopicProgress(
-      seededTopic,
-      existingTopicsById.get(seededTopic.id),
-    ),
-  );
+  const mergedTopics = buildMigratedOlympiadTopics({
+    seededTopics,
+    existingTopics: existingOlympiadTopics,
+  });
+  const obsoleteGoalIds = snapshot.goals
+    .filter((goal) => goal.subjectId === OLYMPIAD_SUBJECT_ID)
+    .filter((goal) => !seededGoalIds.has(goal.id))
+    .map((goal) => goal.id);
   const obsoleteTopicIds = snapshot.topics
     .filter((topic) => topic.subjectId === OLYMPIAD_SUBJECT_ID)
     .filter((topic) => !seededTopicIds.has(topic.id))
     .map((topic) => topic.id);
   await db.transaction("rw", [db.subjects, db.goals, db.topics, db.studyBlocks, db.meta], async () => {
     await db.subjects.put(seededSubject);
+    if (obsoleteGoalIds.length) {
+      await db.goals.bulkDelete(obsoleteGoalIds);
+    }
     await db.goals.bulkPut(seededGoals);
     await db.topics.bulkPut(mergedTopics);
 

@@ -26,6 +26,7 @@ export const goalSchema = z.object({
   deadline: z.string(),
   targetCompletion: z.number(),
   priorityWeight: z.number(),
+  topicIds: z.array(z.string()).optional(),
 });
 
 export const subjectSchema = z.object({

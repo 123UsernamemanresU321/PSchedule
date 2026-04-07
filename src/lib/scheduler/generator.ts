@@ -654,6 +654,7 @@ function selectExcludedReservedCommitmentRuleIdsForWeek(options: {
     weekStartDate: options.currentWeek,
     weekEndDate: addDays(options.currentWeek, 6),
     priorPlannedBlocks: options.existingPlannedBlocks,
+    preferences: options.preferences,
   });
   const weeklyRequiredMinutes = Math.round(
     sum(
@@ -2024,6 +2025,7 @@ export function generateStudyPlanForWeek(options: {
     weekStartDate: weekStart,
     weekEndDate: addDays(weekStart, 6),
     priorPlannedBlocks: existingPlannedBlocks,
+    preferences: options.preferences,
   });
   const requiredHoursBySubject = buildRequiredHoursFromTracks(options.subjects, deadlineTracks);
   const deadlinePaceHoursBySubject = buildDeadlinePaceHoursFromTracks(options.subjects, deadlineTracks);
@@ -2053,6 +2055,7 @@ export function generateStudyPlanForWeek(options: {
         goals: options.goals,
         referenceDate,
         excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
+        preferences: options.preferences,
       }),
       freeSlots: [],
       unscheduledTasks: buildTaskCandidates({
@@ -2238,6 +2241,7 @@ export function generateStudyPlanForWeek(options: {
     priorPlannedBlocks: existingPlannedBlocks,
     cumulativePlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
     excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
+    preferences: options.preferences,
   });
 
   return {

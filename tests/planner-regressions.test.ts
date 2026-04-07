@@ -39,6 +39,7 @@ import {
   collectInvalidFutureOlympiadBlockIds,
   getOlympiadNumberTheoryFrontierStatus,
 } from "@/lib/scheduler/olympiad-stage-gates";
+import { computeSubjectDeadlineTracks } from "@/lib/scheduler/feasibility";
 import {
   buildTaskCandidates,
   getAssignableTaskCandidatesForBlock,
@@ -4983,4 +4984,81 @@ test("stale chunk detection catches webpack runtime module factory crashes", () 
     ),
     true,
   );
+});
+
+test("olympiad B+ goals are scoped to phase topics instead of the full Olympiad corpus", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-07T08:00:00"));
+  const olympiadGoals = dataset.goals.filter((goal) => goal.subjectId === "olympiad");
+  const olympiadTopics = dataset.topics.filter((topic) => topic.subjectId === "olympiad");
+  const juneGoal = olympiadGoals.find((goal) => goal.id === "goal-olympiad-phase-1");
+  const septemberGoal = olympiadGoals.find((goal) => goal.id === "goal-olympiad-phase-2");
+
+  assert.equal(olympiadGoals.length, 4);
+  assert.ok(juneGoal?.topicIds?.length);
+  assert.ok(septemberGoal?.topicIds?.length);
+  assert.ok((juneGoal?.topicIds?.length ?? 0) < olympiadTopics.length);
+  assert.ok((septemberGoal?.topicIds?.length ?? 0) > (juneGoal?.topicIds?.length ?? 0));
+
+  const lateTopic = olympiadTopics.find(
+    (topic) => topic.availableFrom && topic.availableFrom > "2026-06-30",
+  );
+  assert.ok(lateTopic);
+  assert.equal(juneGoal?.topicIds?.includes(lateTopic!.id), false);
+});
+
+test("olympiad B+ seed keeps geometry, algebra, NT, combinatorics, and contest contact inside a school-term week", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-07T08:00:00"));
+  const firstWeekTopics = dataset.topics.filter(
+    (topic) => {
+      const availableFrom = topic.availableFrom ?? null;
+      return (
+        topic.subjectId === "olympiad" &&
+        availableFrom !== null &&
+        availableFrom >= "2026-04-06" &&
+        availableFrom <= "2026-04-12"
+      );
+    },
+  );
+
+  assert.ok(firstWeekTopics.some((topic) => topic.id.includes("geometry")));
+  assert.ok(firstWeekTopics.some((topic) => topic.id.includes("algebra")));
+  assert.ok(firstWeekTopics.some((topic) => topic.id.includes("number-theory")));
+  assert.ok(firstWeekTopics.some((topic) => topic.id.includes("combinatorics")));
+  assert.ok(firstWeekTopics.some((topic) => topic.id.includes("contest")));
+  assert.ok(firstWeekTopics.some((topic) => topic.id.includes("mock")));
+});
+
+test("olympiad B+ mock ladder uses exact continuous sitting durations across phases", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-07T08:00:00"));
+  const week1Mock = dataset.topics.find((topic) => topic.id === "olympiad-bplus-mock-01");
+  const week9Mock = dataset.topics.find((topic) => topic.id === "olympiad-bplus-mock-09");
+  const week17Mock = dataset.topics.find((topic) => topic.id === "olympiad-bplus-mock-17");
+  const week26Mock = dataset.topics.find((topic) => topic.id === "olympiad-bplus-mock-26");
+  const monthlyMockDayOne = dataset.topics.find(
+    (topic) => topic.id === "olympiad-bplus-monthly-mock-35-day-1",
+  );
+
+  assert.equal(week1Mock?.sessionMode, "exam");
+  assert.ok([90, 120].includes(week1Mock?.exactSessionMinutes ?? 0));
+  assert.equal(week9Mock?.exactSessionMinutes, 120);
+  assert.ok([120, 240].includes(week17Mock?.exactSessionMinutes ?? 0));
+  assert.equal(week26Mock?.exactSessionMinutes, 270);
+  assert.equal(monthlyMockDayOne?.exactSessionMinutes, 270);
+});
+
+test("school-term deadline pacing enforces the Olympiad B+ floor while demoting C++", () => {
+  const referenceDate = new Date("2026-04-07T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const tracks = computeSubjectDeadlineTracks({
+    subjects: dataset.subjects,
+    goals: dataset.goals,
+    topics: dataset.topics,
+    referenceDate,
+    weekStartDate: new Date("2026-04-06T00:00:00"),
+    weekEndDate: new Date("2026-04-12T23:59:59"),
+    preferences: buildSeedPreferences(),
+  });
+
+  assert.ok((tracks.olympiad?.recommendedWeeklyHours ?? 0) >= 10);
+  assert.equal(tracks["cpp-book"]?.recommendedWeeklyHours ?? 0, 0);
 });
