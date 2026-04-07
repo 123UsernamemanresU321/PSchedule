@@ -4939,6 +4939,21 @@ test("normalizePreferences repairs malformed nested settings arrays", () => {
   );
 });
 
+test("seed preferences share the stronger Olympiad and demoted C++ defaults with seeded subjects", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-07T08:00:00"));
+  const seedPreferences = buildSeedPreferences();
+  const olympiad = dataset.subjects.find((subject) => subject.id === "olympiad");
+  const cppBook = dataset.subjects.find((subject) => subject.id === "cpp-book");
+
+  assert.equal(olympiad?.defaultPriority, 1);
+  assert.equal(olympiad?.weeklyMinimumHours, 10);
+  assert.equal(seedPreferences.subjectWeightOverrides.olympiad, olympiad?.defaultPriority);
+
+  assert.equal(cppBook?.defaultPriority, 0.15);
+  assert.equal(cppBook?.weeklyMinimumHours, 0);
+  assert.equal(seedPreferences.subjectWeightOverrides["cpp-book"], cppBook?.defaultPriority);
+});
+
 test("normalizePreferences keeps valid nested settings arrays while normalizing invalid day values", () => {
   const seedPreferences = buildSeedPreferences();
   const normalized = normalizePreferences({
@@ -4966,6 +4981,34 @@ test("normalizePreferences keeps valid nested settings arrays while normalizing 
   assert.deepEqual(normalized.preferredDeepWorkWindows[0]?.days, [1, 4]);
   assert.deepEqual(normalized.schoolSchedule.weekdays, [1, 5]);
   assert.equal(normalized.schoolSchedule.terms[0]?.label, "Custom term");
+});
+
+test("normalizePreferences upgrades exact legacy Olympiad and C++ default overrides", () => {
+  const normalized = normalizePreferences({
+    ...buildSeedPreferences(),
+    subjectWeightOverrides: {
+      olympiad: 0.85,
+      "cpp-book": 0.45,
+      "maths-aa-hl": 0.92,
+    },
+  });
+
+  assert.equal(normalized.subjectWeightOverrides.olympiad, 1);
+  assert.equal(normalized.subjectWeightOverrides["cpp-book"], 0.15);
+  assert.equal(normalized.subjectWeightOverrides["maths-aa-hl"], 0.92);
+});
+
+test("normalizePreferences preserves non-legacy custom Olympiad and C++ overrides", () => {
+  const normalized = normalizePreferences({
+    ...buildSeedPreferences(),
+    subjectWeightOverrides: {
+      olympiad: 0.93,
+      "cpp-book": 0.2,
+    },
+  });
+
+  assert.equal(normalized.subjectWeightOverrides.olympiad, 0.93);
+  assert.equal(normalized.subjectWeightOverrides["cpp-book"], 0.2);
 });
 
 test("stale chunk detection catches webpack runtime module factory crashes", () => {

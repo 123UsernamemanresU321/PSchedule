@@ -80,7 +80,9 @@ export function buildSeedPreferences(): Preferences {
     autoReduceBeforeExamWeeks: false,
     avoidLateNightHeavy: true,
     lateNightCutoff: "20:15",
-    subjectWeightOverrides: subjectPrioritySeed,
+    subjectWeightOverrides: {
+      ...subjectPrioritySeed,
+    },
     schoolSchedule: {
       enabled: false,
       weekdays: [1, 2, 3, 4, 5],

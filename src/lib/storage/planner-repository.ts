@@ -36,9 +36,12 @@ const PLANNING_MODEL_VERSION = "2026-04-07-olympiad-bplus-v41";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-07-olympiad-bplus-roadmap-v9";
+const PREFERENCE_DEFAULTS_VERSION = "2026-04-07-priority-defaults-v1";
 const EXTENDED_GOALS_VERSION = "2026-03-19-post-syllabus-papers-v8";
 const LANGUAGE_MAINTENANCE_VERSION = "2026-03-19-languages-v1";
 const SEED_TOPIC_ORDERING_VERSION = "2026-03-19-seed-ordering-v3";
+const LEGACY_OLYMPIAD_DEFAULT_PRIORITY = 0.85;
+const LEGACY_CPP_BOOK_DEFAULT_PRIORITY = 0.45;
 const PLANNING_SYNC_SUBJECT_IDS: SubjectId[] = [
   "physics-hl",
   "maths-aa-hl",
@@ -408,6 +411,19 @@ export function normalizePreferences(preferences?: Partial<Preferences> | null):
     preferences?.sundayStudy && typeof preferences.sundayStudy === "object"
       ? preferences.sundayStudy
       : {};
+  const subjectWeightOverrides = {
+    ...seedPreferences.subjectWeightOverrides,
+    ...(preferences?.subjectWeightOverrides ?? {}),
+  };
+
+  if (subjectWeightOverrides.olympiad === LEGACY_OLYMPIAD_DEFAULT_PRIORITY) {
+    subjectWeightOverrides.olympiad = seedPreferences.subjectWeightOverrides.olympiad;
+  }
+
+  if (subjectWeightOverrides[CPP_BOOK_SUBJECT_ID] === LEGACY_CPP_BOOK_DEFAULT_PRIORITY) {
+    subjectWeightOverrides[CPP_BOOK_SUBJECT_ID] =
+      seedPreferences.subjectWeightOverrides[CPP_BOOK_SUBJECT_ID];
+  }
 
   return {
     ...seedPreferences,
@@ -416,10 +432,7 @@ export function normalizePreferences(preferences?: Partial<Preferences> | null):
       ...seedPreferences.dailyStudyWindow,
       ...(preferences?.dailyStudyWindow ?? {}),
     },
-    subjectWeightOverrides: {
-      ...seedPreferences.subjectWeightOverrides,
-      ...(preferences?.subjectWeightOverrides ?? {}),
-    },
+    subjectWeightOverrides,
     preferredDeepWorkWindows: normalizeTimeWindows(
       preferences?.preferredDeepWorkWindows,
       seedPreferences.preferredDeepWorkWindows,
@@ -466,6 +479,25 @@ export function normalizePreferences(preferences?: Partial<Preferences> | null):
         sundayStudy.workloadIntensity ?? seedPreferences.sundayStudy.workloadIntensity,
     },
   };
+}
+
+async function migrateLegacyPreferenceDefaults(snapshot: PlannerSnapshot) {
+  const defaultsVersion = await db.meta.get("preferences-defaults-version");
+  if (defaultsVersion?.value === PREFERENCE_DEFAULTS_VERSION) {
+    return snapshot;
+  }
+
+  const normalizedPreferences = normalizePreferences(snapshot.preferences);
+
+  await db.transaction("rw", [db.preferences, db.meta], async () => {
+    await db.preferences.put(normalizedPreferences);
+    await db.meta.put({
+      key: "preferences-defaults-version",
+      value: PREFERENCE_DEFAULTS_VERSION,
+    });
+  });
+
+  return loadPlannerSnapshot();
 }
 
 function normalizeWeeklyPlan(
@@ -1327,6 +1359,10 @@ async function writeSeedDataset(seed: SeedDataset) {
       await db.preferences.put(seed.preferences);
       await db.meta.put({ key: "seeded", value: "true" });
       await db.meta.put({ key: "planning-model-version", value: PLANNING_MODEL_VERSION });
+      await db.meta.put({
+        key: "preferences-defaults-version",
+        value: PREFERENCE_DEFAULTS_VERSION,
+      });
       await db.meta.put({ key: "olympiad-roadmap-version", value: OLYMPIAD_ROADMAP_VERSION });
       await db.meta.put({ key: "extended-goals-version", value: EXTENDED_GOALS_VERSION });
       await db.meta.put({
@@ -1414,6 +1450,7 @@ export async function initializePlannerDatabase(referenceDate = new Date()) {
   }
 
   let snapshot = await loadPlannerSnapshot();
+  snapshot = await migrateLegacyPreferenceDefaults(snapshot);
   snapshot = await migrateLegacySeededFixedEvents(snapshot, referenceDate);
   snapshot = await migrateLegacySeededSyllabus(snapshot, referenceDate);
   snapshot = await migrateCppBookGoal(snapshot, referenceDate);
@@ -1680,6 +1717,10 @@ export async function importPlannerData(rawJson: string) {
       await db.completionLogs.bulkPut(payload.completionLogs);
       await db.preferences.put(normalizePreferences(payload.preferences));
       await db.meta.put({ key: "seeded", value: "true" });
+      await db.meta.put({
+        key: "preferences-defaults-version",
+        value: PREFERENCE_DEFAULTS_VERSION,
+      });
     },
   );
 
