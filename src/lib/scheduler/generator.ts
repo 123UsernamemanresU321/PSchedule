@@ -11,6 +11,10 @@ import {
   getOlympiadNumberTheoryEligibilityStatus,
   getOlympiadStageGateStatus,
 } from "@/lib/scheduler/olympiad-stage-gates";
+import {
+  getOlympiadWeekLoadProfile,
+  getOlympiadWeaknessProfile,
+} from "@/lib/scheduler/olympiad-performance";
 import { scoreTaskCandidate, buildGeneratedReason } from "@/lib/scheduler/scoring";
 import type { BlockSelectionPolicy } from "@/lib/scheduler/slot-classifier";
 import { selectBlockOption } from "@/lib/scheduler/slot-classifier";
@@ -29,6 +33,7 @@ import type {
   FocusedWeek,
   Goal,
   SickDay,
+  CompletionLog,
   Preferences,
   SchedulerResult,
   StudyBlock,
@@ -618,6 +623,7 @@ function selectExcludedReservedCommitmentRuleIdsForWeek(options: {
   goals: Goal[];
   subjects: Subject[];
   topics: Topic[];
+  completionLogs?: CompletionLog[];
   fixedEvents: import("@/lib/types/planner").FixedEvent[];
   sickDays?: SickDay[];
   focusedDays?: FocusedDay[];
@@ -633,6 +639,7 @@ function selectExcludedReservedCommitmentRuleIdsForWeek(options: {
   const remainingTasks = buildTaskCandidates({
     topics: options.topics,
     existingPlannedBlocks: options.existingPlannedBlocks,
+    completionLogs: options.completionLogs,
     referenceDate,
     subjectDeadlinesById: options.subjectDeadlinesById,
     availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
@@ -655,6 +662,8 @@ function selectExcludedReservedCommitmentRuleIdsForWeek(options: {
     weekEndDate: addDays(options.currentWeek, 6),
     priorPlannedBlocks: options.existingPlannedBlocks,
     preferences: options.preferences,
+    fixedEvents: options.fixedEvents,
+    sickDays: options.sickDays,
   });
   const weeklyRequiredMinutes = Math.round(
     sum(
@@ -700,6 +709,7 @@ function buildFutureFocusedReserveMinutesBySubject(options: {
   currentWeek: Date;
   endWeek: Date;
   topics: Topic[];
+  completionLogs?: CompletionLog[];
   fixedEvents: import("@/lib/types/planner").FixedEvent[];
   sickDays?: SickDay[];
   focusedDays?: FocusedDay[];
@@ -732,6 +742,7 @@ function buildFutureFocusedReserveMinutesBySubject(options: {
   const remainingTasks = buildTaskCandidates({
     topics: options.topics,
     existingPlannedBlocks: options.existingPlannedBlocks,
+    completionLogs: options.completionLogs,
     referenceDate: getPlannerReferenceDate(options.currentWeek),
     subjectDeadlinesById: options.subjectDeadlinesById,
     availabilityOverrideSubjectIds: Array.from(
@@ -861,6 +872,9 @@ function createStudyBlockFromTask(options: {
     rescheduleCount: 0,
     assignmentLocked: false,
     assignmentEditedAt: null,
+    followUpKind: options.task.followUpKind ?? null,
+    followUpSourceStudyBlockId: options.task.followUpSourceStudyBlockId ?? null,
+    followUpDueAt: options.task.followUpDueAt ?? null,
   } satisfies StudyBlock;
 }
 
@@ -872,6 +886,7 @@ function allocateTasksToSlots(options: {
   subjects: Subject[];
   goals: Goal[];
   topics: Topic[];
+  completionLogs?: CompletionLog[];
   preferences: Preferences;
   lockedBlocks: StudyBlock[];
   priorPlannedBlocks?: StudyBlock[];
@@ -886,6 +901,8 @@ function allocateTasksToSlots(options: {
   focusedSubjectsByDate?: Record<string, string[]>;
   allowLargeGapAbsorption?: boolean;
   availabilityOverrideSubjectIds?: Subject["id"][];
+  olympiadLoadMultiplier?: number;
+  olympiadWeaknessStrand?: "geometry" | "algebra" | "number-theory" | "combinatorics" | null;
 }) {
   const weekStartKey = toDateKey(options.weekStart);
   const subjectMap = new Map(options.subjects.map((subject) => [subject.id, subject]));
@@ -1170,6 +1187,7 @@ function allocateTasksToSlots(options: {
         ...options.lockedBlocks,
         ...scheduledBlocks,
       ],
+      completionLogs: options.completionLogs,
       referenceDate: options.referenceDate,
       subjectDeadlinesById,
       availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
@@ -1520,6 +1538,8 @@ function allocateTasksToSlots(options: {
           hasFocusDemandByDate: {
             [slot.dateKey]: strongFocusDemand,
           },
+          olympiadLoadMultiplier: options.olympiadLoadMultiplier,
+          olympiadWeaknessStrand: options.olympiadWeaknessStrand,
           referenceDate: options.referenceDate,
         });
         const weeklyBalanceAdjustment = task.subjectId
@@ -1982,6 +2002,7 @@ export function generateStudyPlanForWeek(options: {
   goals: Goal[];
   subjects: Subject[];
   topics: Topic[];
+  completionLogs?: CompletionLog[];
   fixedEvents: import("@/lib/types/planner").FixedEvent[];
   sickDays?: SickDay[];
   focusedDays?: FocusedDay[];
@@ -2026,6 +2047,8 @@ export function generateStudyPlanForWeek(options: {
     weekEndDate: addDays(weekStart, 6),
     priorPlannedBlocks: existingPlannedBlocks,
     preferences: options.preferences,
+    fixedEvents: options.fixedEvents,
+    sickDays,
   });
   const requiredHoursBySubject = buildRequiredHoursFromTracks(options.subjects, deadlineTracks);
   const deadlinePaceHoursBySubject = buildDeadlinePaceHoursFromTracks(options.subjects, deadlineTracks);
@@ -2061,6 +2084,7 @@ export function generateStudyPlanForWeek(options: {
       unscheduledTasks: buildTaskCandidates({
         topics: options.topics,
         existingPlannedBlocks,
+        completionLogs: options.completionLogs,
         referenceDate,
         subjectDeadlinesById,
         availabilityOverrideSubjectIds,
@@ -2091,9 +2115,22 @@ export function generateStudyPlanForWeek(options: {
   const fullCoverageTasks = buildTaskCandidates({
     topics: options.topics,
     existingPlannedBlocks,
+    completionLogs: options.completionLogs,
     referenceDate,
     subjectDeadlinesById,
     availabilityOverrideSubjectIds,
+  });
+  const olympiadWeekLoadProfile = getOlympiadWeekLoadProfile({
+    weekStart,
+    fixedEvents: options.fixedEvents,
+    preferences: options.preferences,
+    sickDays,
+  });
+  const olympiadWeaknessProfile = getOlympiadWeaknessProfile({
+    topics: options.topics,
+    studyBlocks: existingPlannedBlocks,
+    completionLogs: options.completionLogs,
+    referenceDate,
   });
   const allocationRequiredHoursBySubject = buildFullCoverageHoursBySubject(
     options.subjects,
@@ -2128,6 +2165,7 @@ export function generateStudyPlanForWeek(options: {
     const tasks = buildTaskCandidates({
       topics: options.topics,
       existingPlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
+      completionLogs: options.completionLogs,
       referenceDate,
       subjectDeadlinesById,
       availabilityOverrideSubjectIds,
@@ -2167,6 +2205,7 @@ export function generateStudyPlanForWeek(options: {
       subjects: options.subjects,
       goals: options.goals,
       topics: options.topics,
+      completionLogs: options.completionLogs,
       preferences: options.preferences,
       lockedBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
       priorPlannedBlocks: existingPlannedBlocks,
@@ -2180,6 +2219,8 @@ export function generateStudyPlanForWeek(options: {
       focusedSubjectsByDate,
       futureFocusedReserveMinutesBySubject: options.futureFocusedReserveMinutesBySubject,
       availabilityOverrideSubjectIds,
+      olympiadLoadMultiplier: olympiadWeekLoadProfile.multiplier,
+      olympiadWeaknessStrand: olympiadWeaknessProfile.activeStrand,
     });
 
     if (!result.scheduledBlocks.length) {
@@ -2205,6 +2246,7 @@ export function generateStudyPlanForWeek(options: {
   const finalTasks = buildTaskCandidates({
     topics: options.topics,
     existingPlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
+    completionLogs: options.completionLogs,
     referenceDate,
     subjectDeadlinesById,
     availabilityOverrideSubjectIds,
@@ -2227,6 +2269,8 @@ export function generateStudyPlanForWeek(options: {
     capacityFreeSlots,
     referenceDate,
     horizonStartDate,
+    fixedEvents: options.fixedEvents,
+    sickDays,
     requiredHoursBySubject,
     deadlinePaceHoursBySubject,
     forcedCoverageMinutes,
@@ -2309,6 +2353,7 @@ export function generateStudyPlanHorizon(options: {
   goals: Goal[];
   subjects: Subject[];
   topics: Topic[];
+  completionLogs?: CompletionLog[];
   fixedEvents: import("@/lib/types/planner").FixedEvent[];
   sickDays?: SickDay[];
   focusedDays?: FocusedDay[];
@@ -2367,6 +2412,7 @@ export function generateStudyPlanHorizon(options: {
       goals: options.goals,
       subjects: options.subjects,
       topics: options.topics,
+      completionLogs: options.completionLogs,
       fixedEvents: options.fixedEvents,
       sickDays: options.sickDays,
       focusedDays: options.focusedDays,
@@ -2382,6 +2428,7 @@ export function generateStudyPlanHorizon(options: {
       currentWeek,
       endWeek: effectiveEndWeek,
       topics: options.topics,
+      completionLogs: options.completionLogs,
       fixedEvents: options.fixedEvents,
       sickDays: options.sickDays,
       focusedDays: options.focusedDays,
@@ -2397,6 +2444,7 @@ export function generateStudyPlanHorizon(options: {
           goals: options.goals,
           subjects: options.subjects,
           topics: options.topics,
+          completionLogs: options.completionLogs,
           fixedEvents: options.fixedEvents,
           sickDays: options.sickDays,
           focusedDays: options.focusedDays,
@@ -2413,6 +2461,7 @@ export function generateStudyPlanHorizon(options: {
       goals: options.goals,
       subjects: options.subjects,
       topics: options.topics,
+      completionLogs: options.completionLogs,
       fixedEvents: options.fixedEvents,
       sickDays: options.sickDays,
       focusedDays: options.focusedDays,

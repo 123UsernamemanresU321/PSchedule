@@ -172,6 +172,9 @@ export interface StudyBlock {
   rescheduleCount: number;
   assignmentLocked: boolean;
   assignmentEditedAt: string | null;
+  followUpKind?: "olympiad-rewrite" | null;
+  followUpSourceStudyBlockId?: string | null;
+  followUpDueAt?: string | null;
 }
 
 export interface CompletionLog {
@@ -355,6 +358,10 @@ export interface TaskCandidate {
   preferredBlockTypes: BlockType[];
   intensity: BlockIntensity;
   kind: "topic" | "review" | "carry_over" | "recovery";
+  olympiadStrand?: "geometry" | "algebra" | "number-theory" | "combinatorics" | null;
+  followUpKind?: "olympiad-rewrite" | null;
+  followUpSourceStudyBlockId?: string | null;
+  followUpDueAt?: string | null;
 }
 
 export interface SchedulerResult {

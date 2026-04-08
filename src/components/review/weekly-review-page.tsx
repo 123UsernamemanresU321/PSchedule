@@ -27,6 +27,11 @@ import {
 } from "@/lib/analytics/metrics";
 import { mainSubjectIds } from "@/lib/constants/planner";
 import { formatWeekRangeLabel, fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
+import {
+  getOlympiadWeekLoadProfile,
+  getOlympiadWeaknessProfile,
+  getPendingOlympiadRewriteObligations,
+} from "@/lib/scheduler/olympiad-performance";
 import { usePlannerStore } from "@/lib/store/planner-store";
 
 export function WeeklyReviewPage() {
@@ -34,8 +39,12 @@ export function WeeklyReviewPage() {
   const goals = usePlannerStore((state) => state.goals);
   const subjects = usePlannerStore((state) => state.subjects);
   const topics = usePlannerStore((state) => state.topics);
+  const fixedEvents = usePlannerStore((state) => state.fixedEvents);
+  const sickDays = usePlannerStore((state) => state.sickDays);
   const studyBlocks = usePlannerStore((state) => state.studyBlocks);
+  const completionLogs = usePlannerStore((state) => state.completionLogs);
   const weeklyPlans = usePlannerStore((state) => state.weeklyPlans);
+  const preferences = usePlannerStore((state) => state.preferences);
   const regenerateHorizon = usePlannerStore((state) => state.regenerateHorizon);
   const setCurrentWeekStart = usePlannerStore((state) => state.setCurrentWeekStart);
 
@@ -71,6 +80,26 @@ export function WeeklyReviewPage() {
         referenceDate: new Date(),
       }),
     );
+  const olympiadLoadProfile = preferences
+    ? getOlympiadWeekLoadProfile({
+        weekStart: visibleWeekStart,
+        fixedEvents,
+        preferences,
+        sickDays,
+      })
+    : null;
+  const olympiadWeaknessProfile = getOlympiadWeaknessProfile({
+    topics,
+    studyBlocks,
+    completionLogs,
+    referenceDate: isViewingCurrentWeek ? new Date() : visibleWeekStart,
+  });
+  const pendingOlympiadRewrites = getPendingOlympiadRewriteObligations({
+    topics,
+    studyBlocks,
+    completionLogs,
+    referenceDate: isViewingCurrentWeek ? new Date() : visibleWeekStart,
+  });
 
   return (
     <div className="space-y-6">
@@ -138,35 +167,102 @@ export function WeeklyReviewPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Carry-over & adjustments</CardTitle>
-            <p className="text-sm text-muted-foreground">Blocks that missed, slipped, or were explicitly rescheduled.</p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {carryOverBlocks.length ? (
-              carryOverBlocks.map((block) => (
-                <div key={block.id} className="rounded-sm border border-white/6 bg-white/4 px-4 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <SubjectBadge
-                      subjectId={block.subjectId}
-                      label={subjects.find((subject) => subject.id === block.subjectId)?.shortName ?? "Recovery"}
-                    />
-                    <Badge variant={block.status === "missed" ? "danger" : "warning"}>{block.status}</Badge>
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Carry-over & adjustments</CardTitle>
+              <p className="text-sm text-muted-foreground">Blocks that missed, slipped, or were explicitly rescheduled.</p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {carryOverBlocks.length ? (
+                carryOverBlocks.map((block) => (
+                  <div key={block.id} className="rounded-sm border border-white/6 bg-white/4 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <SubjectBadge
+                        subjectId={block.subjectId}
+                        label={subjects.find((subject) => subject.id === block.subjectId)?.shortName ?? "Recovery"}
+                      />
+                      <Badge variant={block.status === "missed" ? "danger" : "warning"}>{block.status}</Badge>
+                    </div>
+                    <p className="mt-3 text-base font-medium text-foreground">{block.title}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {block.estimatedMinutes} min • {block.generatedReason}
+                    </p>
                   </div>
-                  <p className="mt-3 text-base font-medium text-foreground">{block.title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {block.estimatedMinutes} min • {block.generatedReason}
-                  </p>
+                ))
+              ) : (
+                <div className="rounded-sm border border-dashed border-white/10 px-4 py-6 text-sm text-muted-foreground">
+                  No carry-over blocks in the active week.
                 </div>
-              ))
-            ) : (
-              <div className="rounded-sm border border-dashed border-white/10 px-4 py-6 text-sm text-muted-foreground">
-                No carry-over blocks in the active week.
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Olympiad performance</CardTitle>
+              <p className="text-sm text-muted-foreground">Load state, active weakness spike, and rewrite obligations driven directly from planner evidence.</p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Badge
+                  variant={
+                    olympiadLoadProfile?.state === "heavy"
+                      ? "warning"
+                      : olympiadLoadProfile?.state === "light"
+                        ? "success"
+                        : "default"
+                  }
+                >
+                  {olympiadLoadProfile ? `Week load: ${olympiadLoadProfile.state}` : "Week load unavailable"}
+                </Badge>
+                <Badge variant={olympiadWeaknessProfile.activeStrand ? "warning" : "muted"}>
+                  {olympiadWeaknessProfile.activeStrand
+                    ? `Weakness spike: ${olympiadWeaknessProfile.activeStrand}`
+                    : "No active weakness spike"}
+                </Badge>
               </div>
-            )}
-          </CardContent>
-        </Card>
+
+              <div className="rounded-sm border border-white/6 bg-white/4 px-4 py-3 text-sm text-muted-foreground">
+                <p>
+                  Active window: {olympiadWeaknessProfile.windowStart} to {olympiadWeaknessProfile.windowEnd}
+                </p>
+                {olympiadLoadProfile ? (
+                  <p className="mt-2">
+                    Free capacity {Math.round(olympiadLoadProfile.freeCapacityMinutes / 60)}h • assessment load{" "}
+                    {Math.round(olympiadLoadProfile.assessmentMinutes / 60)}h
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-foreground">Pending clean-proof rewrites due within 48h</p>
+                {pendingOlympiadRewrites.length ? (
+                  pendingOlympiadRewrites.map((obligation) => (
+                    <div key={obligation.sourceStudyBlockId} className="rounded-sm border border-white/6 bg-white/4 px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <Badge variant="default">Rewrite follow-up</Badge>
+                        <Badge variant={obligation.scheduledBlock ? "success" : "warning"}>
+                          {obligation.scheduledBlock ? "Scheduled" : "Pending slot"}
+                        </Badge>
+                      </div>
+                      <p className="mt-3 text-base font-medium text-foreground">
+                        {obligation.scheduledBlock?.title ?? `Clean proof rewrite: ${obligation.sourceTitle}`}
+                      </p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Due by {new Date(obligation.dueAt).toLocaleString()} • {obligation.durationMinutes} min
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-sm border border-dashed border-white/10 px-4 py-6 text-sm text-muted-foreground">
+                    No Olympiad rewrite obligations due in the next 48 hours.
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       <Card>

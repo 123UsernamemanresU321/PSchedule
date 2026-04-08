@@ -39,6 +39,10 @@ import {
   collectInvalidFutureOlympiadBlockIds,
   getOlympiadNumberTheoryFrontierStatus,
 } from "@/lib/scheduler/olympiad-stage-gates";
+import {
+  getOlympiadWeekLoadProfile,
+  getOlympiadWeaknessProfile,
+} from "@/lib/scheduler/olympiad-performance";
 import { computeSubjectDeadlineTracks } from "@/lib/scheduler/feasibility";
 import {
   buildTaskCandidates,
@@ -5168,4 +5172,305 @@ test("school-term deadline pacing enforces the Olympiad B+ floor while demoting 
 
   assert.ok((tracks.olympiad?.recommendedWeeklyHours ?? 0) >= 10);
   assert.equal(tracks["cpp-book"]?.recommendedWeeklyHours ?? 0, 0);
+});
+
+test("phase 1 retunes Olympiad toward conversion with lighter new-content strand hours", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-07T08:00:00"));
+  const phaseOneTopics = dataset.topics.filter(
+    (topic) =>
+      topic.subjectId === "olympiad" &&
+      topic.availableFrom &&
+      topic.availableFrom >= "2026-04-06" &&
+      topic.availableFrom <= "2026-04-12",
+  );
+  const geometry = phaseOneTopics.find((topic) => topic.id === "olympiad-bplus-geometry-01");
+  const algebra = phaseOneTopics.find((topic) => topic.id === "olympiad-bplus-algebra-01");
+  const numberTheory = phaseOneTopics.find((topic) => topic.id === "olympiad-bplus-number-theory-01");
+  const combinatorics = phaseOneTopics.find((topic) => topic.id === "olympiad-bplus-combinatorics-01");
+  const contest = phaseOneTopics.find((topic) => topic.id === "olympiad-bplus-contest-01");
+
+  assert.equal(geometry?.estHours, 1.75);
+  assert.equal(algebra?.estHours, 1.75);
+  assert.equal(numberTheory?.estHours, 1.25);
+  assert.equal(combinatorics?.estHours, 1.25);
+  assert.equal(contest?.estHours, 2.5);
+});
+
+test("serious Olympiad attempts create a rewrite follow-up candidate within 48 hours", () => {
+  const referenceDate = new Date("2026-04-08T10:35:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const topic = dataset.topics.find((candidate) => candidate.id === "olympiad-bplus-geometry-01");
+
+  assert.ok(topic, "expected seeded phase-1 geometry topic");
+
+  const sourceBlock = createStudyBlock({
+    id: "olympiad-serious-source",
+    subjectId: "olympiad",
+    topicId: topic.id,
+    title: topic.title,
+    unitTitle: topic.unitTitle,
+    blockType: "standard_focus",
+    status: "done",
+    start: "2026-04-08T08:00:00.000Z",
+    end: "2026-04-08T10:00:00.000Z",
+    estimatedMinutes: 120,
+    sourceMaterials: topic.sourceMaterials,
+  });
+  const completionLog = {
+    id: "log-olympiad-serious-source",
+    studyBlockId: sourceBlock.id,
+    outcome: "done" as const,
+    actualMinutes: 120,
+    perceivedDifficulty: 4 as const,
+    notes: "",
+    recordedAt: "2026-04-08T10:30:00.000Z",
+  };
+
+  const candidates = buildTaskCandidates({
+    topics: dataset.topics,
+    existingPlannedBlocks: [sourceBlock],
+    completionLogs: [completionLog],
+    referenceDate,
+    subjectDeadlinesById: { olympiad: "2027-04-06" },
+  });
+  const rewriteCandidate = candidates.find(
+    (candidate) => candidate.followUpSourceStudyBlockId === sourceBlock.id,
+  );
+
+  assert.ok(rewriteCandidate, "expected a clean-proof rewrite candidate");
+  assert.equal(rewriteCandidate?.followUpKind, "olympiad-rewrite");
+  assert.equal(rewriteCandidate?.topicId, null);
+  assert.equal(rewriteCandidate?.availableAt, completionLog.recordedAt);
+  assert.equal(rewriteCandidate?.latestAt, "2026-04-10T10:30:00.000Z");
+});
+
+test("completed rewrite follow-ups satisfy the Olympiad rewrite obligation, but missed attempts do not create one", () => {
+  const referenceDate = new Date("2026-04-08T10:35:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const topic = dataset.topics.find((candidate) => candidate.id === "olympiad-bplus-algebra-01");
+
+  assert.ok(topic, "expected seeded phase-1 algebra topic");
+
+  const sourceBlock = createStudyBlock({
+    id: "olympiad-source-complete",
+    subjectId: "olympiad",
+    topicId: topic.id,
+    title: topic.title,
+    unitTitle: topic.unitTitle,
+    blockType: "standard_focus",
+    status: "done",
+    start: "2026-04-08T08:00:00.000Z",
+    end: "2026-04-08T09:30:00.000Z",
+    estimatedMinutes: 90,
+    sourceMaterials: topic.sourceMaterials,
+  });
+  const rewriteBlock = createStudyBlock({
+    id: "olympiad-rewrite-complete",
+    subjectId: "olympiad",
+    topicId: null,
+    title: `Clean proof rewrite: ${topic.title}`,
+    unitTitle: topic.unitTitle,
+    blockType: "review",
+    status: "done",
+    start: "2026-04-09T08:00:00.000Z",
+    end: "2026-04-09T08:45:00.000Z",
+    estimatedMinutes: 45,
+    followUpKind: "olympiad-rewrite",
+    followUpSourceStudyBlockId: sourceBlock.id,
+    followUpDueAt: "2026-04-10T10:30:00.000Z",
+  });
+  const doneLog = {
+    id: "log-olympiad-source-complete",
+    studyBlockId: sourceBlock.id,
+    outcome: "done" as const,
+    actualMinutes: 90,
+    perceivedDifficulty: 3 as const,
+    notes: "",
+    recordedAt: "2026-04-08T10:30:00.000Z",
+  };
+  const satisfiedCandidates = buildTaskCandidates({
+    topics: dataset.topics,
+    existingPlannedBlocks: [sourceBlock, rewriteBlock],
+    completionLogs: [doneLog],
+    referenceDate,
+    subjectDeadlinesById: { olympiad: "2027-04-06" },
+  });
+
+  assert.equal(
+    satisfiedCandidates.some((candidate) => candidate.followUpSourceStudyBlockId === sourceBlock.id),
+    false,
+  );
+
+  const missedSourceBlock = createStudyBlock({
+    id: "olympiad-source-missed",
+    subjectId: "olympiad",
+    topicId: topic.id,
+    title: topic.title,
+    unitTitle: topic.unitTitle,
+    blockType: "standard_focus",
+    status: "missed",
+    start: "2026-04-08T12:00:00.000Z",
+    end: "2026-04-08T13:30:00.000Z",
+    estimatedMinutes: 90,
+    sourceMaterials: topic.sourceMaterials,
+  });
+  const missedLog = {
+    id: "log-olympiad-source-missed",
+    studyBlockId: missedSourceBlock.id,
+    outcome: "missed" as const,
+    actualMinutes: 0,
+    perceivedDifficulty: 3 as const,
+    notes: "",
+    recordedAt: "2026-04-08T13:31:00.000Z",
+  };
+  const missedCandidates = buildTaskCandidates({
+    topics: dataset.topics,
+    existingPlannedBlocks: [missedSourceBlock],
+    completionLogs: [missedLog],
+    referenceDate,
+    subjectDeadlinesById: { olympiad: "2027-04-06" },
+  });
+
+  assert.equal(
+    missedCandidates.some((candidate) => candidate.followUpSourceStudyBlockId === missedSourceBlock.id),
+    false,
+  );
+});
+
+test("recent poor geometry outcomes drive the active Olympiad weakness spike", () => {
+  const referenceDate = new Date("2026-04-21T10:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const geometryTopic = dataset.topics.find((topic) => topic.id === "olympiad-bplus-geometry-02");
+  const algebraTopic = dataset.topics.find((topic) => topic.id === "olympiad-bplus-algebra-02");
+
+  assert.ok(geometryTopic, "expected seeded geometry topic");
+  assert.ok(algebraTopic, "expected seeded algebra topic");
+
+  const weaknessProfile = getOlympiadWeaknessProfile({
+    topics: dataset.topics.map((topic) =>
+      topic.id === geometryTopic.id
+        ? { ...topic, mastery: 1.2, completedHours: 0.1 }
+        : topic.id === algebraTopic.id
+          ? { ...topic, mastery: 3.8, completedHours: 1.2 }
+          : topic,
+    ),
+    studyBlocks: [
+      createStudyBlock({
+        id: "geometry-partial",
+        subjectId: "olympiad",
+        topicId: geometryTopic.id,
+        title: geometryTopic.title,
+        status: "partial",
+        blockType: "standard_focus",
+        start: "2026-04-15T08:00:00.000Z",
+        end: "2026-04-15T09:30:00.000Z",
+        estimatedMinutes: 90,
+      }),
+      createStudyBlock({
+        id: "geometry-missed",
+        subjectId: "olympiad",
+        topicId: geometryTopic.id,
+        title: geometryTopic.title,
+        status: "missed",
+        blockType: "standard_focus",
+        start: "2026-04-18T08:00:00.000Z",
+        end: "2026-04-18T09:30:00.000Z",
+        estimatedMinutes: 90,
+      }),
+      createStudyBlock({
+        id: "algebra-done",
+        subjectId: "olympiad",
+        topicId: algebraTopic.id,
+        title: algebraTopic.title,
+        status: "done",
+        blockType: "standard_focus",
+        start: "2026-04-16T08:00:00.000Z",
+        end: "2026-04-16T09:30:00.000Z",
+        estimatedMinutes: 90,
+      }),
+    ],
+    referenceDate,
+  });
+
+  assert.equal(weaknessProfile.activeStrand, "geometry");
+});
+
+test("calendar-derived load state softens heavy school weeks and boosts light weeks for Olympiad pacing", () => {
+  const preferences = buildSeedPreferences();
+  const heavyWeekStart = new Date("2026-04-06T00:00:00");
+  const heavyAssessmentEvent = {
+    id: "assessment-marathon",
+    title: "Assessment marathon",
+    start: "2026-04-08T14:00:00.000Z",
+    end: "2026-04-08T19:00:00.000Z",
+    recurrence: "none" as const,
+    flexibility: "fixed" as const,
+    category: "assessment" as const,
+    isAllDay: false,
+  };
+  const heavyProfile = getOlympiadWeekLoadProfile({
+    weekStart: heavyWeekStart,
+    fixedEvents: [heavyAssessmentEvent],
+    preferences,
+    sickDays: [],
+  });
+  const lightProfile = getOlympiadWeekLoadProfile({
+    weekStart: new Date("2026-12-21T00:00:00"),
+    fixedEvents: [],
+    preferences,
+    sickDays: [],
+  });
+  const dataset = buildSeedDataset(new Date("2026-04-07T08:00:00"));
+  const heavyTracks = computeSubjectDeadlineTracks({
+    subjects: dataset.subjects,
+    goals: dataset.goals,
+    topics: dataset.topics,
+    referenceDate: new Date("2026-04-07T08:00:00"),
+    weekStartDate: heavyWeekStart,
+    weekEndDate: new Date("2026-04-12T23:59:59"),
+    preferences,
+    fixedEvents: [heavyAssessmentEvent],
+    sickDays: [],
+  });
+  const lightTracks = computeSubjectDeadlineTracks({
+    subjects: dataset.subjects,
+    goals: dataset.goals,
+    topics: dataset.topics,
+    referenceDate: new Date("2026-12-21T08:00:00"),
+    weekStartDate: new Date("2026-12-21T00:00:00"),
+    weekEndDate: new Date("2026-12-27T23:59:59"),
+    preferences,
+    fixedEvents: [],
+    sickDays: [],
+  });
+
+  assert.equal(heavyProfile.state, "heavy");
+  assert.equal(lightProfile.state, "light");
+  assert.ok((heavyTracks.olympiad?.recommendedWeeklyHours ?? 0) < (lightTracks.olympiad?.recommendedWeeklyHours ?? 0));
+});
+
+test("done on a completed Olympiad rewrite follow-up also bypasses replanning", () => {
+  const rewriteBlock = createStudyBlock({
+    id: "olympiad-rewrite-done-path",
+    subjectId: "olympiad",
+    topicId: null,
+    title: "Clean proof rewrite: Geometry",
+    status: "planned",
+    followUpKind: "olympiad-rewrite",
+    followUpSourceStudyBlockId: "source-1",
+    followUpDueAt: "2026-04-10T10:30:00.000Z",
+  });
+  const nextBlock = {
+    ...rewriteBlock,
+    status: "done" as const,
+    actualMinutes: 45,
+  };
+
+  assert.equal(
+    shouldDoneStatusBypassReplan({
+      previousBlock: rewriteBlock,
+      nextBlock,
+    }),
+    true,
+  );
 });

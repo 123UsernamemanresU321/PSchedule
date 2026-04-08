@@ -5,7 +5,12 @@ import {
   getOlympiadNumberTheoryEligibilityStatus,
   getOlympiadStageGateStatus,
 } from "@/lib/scheduler/olympiad-stage-gates";
-import type { StudyBlock, TaskCandidate, Topic } from "@/lib/types/planner";
+import {
+  buildOlympiadRewriteTitle,
+  getOlympiadRewriteObligations,
+  getOlympiadStrandForTopic,
+} from "@/lib/scheduler/olympiad-performance";
+import type { CompletionLog, StudyBlock, TaskCandidate, Topic } from "@/lib/types/planner";
 
 const MIN_ALLOCATABLE_MINUTES = 30;
 
@@ -119,6 +124,10 @@ function createReviewCandidate(
     preferredBlockTypes: ["review", "recovery"],
     intensity: "light",
     kind: "review",
+    olympiadStrand: getOlympiadStrandForTopic(topic),
+    followUpKind: null,
+    followUpSourceStudyBlockId: null,
+    followUpDueAt: null,
   };
 }
 
@@ -275,6 +284,7 @@ function resolveTopicTimingWindow(
 export function buildTaskCandidates(options: {
   topics: Topic[];
   existingPlannedBlocks?: StudyBlock[];
+  completionLogs?: CompletionLog[];
   referenceDate?: Date;
   subjectDeadlinesById?: Record<string, string>;
   availabilityOverrideSubjectIds?: string[];
@@ -282,6 +292,7 @@ export function buildTaskCandidates(options: {
   const {
     topics,
     existingPlannedBlocks = [],
+    completionLogs = [],
     referenceDate = new Date(),
     subjectDeadlinesById = {},
     availabilityOverrideSubjectIds = [],
@@ -366,7 +377,7 @@ export function buildTaskCandidates(options: {
     {},
   );
 
-  return topics.flatMap<TaskCandidate>((topic) => {
+  const topicCandidates = topics.flatMap<TaskCandidate>((topic) => {
     const timingWindow = resolveTopicTimingWindow(
       topic,
       latestScheduledBlockByTopic,
@@ -430,6 +441,10 @@ export function buildTaskCandidates(options: {
         preferredBlockTypes: topic.preferredBlockTypes,
         intensity: inferIntensity(topic),
         kind: "topic",
+        olympiadStrand: getOlympiadStrandForTopic(topic),
+        followUpKind: null,
+        followUpSourceStudyBlockId: null,
+        followUpDueAt: null,
       });
     }
 
@@ -439,6 +454,49 @@ export function buildTaskCandidates(options: {
 
     return candidates;
   });
+
+  const rewriteCandidates = getOlympiadRewriteObligations({
+    topics,
+    studyBlocks: existingPlannedBlocks,
+    completionLogs,
+  })
+    .filter((obligation) => !obligation.scheduledBlock)
+    .map<TaskCandidate>((obligation) => ({
+      id: `olympiad-rewrite-${obligation.sourceStudyBlockId}`,
+      subjectId: "olympiad",
+      topicId: null,
+      title: buildOlympiadRewriteTitle(obligation.sourceTitle),
+      sessionSummary:
+        "Write one final clean proof version, fix logical gaps, and compress the argument to contest quality within 48 hours.",
+      paperCode: obligation.sourcePaperCode,
+      unitTitle: obligation.sourceUnitTitle,
+      sourceMaterials: obligation.sourceMaterials,
+      remainingMinutes: obligation.durationMinutes,
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      availableAt: obligation.availableAt,
+      latestAt:
+        new Date(obligation.dueAt).getTime() > referenceDate.getTime()
+          ? obligation.dueAt
+          : null,
+      difficulty: 4,
+      mastery: 2,
+      order: Number.MAX_SAFE_INTEGER,
+      blockedByEarlierTopics: 0,
+      reviewDue: obligation.dueAt,
+      deadline: obligation.dueAt,
+      lastStudiedAt: obligation.availableAt,
+      preferredBlockTypes:
+        obligation.durationMinutes > 45 ? ["drill", "review"] : ["review", "drill"],
+      intensity: obligation.durationMinutes > 45 ? "moderate" : "light",
+      kind: "review",
+      olympiadStrand: obligation.strand,
+      followUpKind: "olympiad-rewrite",
+      followUpSourceStudyBlockId: obligation.sourceStudyBlockId,
+      followUpDueAt: obligation.dueAt,
+    }));
+
+  return [...topicCandidates, ...rewriteCandidates];
 }
 
 export function getAssignableTaskCandidatesForBlock(options: {

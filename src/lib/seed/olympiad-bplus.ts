@@ -864,6 +864,12 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
     strandBuilders.forEach((builder) => {
       const plan = getPlanForPhase(builder.plansByPhase as Record<PhaseId, ModulePlan[]>, phase.id, localWeekIndex);
       const topicId = `olympiad-bplus-${builder.key}-${paddedWeekNumber}`;
+      const phaseOneRetunedHours =
+        phase.id === 1
+          ? builder.key === "geometry" || builder.key === "algebra"
+            ? 1.75
+            : 1.25
+          : builder.estHours;
       const blueprint = {
         id: topicId,
         subjectId: "olympiad",
@@ -875,7 +881,7 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
         dependsOnTopicId: previousStrandTopicIds[builder.key] ?? null,
         sequenceGroup: builder.sequenceGroup,
         sequenceStage,
-        estHours: builder.estHours,
+        estHours: phaseOneRetunedHours,
         difficulty: plan.difficulty ?? 4,
         preferredBlockTypes: builder.blockTypes,
         sourceMaterials: createExecutionBundle(plan),
@@ -899,7 +905,7 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
       dependsOnTopicId: previousStrandTopicIds.contest ?? null,
       sequenceGroup: "olympiad-contest",
       sequenceStage,
-      estHours: 1.5,
+      estHours: phase.id === 1 ? 2.5 : 1.5,
       difficulty: contestPlan.difficulty ?? 5,
       preferredBlockTypes: ["standard_focus", "review"],
       sourceMaterials: createExecutionBundle(contestPlan),

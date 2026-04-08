@@ -20,6 +20,8 @@ export interface ScoringContext {
   focusedSubjectTargetMinutesByDate?: Record<string, Record<string, number>>;
   subjectMinutesByDate?: Record<string, Record<string, number>>;
   hasFocusDemandByDate?: Record<string, boolean>;
+  olympiadLoadMultiplier?: number;
+  olympiadWeaknessStrand?: "geometry" | "algebra" | "number-theory" | "combinatorics" | null;
   referenceDate: Date;
 }
 
@@ -83,11 +85,19 @@ export function scoreTaskCandidate(
   const neglectedSubjectBonus = clamp(daysSinceStudy, 0, 8) * 1.1;
   const olympiadSlotBonus =
     task.subjectId === "olympiad"
-      ? slot.energy === "prime"
-        ? 8
-        : slot.energy === "steady"
-          ? 2
-          : -7
+      ? (
+          slot.energy === "prime"
+            ? 8
+            : slot.energy === "steady"
+              ? 2
+              : -7
+        ) +
+        (((context.olympiadLoadMultiplier ?? 1) - 1) * 24) +
+        (task.olympiadStrand &&
+        context.olympiadWeaknessStrand &&
+        task.olympiadStrand === context.olympiadWeaknessStrand
+          ? Math.max(subjectWeight * 24 * 0.3, 0)
+          : 0)
       : 0;
   const focusedSubjectIds = context.focusedSubjectIdsByDate?.[slot.dateKey] ?? [];
   const hasFocusDemand = context.hasFocusDemandByDate?.[slot.dateKey] ?? false;

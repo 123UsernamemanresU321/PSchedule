@@ -8,12 +8,15 @@ import {
   toDateKey,
 } from "@/lib/dates/helpers";
 import { isDateInActiveSchoolTerm } from "@/lib/scheduler/schedule-regime";
+import { getOlympiadWeekLoadProfile } from "@/lib/scheduler/olympiad-performance";
 import { clamp, roundToTenth, sum } from "@/lib/utils";
 import type {
   CalendarSlot,
+  FixedEvent,
   Goal,
   Preferences,
   RiskFlag,
+  SickDay,
   StudyBlock,
   Subject,
   Topic,
@@ -157,6 +160,8 @@ function getSeasonalSubjectMinimumHours(options: {
   referenceDate: Date;
   weekStartDate?: Date;
   preferences?: Preferences;
+  fixedEvents?: FixedEvent[];
+  sickDays?: SickDay[];
 }) {
   const schoolTermWeek = isSchoolTermWeek(options);
 
@@ -164,12 +169,24 @@ function getSeasonalSubjectMinimumHours(options: {
     const latePhaseStart = new Date(`${options.referenceDate.getFullYear()}-09-28T00:00:00`);
     const comparisonDate = options.weekStartDate ?? options.referenceDate;
     const isLatePhase = comparisonDate.getTime() >= latePhaseStart.getTime();
+    const loadProfile =
+      options.preferences && options.weekStartDate
+        ? getOlympiadWeekLoadProfile({
+            weekStart: options.weekStartDate,
+            fixedEvents: options.fixedEvents ?? [],
+            preferences: options.preferences,
+            sickDays: options.sickDays ?? [],
+          })
+        : { multiplier: 1 };
+    const baseMinimum = schoolTermWeek
+      ? isLatePhase
+        ? 12
+        : 10
+      : isLatePhase
+        ? 18
+        : 16;
 
-    if (schoolTermWeek) {
-      return isLatePhase ? 12 : 10;
-    }
-
-    return isLatePhase ? 18 : 16;
+    return roundToTenth(baseMinimum * loadProfile.multiplier);
   }
 
   if (options.subject.id === "cpp-book") {
@@ -189,6 +206,8 @@ export function computeSubjectDeadlineTracks(options: {
   weekEndDate?: Date;
   priorPlannedBlocks?: StudyBlock[];
   preferences?: Preferences;
+  fixedEvents?: FixedEvent[];
+  sickDays?: SickDay[];
 }) {
   const remainingHoursBySubject = computeRemainingHoursBySubject(options.topics);
   const plannedMinutesByTopic = computePlannedMinutesByTopic(options.priorPlannedBlocks);
@@ -281,6 +300,8 @@ export function computeSubjectDeadlineTracks(options: {
       referenceDate: options.referenceDate,
       weekStartDate: options.weekStartDate,
       preferences: options.preferences,
+      fixedEvents: options.fixedEvents,
+      sickDays: options.sickDays,
     });
     const minimumGuidanceHours =
       hasExplicitGoal && subject.examMode !== "maintenance" ? 0 : seasonalMinimumHours;
@@ -362,6 +383,8 @@ export function computeWeeklyRequiredHours(options: {
   priorPlannedBlocks?: StudyBlock[];
   preferences?: Preferences;
   weekStartDate?: Date;
+  fixedEvents?: FixedEvent[];
+  sickDays?: SickDay[];
 }) {
   const deadlineTracks = computeSubjectDeadlineTracks(options);
 
@@ -381,6 +404,8 @@ export function buildWeeklyPlan(options: {
   capacityFreeSlots?: CalendarSlot[];
   referenceDate: Date;
   horizonStartDate?: Date;
+  fixedEvents?: FixedEvent[];
+  sickDays?: SickDay[];
   requiredHoursBySubject?: Record<string, number>;
   deadlinePaceHoursBySubject?: Record<string, number>;
   forcedCoverageMinutes?: number;
@@ -406,6 +431,8 @@ export function buildWeeklyPlan(options: {
     weekEndDate,
     priorPlannedBlocks: options.cumulativePlannedBlocks ?? options.priorPlannedBlocks,
     preferences: options.preferences,
+    fixedEvents: options.fixedEvents,
+    sickDays: options.sickDays,
   });
   const requiredHoursBySubject = {
     ...emptyBySubject,
