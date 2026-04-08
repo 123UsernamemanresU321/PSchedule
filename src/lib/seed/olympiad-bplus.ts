@@ -797,6 +797,17 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
     const unitId = `olympiad-phase-${phase.id}-week-${paddedWeekNumber}`;
     const unitTitle = `Olympiad B+ ${phase.label} - Week ${weekNumber}`;
     const sequenceStage = isLateFoundationPhase(phase.id) ? "foundation" : "advanced";
+    const pushIfWithinPhase = (blueprint: OlympiadSeedTopicBlueprint) => {
+      if (
+        blueprint.availableFrom &&
+        compareDateKeys(blueprint.availableFrom, phase.end) > 0
+      ) {
+        return false;
+      }
+
+      blueprints.push(blueprint);
+      return true;
+    };
 
     const strandBuilders: Array<{
       key: Exclude<StrandKey, "contest" | "assignment">;
@@ -853,7 +864,7 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
     strandBuilders.forEach((builder) => {
       const plan = getPlanForPhase(builder.plansByPhase as Record<PhaseId, ModulePlan[]>, phase.id, localWeekIndex);
       const topicId = `olympiad-bplus-${builder.key}-${paddedWeekNumber}`;
-      blueprints.push({
+      const blueprint = {
         id: topicId,
         subjectId: "olympiad",
         unitId,
@@ -868,13 +879,16 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
         difficulty: plan.difficulty ?? 4,
         preferredBlockTypes: builder.blockTypes,
         sourceMaterials: createExecutionBundle(plan),
-      });
-      previousStrandTopicIds[builder.key] = topicId;
+      } satisfies OlympiadSeedTopicBlueprint;
+
+      if (pushIfWithinPhase(blueprint)) {
+        previousStrandTopicIds[builder.key] = topicId;
+      }
     });
 
     const contestPlan = getPlanForPhase(contestPlansByPhase, phase.id, localWeekIndex);
     const contestTopicId = `olympiad-bplus-contest-${paddedWeekNumber}`;
-    blueprints.push({
+    const contestBlueprint = {
       id: contestTopicId,
       subjectId: "olympiad",
       unitId,
@@ -889,15 +903,18 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
       difficulty: contestPlan.difficulty ?? 5,
       preferredBlockTypes: ["standard_focus", "review"],
       sourceMaterials: createExecutionBundle(contestPlan),
-    });
-    previousStrandTopicIds.contest = contestTopicId;
+    } satisfies OlympiadSeedTopicBlueprint;
+
+    if (pushIfWithinPhase(contestBlueprint)) {
+      previousStrandTopicIds.contest = contestTopicId;
+    }
 
     const mockSpec = getMockSpecification(phase.id, localWeekIndex);
     const mockTopicIds: string[] = [];
 
     if (mockSpec) {
       const mockTopicId = `olympiad-bplus-mock-${paddedWeekNumber}`;
-      blueprints.push({
+      const mockBlueprint = {
         id: mockTopicId,
         subjectId: "olympiad",
         unitId,
@@ -921,15 +938,17 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
           notes("Re-solve target", "Re-solve at least one problem from this sitting within the next 72 hours."),
           pastPaper("Benchmark format", "Use official IMO or shortlist sets whenever possible; the session must feel exam-real."),
         ],
-      });
-      mockTopicIds.push(mockTopicId);
+      } satisfies OlympiadSeedTopicBlueprint;
+
+      if (pushIfWithinPhase(mockBlueprint)) {
+        mockTopicIds.push(mockTopicId);
+      }
     }
 
     if (phase.id === 5 && isFirstWeekOfMonth(weekStart)) {
       const monthlyMockDayOneId = `olympiad-bplus-monthly-mock-${paddedWeekNumber}-day-1`;
       const monthlyMockDayTwoId = `olympiad-bplus-monthly-mock-${paddedWeekNumber}-day-2`;
-      blueprints.push(
-        {
+      const monthlyMockDayOne = {
           id: monthlyMockDayOneId,
           subjectId: "olympiad",
           unitId: `${unitId}-monthly-mock`,
@@ -953,8 +972,8 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
             pastPaper("Benchmark format", "Use an official IMO paper or a shortlist set built to full-paper difficulty."),
             notes("Protocol", "Do not split the sitting or use shortened timing."),
           ],
-        },
-        {
+        } satisfies OlympiadSeedTopicBlueprint;
+      const monthlyMockDayTwo = {
           id: monthlyMockDayTwoId,
           subjectId: "olympiad",
           unitId: `${unitId}-monthly-mock`,
@@ -981,16 +1000,19 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
             pastPaper("Benchmark format", "Keep Day 2 at the same realism level as Day 1."),
             notes("Protocol", "Treat the two days as one combined benchmark, not two unrelated papers."),
           ],
-        },
-      );
-      mockTopicIds.push(monthlyMockDayTwoId);
+        } satisfies OlympiadSeedTopicBlueprint;
+      const keptDayOne = pushIfWithinPhase(monthlyMockDayOne);
+      const keptDayTwo = pushIfWithinPhase(monthlyMockDayTwo);
+
+      if (keptDayOne && keptDayTwo) {
+        mockTopicIds.push(monthlyMockDayTwoId);
+      }
     }
 
     if (phase.id === 6 && localWeekIndex % 2 === 1) {
       const peakMockDayOneId = `olympiad-bplus-selection-mock-${paddedWeekNumber}-day-1`;
       const peakMockDayTwoId = `olympiad-bplus-selection-mock-${paddedWeekNumber}-day-2`;
-      blueprints.push(
-        {
+      const peakMockDayOne = {
           id: peakMockDayOneId,
           subjectId: "olympiad",
           unitId: `${unitId}-selection-mock`,
@@ -1014,8 +1036,8 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
             pastPaper("Benchmark format", "Use an official IMO paper or equivalent shortlist-built mock."),
             notes("Protocol", "This is a benchmark sitting, not a casual long practice block."),
           ],
-        },
-        {
+        } satisfies OlympiadSeedTopicBlueprint;
+      const peakMockDayTwo = {
           id: peakMockDayTwoId,
           subjectId: "olympiad",
           unitId: `${unitId}-selection-mock`,
@@ -1042,14 +1064,18 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
             pastPaper("Benchmark format", "Treat this as the closest simulation to the final selection environment."),
             notes("Protocol", "Do not shorten or split the sitting."),
           ],
-        },
-      );
-      mockTopicIds.push(peakMockDayTwoId);
+        } satisfies OlympiadSeedTopicBlueprint;
+      const keptDayOne = pushIfWithinPhase(peakMockDayOne);
+      const keptDayTwo = pushIfWithinPhase(peakMockDayTwo);
+
+      if (keptDayOne && keptDayTwo) {
+        mockTopicIds.push(peakMockDayTwoId);
+      }
     }
 
     const pairReviewDependencyId = mockTopicIds[mockTopicIds.length - 1];
     if (pairReviewDependencyId) {
-      blueprints.push({
+      const pairReviewBlueprint = {
         id: `olympiad-bplus-pair-review-${paddedWeekNumber}`,
         subjectId: "olympiad",
         unitId: `${unitId}-pair-review`,
@@ -1076,10 +1102,10 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
           pastPaper("Benchmark source", "Use the current week's mock or shortlist problem as the review source."),
           notes("Protocol", "The session exists to sharpen proof quality, not to outsource ideas."),
         ],
-      });
+      } satisfies OlympiadSeedTopicBlueprint;
 
-      if (weekNumber % 2 === 0) {
-        blueprints.push({
+      if (pushIfWithinPhase(pairReviewBlueprint) && weekNumber % 2 === 0) {
+        pushIfWithinPhase({
           id: `olympiad-bplus-group-critique-${paddedWeekNumber}`,
           subjectId: "olympiad",
           unitId: `${unitId}-group-critique`,
@@ -1106,14 +1132,14 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
             pastPaper("Benchmark source", "Use an inversion, FE, NT, or combinatorics problem already attempted solo."),
             notes("Protocol", "The goal is proof quality and communication, not collaborative idea generation."),
           ],
-        });
+        } satisfies OlympiadSeedTopicBlueprint);
       }
     }
 
     const month = weekStart.slice(0, 7);
     if (["2027-01", "2027-02", "2027-03"].includes(month) && isFirstWeekOfMonth(weekStart)) {
       const assignmentTopicId = `olympiad-bplus-assignment-${month}`;
-      blueprints.push({
+      const assignmentBlueprint = {
         id: assignmentTopicId,
         subjectId: "olympiad",
         unitId: `olympiad-assignment-${month}`,
@@ -1138,8 +1164,11 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
           pastPaper("Benchmark source", "Use the month's assignment or the closest selection-style shortlist set."),
           notes("Protocol", "Assignment work must be polished enough to submit, not just sketched."),
         ],
-      });
-      previousStrandTopicIds.assignment = assignmentTopicId;
+      } satisfies OlympiadSeedTopicBlueprint;
+
+      if (pushIfWithinPhase(assignmentBlueprint)) {
+        previousStrandTopicIds.assignment = assignmentTopicId;
+      }
     }
   });
 

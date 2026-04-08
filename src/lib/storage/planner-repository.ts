@@ -32,16 +32,17 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-04-07-olympiad-bplus-v41";
+const PLANNING_MODEL_VERSION = "2026-04-08-coverage-complete-v42";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
-const OLYMPIAD_ROADMAP_VERSION = "2026-04-07-olympiad-bplus-roadmap-v9";
+const OLYMPIAD_ROADMAP_VERSION = "2026-04-08-olympiad-bplus-roadmap-v10";
 const PREFERENCE_DEFAULTS_VERSION = "2026-04-07-priority-defaults-v1";
 const EXTENDED_GOALS_VERSION = "2026-03-19-post-syllabus-papers-v8";
 const LANGUAGE_MAINTENANCE_VERSION = "2026-03-19-languages-v1";
 const SEED_TOPIC_ORDERING_VERSION = "2026-03-19-seed-ordering-v3";
 const LEGACY_OLYMPIAD_DEFAULT_PRIORITY = 0.85;
 const LEGACY_CPP_BOOK_DEFAULT_PRIORITY = 0.45;
+const MIN_HEALTHY_SCHEDULED_COVERAGE_RATIO = 0.999;
 const PLANNING_SYNC_SUBJECT_IDS: SubjectId[] = [
   "physics-hl",
   "maths-aa-hl",
@@ -608,7 +609,10 @@ export function getCollapsedCoverageRepairState(
       const hasCollapsedPartialCoverage =
         progress.remainingHours > 2 &&
         progress.unscheduledHours > 0.25 &&
-        (scheduledCoverageRatio < 0.98 || topicCoverageRatio < 0.98);
+        (
+          scheduledCoverageRatio < MIN_HEALTHY_SCHEDULED_COVERAGE_RATIO ||
+          topicCoverageRatio < MIN_HEALTHY_SCHEDULED_COVERAGE_RATIO
+        );
 
       return {
         subjectId: subject.id,

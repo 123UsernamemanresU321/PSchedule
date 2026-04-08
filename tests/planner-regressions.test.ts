@@ -3717,6 +3717,59 @@ test("collapsed coverage repair also catches a non-Olympiad subject and does not
   assert.equal(recoveredProgress.unscheduledHours, 0);
 });
 
+test("collapsed coverage repair detects smaller but still meaningful missing future coverage", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const base = generateStudyPlanHorizon({
+    startWeek: referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+  });
+  let removedMinutes = 0;
+  const slightlyBrokenStudyBlocks = base.studyBlocks.filter((block) => {
+    if (block.subjectId !== "olympiad" || !block.topicId || removedMinutes >= 5 * 60) {
+      return true;
+    }
+
+    removedMinutes += block.estimatedMinutes;
+    return false;
+  });
+  const repairState = getCollapsedCoverageRepairState(
+    {
+      goals: dataset.goals,
+      subjects: dataset.subjects,
+      topics: dataset.topics,
+      fixedEvents: dataset.fixedEvents,
+      sickDays: dataset.sickDays,
+      focusedDays: dataset.focusedDays,
+      focusedWeeks: dataset.focusedWeeks,
+      studyBlocks: slightlyBrokenStudyBlocks,
+      completionLogs: [],
+      weeklyPlans: base.weeklyPlans,
+      preferences: dataset.preferences,
+    },
+    referenceDate,
+  );
+  const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
+  assert.ok(olympiadSubject, "expected olympiad subject");
+  const brokenProgress = getSubjectProgress(
+    olympiadSubject,
+    dataset.topics,
+    slightlyBrokenStudyBlocks,
+    referenceDate,
+  );
+
+  assert.ok(brokenProgress.unscheduledHours >= 4);
+  assert.equal(repairState.hasCollapsedCoverage, true);
+  assert.ok(repairState.collapsedSubjectIds.includes("olympiad"));
+});
+
 test("excluding homework commitment windows opens extra study capacity before piano is removed", () => {
   const referenceDate = new Date("2026-03-23T08:00:00");
   const seedPreferences = buildSeedPreferences();
@@ -5047,6 +5100,17 @@ test("olympiad B+ goals are scoped to phase topics instead of the full Olympiad 
   );
   assert.ok(lateTopic);
   assert.equal(juneGoal?.topicIds?.includes(lateTopic!.id), false);
+});
+
+test("final Olympiad phase goal covers the full seeded Olympiad roadmap", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-08T08:00:00"));
+  const finalGoal = dataset.goals.find((goal) => goal.id === "goal-olympiad-phase-4");
+  const olympiadTopics = dataset.topics.filter((topic) => topic.subjectId === "olympiad");
+  const finalGoalTopicIds = new Set(finalGoal?.topicIds ?? []);
+  const missingTopics = olympiadTopics.filter((topic) => !finalGoalTopicIds.has(topic.id));
+
+  assert.ok(finalGoal, "expected final olympiad goal");
+  assert.equal(missingTopics.length, 0);
 });
 
 test("olympiad B+ seed keeps geometry, algebra, NT, combinatorics, and contest contact inside a school-term week", () => {
