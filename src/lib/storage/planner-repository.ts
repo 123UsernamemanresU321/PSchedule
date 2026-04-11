@@ -672,6 +672,22 @@ export function buildCollapsedCoverageRepairBaselineStudyBlocks(
   });
 }
 
+export function buildHardConstraintFutureResetBaselineStudyBlocks(
+  studyBlocks: StudyBlock[],
+  referenceDate = new Date(),
+  preservedStudyBlockIds: string[] = [],
+) {
+  const preservedIds = new Set(preservedStudyBlockIds);
+
+  return studyBlocks.filter((block) => {
+    if (preservedIds.has(block.id)) {
+      return true;
+    }
+
+    return new Date(block.end).getTime() <= referenceDate.getTime();
+  });
+}
+
 export async function repairCollapsedCoveragePlanningState(referenceDate = new Date()) {
   await autoMarkExpiredUncompletedStudyBlocks(referenceDate);
   const snapshot = await loadPlannerSnapshot();

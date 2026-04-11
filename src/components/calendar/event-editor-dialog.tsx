@@ -153,6 +153,7 @@ function EventEditorDialogPanel({
 }: Omit<EventEditorDialogProps, "open"> & {
   draft: Exclude<EventEditorDraft, null>;
 }) {
+  const [formError, setFormError] = useState<string | null>(null);
   const [title, setTitle] = useState(draft.mode === "create" ? "" : draft.event.title);
   const [isAllDay, setIsAllDay] = useState(
     draft.mode === "create" ? draft.allDay ?? false : draft.event.isAllDay ?? false,
@@ -210,6 +211,42 @@ function EventEditorDialogPanel({
     draft.event.recurrence === "weekly" &&
     Boolean(selectedOccurrenceDate);
 
+  async function handleSave() {
+    const normalizedRange = isAllDay
+      ? normalizeAllDayRange(start, end)
+      : {
+          start: new Date(start).toISOString(),
+          end:
+            recurrence === "weekly"
+              ? normalizeRecurringEnd(start, end)
+              : new Date(end).toISOString(),
+        };
+
+    try {
+      setFormError(null);
+      await onSave({
+        id: eventId,
+        title,
+        start: normalizedRange.start,
+        end: normalizedRange.end,
+        isAllDay,
+        category,
+        flexibility,
+        recurrence,
+        daysOfWeek: normalizedDaysOfWeek,
+        repeatUntil:
+          recurrence === "weekly"
+            ? repeatUntil || start.slice(0, 10)
+            : undefined,
+        excludedDates:
+          draft.mode === "edit" ? draft.event.excludedDates : undefined,
+        notes,
+      });
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "Failed to save the fixed event.");
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto overscroll-contain">
@@ -226,6 +263,11 @@ function EventEditorDialogPanel({
             </Button>
           </CardHeader>
           <CardContent className="space-y-4">
+            {formError ? (
+              <div className="rounded-sm border border-danger/30 bg-danger/8 px-4 py-3 text-sm text-danger">
+                {formError}
+              </div>
+            ) : null}
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2 md:col-span-2">
                 <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Title</label>
@@ -510,34 +552,7 @@ function EventEditorDialogPanel({
                 <Button
                   data-testid="event-save-button"
                   onClick={() => {
-                    const normalizedRange = isAllDay
-                      ? normalizeAllDayRange(start, end)
-                      : {
-                          start: new Date(start).toISOString(),
-                          end:
-                            recurrence === "weekly"
-                              ? normalizeRecurringEnd(start, end)
-                              : new Date(end).toISOString(),
-                        };
-
-                    void onSave({
-                      id: eventId,
-                      title,
-                      start: normalizedRange.start,
-                      end: normalizedRange.end,
-                      isAllDay,
-                      category,
-                      flexibility,
-                      recurrence,
-                      daysOfWeek: normalizedDaysOfWeek,
-                      repeatUntil:
-                        recurrence === "weekly"
-                          ? repeatUntil || start.slice(0, 10)
-                          : undefined,
-                      excludedDates:
-                        draft.mode === "edit" ? draft.event.excludedDates : undefined,
-                      notes,
-                    });
+                    void handleSave();
                   }}
                 >
                   Save event

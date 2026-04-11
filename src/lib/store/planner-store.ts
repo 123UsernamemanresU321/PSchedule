@@ -3,7 +3,7 @@
 import { create } from "zustand";
 
 import { fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
-import { calculateFreeSlots } from "@/lib/scheduler/free-slots";
+import { calculateFreeSlots, expandFixedEventsForWeek } from "@/lib/scheduler/free-slots";
 import {
   generateStudyPlanHorizon,
   shouldAlwaysPreserveStudyBlockOnRegeneration,
@@ -12,6 +12,7 @@ import { createSlotSlice, selectBlockOption } from "@/lib/scheduler/slot-classif
 import { getAssignableTaskCandidatesForBlock } from "@/lib/scheduler/task-candidates";
 import {
   buildCollapsedCoverageRepairBaselineStudyBlocks,
+  buildHardConstraintFutureResetBaselineStudyBlocks,
   deleteStudyBlocksByIds,
   deleteFixedEventById,
   deleteFocusedDayById as deleteFocusedDayRecordById,
@@ -141,6 +142,7 @@ interface PlannerState {
 async function recalculateCurrentWeek(options?: {
   preservedStudyBlockIds?: string[];
   preserveFlexibleFutureBlocks?: boolean;
+  aggressiveFutureReset?: boolean;
 }) {
   const referenceDate = new Date();
   const planningStartWeek = startOfPlannerWeek(referenceDate);
@@ -158,6 +160,8 @@ async function recalculateCurrentWeek(options?: {
           .map((block) => block.id),
       ]),
     );
+    const shouldAggressivelyResetFuture =
+      repairState.hasCollapsedCoverage || options?.aggressiveFutureReset === true;
     const preserveFlexibleFutureBlocks = repairState.hasCollapsedCoverage
       ? false
       : options?.preserveFlexibleFutureBlocks;
@@ -172,7 +176,13 @@ async function recalculateCurrentWeek(options?: {
       focusedDays: snapshot.focusedDays,
       focusedWeeks: snapshot.focusedWeeks,
       preferences: snapshot.preferences,
-      existingStudyBlocks: repairState.hasCollapsedCoverage
+      existingStudyBlocks: options?.aggressiveFutureReset
+        ? buildHardConstraintFutureResetBaselineStudyBlocks(
+            snapshot.studyBlocks,
+            referenceDate,
+            preservedStudyBlockIds,
+          )
+        : repairState.hasCollapsedCoverage
         ? buildCollapsedCoverageRepairBaselineStudyBlocks(
             snapshot.studyBlocks,
             referenceDate,
@@ -191,7 +201,7 @@ async function recalculateCurrentWeek(options?: {
       {
         preservedStudyBlockIds,
         preserveFlexibleFutureBlocks,
-        aggressiveFutureReset: repairState.hasCollapsedCoverage,
+        aggressiveFutureReset: shouldAggressivelyResetFuture,
       },
     );
   };
@@ -207,6 +217,40 @@ async function recalculateCurrentWeek(options?: {
   nextSnapshot = await repairCollapsedCoveragePlanningState(referenceDate);
   await buildAndReplaceHorizon(nextSnapshot);
   return loadPlannerSnapshot();
+}
+
+function studyBlockOverlapsExpandedFixedEvent(block: StudyBlock, expandedEvent: FixedEvent) {
+  const blockStart = new Date(block.start).getTime();
+  const blockEnd = new Date(block.end).getTime();
+  const eventStart = new Date(expandedEvent.start).getTime();
+  const eventEnd = new Date(expandedEvent.end).getTime();
+  return blockStart < eventEnd && blockEnd > eventStart;
+}
+
+function getActiveStudyBlocksOverlappingFixedEvent(
+  snapshot: Awaited<ReturnType<typeof loadPlannerSnapshot>>,
+  event: FixedEvent,
+  referenceDate: Date,
+) {
+  return snapshot.studyBlocks.filter((block) => {
+    if (!block.subjectId) {
+      return false;
+    }
+
+    if (!["planned", "rescheduled"].includes(block.status)) {
+      return false;
+    }
+
+    if (!isStudyBlockActiveAt(block, referenceDate)) {
+      return false;
+    }
+
+    const weekStart = startOfPlannerWeek(new Date(block.start));
+    const expandedEvents = expandFixedEventsForWeek(weekStart, [event]);
+    return expandedEvents.some((expandedEvent) =>
+      studyBlockOverlapsExpandedFixedEvent(block, expandedEvent),
+    );
+  });
 }
 
 export const usePlannerStore = create<PlannerState>((set, get) => ({
@@ -288,9 +332,24 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
   saveFixedEvent: async (event) => {
+    const referenceDate = new Date();
+    const existingSnapshot = await loadPlannerSnapshot();
+    const overlappingActiveBlocks = getActiveStudyBlocksOverlappingFixedEvent(
+      existingSnapshot,
+      event,
+      referenceDate,
+    );
+
+    if (overlappingActiveBlocks.length) {
+      throw new Error(
+        "That fixed event overlaps a study block already in progress. Finish or mark that block first, then add the fixed event.",
+      );
+    }
+
     await saveFixedEvent(event);
     const snapshot = await recalculateCurrentWeek({
       preserveFlexibleFutureBlocks: false,
+      aggressiveFutureReset: true,
     });
     set({
       ...snapshot,
@@ -343,6 +402,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
     const snapshot = await recalculateCurrentWeek({
       preserveFlexibleFutureBlocks: false,
+      aggressiveFutureReset: true,
     });
     set({
       ...snapshot,
