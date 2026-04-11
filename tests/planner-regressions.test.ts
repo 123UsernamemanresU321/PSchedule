@@ -2187,6 +2187,71 @@ test("done subject-block updates do not get forced into replanning by unrelated 
   );
 });
 
+test("marking a past planned block missed requires a horizon rebuild", () => {
+  const previousBlock = createStudyBlock({
+    id: "updated-block",
+    status: "planned",
+    estimatedMinutes: 90,
+    actualMinutes: null,
+    start: "2026-03-24T14:00:00.000Z",
+    end: "2026-03-24T15:30:00.000Z",
+  });
+
+  assert.equal(
+    shouldRunStatusUpdateReplan({
+      previousBlock,
+      nextBlock: {
+        ...previousBlock,
+        status: "missed",
+        actualMinutes: 0,
+      },
+      studyBlocks: [
+        previousBlock,
+        createStudyBlock({
+          id: "future-planned",
+          status: "planned",
+          start: "2026-03-24T19:00:00.000Z",
+          end: "2026-03-24T20:30:00.000Z",
+        }),
+      ],
+      referenceDate: new Date("2026-03-24T18:00:00.000Z"),
+      hasCollapsedCoverage: false,
+    }),
+    true,
+  );
+});
+
+test("marking a past planned block missed does not preserve that work as fixed future coverage", () => {
+  const referenceDate = new Date("2026-03-24T18:00:00.000Z");
+  const ids = getStatusUpdatePreservedStudyBlockIds({
+    studyBlocks: [
+      createStudyBlock({
+        id: "updated-block",
+        status: "planned",
+        start: "2026-03-24T14:00:00.000Z",
+        end: "2026-03-24T15:30:00.000Z",
+      }),
+      createStudyBlock({
+        id: "future-planned",
+        status: "planned",
+        start: "2026-03-24T19:00:00.000Z",
+        end: "2026-03-24T20:30:00.000Z",
+      }),
+      createStudyBlock({
+        id: "current-active",
+        status: "planned",
+        start: "2026-03-24T17:30:00.000Z",
+        end: "2026-03-24T19:00:00.000Z",
+      }),
+    ],
+    updatedBlockId: "updated-block",
+    nextStatus: "missed",
+    referenceDate,
+  });
+
+  assert.deepEqual(ids, ["current-active"]);
+});
+
 test("partial completions still trigger a horizon rebuild", () => {
   const previousBlock = createStudyBlock({
     status: "planned",
