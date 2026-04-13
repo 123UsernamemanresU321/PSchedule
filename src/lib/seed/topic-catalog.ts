@@ -615,50 +615,22 @@ const physicsTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
   },
 ], "Follow the seeded Physics HL syllabus order strictly before moving to the next topic.");
 
-const MATHS_SL_BOOK_FINISH_TOPIC_ID = "maths-topic5-integration-core";
+const MATHS_SL_BOOK_FINISH_TOPIC_ID = "maths-topic5-aa-integration";
 
-function usesTextbookLabel(blueprint: SeedTopicBlueprint, label: string) {
-  return blueprint.sourceMaterials.some(
-    (material) => material.type === "textbook" && material.label === label,
-  );
-}
-
-function gateMathsHlBookTopicsAfterSlBook(
-  blueprints: SeedTopicBlueprint[],
-): SeedTopicBlueprint[] {
-  return blueprints.map((blueprint) => {
-    if (
-      blueprint.subjectId !== "maths-aa-hl" ||
-      !usesTextbookLabel(blueprint, "Hodder AA HL 2019")
-    ) {
-      return blueprint;
-    }
-
-    return {
-      ...blueprint,
-      dependsOnTopicId: blueprint.dependsOnTopicId ?? MATHS_SL_BOOK_FINISH_TOPIC_ID,
-      notes: blueprint.notes
-        ? `${blueprint.notes} Finish the Hodder AA SL book sequence before starting the HL book for this topic.`
-        : "Finish the Hodder AA SL book sequence before starting the HL book for this topic.",
-    };
-  });
-}
-
-const mathsTopicBlueprints: SeedTopicBlueprint[] = gateMathsHlBookTopicsAfterSlBook(
-  chainTopicSequence([
+const mathsSlBookTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
   {
     id: "maths-topic1-exponents-logs",
     subjectId: "maths-aa-hl",
     unitId: "maths-topic-1",
     unitTitle: "Topic 1 - Number and algebra",
-    title: "Exponents and logarithms",
-    subtopics: ["Laws of exponents", "Scientific notation", "Logarithmic models"],
-    estHours: 5,
+    title: "Core exponents and logarithms",
+    subtopics: ["Laws of exponents", "Scientific notation", "Basic logarithms"],
+    estHours: 3,
     difficulty: 3,
     preferredBlockTypes: ["standard_focus", "drill"],
     sourceMaterials: [
       guide("AA Guide 2021", "Topic 1 foundations in number and algebra."),
-      textbook("Hodder AA SL 2019", "Ch. 1 Core exponents and logarithms; Ch. 12 AA logarithms."),
+      textbook("Hodder AA SL 2019", "Ch. 1 Core exponents and logarithms."),
     ],
   },
   {
@@ -666,75 +638,14 @@ const mathsTopicBlueprints: SeedTopicBlueprint[] = gateMathsHlBookTopicsAfterSlB
     subjectId: "maths-aa-hl",
     unitId: "maths-topic-1",
     unitTitle: "Topic 1 - Number and algebra",
-    title: "Sequences and series",
-    subtopics: ["Arithmetic sequences", "Geometric series", "Binomial links"],
-    estHours: 6,
+    title: "Core sequences and series",
+    subtopics: ["Arithmetic sequences", "Geometric series", "Sigma notation basics"],
+    estHours: 3.5,
     difficulty: 3,
     preferredBlockTypes: ["standard_focus", "review"],
     sourceMaterials: [
       guide("AA Guide 2021", "Topic 1 sequence and series coverage."),
-      textbook("Hodder AA SL 2019", "Ch. 2 Core sequences; Ch. 13 AA sequences and series."),
-    ],
-  },
-  {
-    id: "maths-topic1-counting-binomial",
-    subjectId: "maths-aa-hl",
-    unitId: "maths-topic-1",
-    unitTitle: "Topic 1 - Number and algebra",
-    title: "Counting principles and binomial theorem",
-    subtopics: ["Permutations and combinations", "Binomial coefficients", "Counting strategies"],
-    estHours: 5,
-    difficulty: 4,
-    preferredBlockTypes: ["standard_focus", "drill"],
-    sourceMaterials: [
-      guide("AA Guide 2021", "HL Topic 1 extension."),
-      textbook("Hodder AA HL 2019", "Ch. 1 Counting principles."),
-    ],
-  },
-  {
-    id: "maths-topic1-algebra-partial-fractions",
-    subjectId: "maths-aa-hl",
-    unitId: "maths-topic-1",
-    unitTitle: "Topic 1 - Number and algebra",
-    title: "Algebra, systems, and partial fractions",
-    subtopics: ["Systems of equations", "Partial fractions", "Binomial extension"],
-    estHours: 6,
-    difficulty: 4,
-    preferredBlockTypes: ["deep_work", "standard_focus"],
-    sourceMaterials: [
-      guide("AA Guide 2021", "Topic 1 HL algebraic manipulation."),
-      textbook("Hodder AA HL 2019", "Ch. 2 Algebra."),
-    ],
-  },
-  {
-    id: "maths-topic1-proof",
-    subjectId: "maths-aa-hl",
-    unitId: "maths-topic-1",
-    unitTitle: "Topic 1 - Number and algebra",
-    title: "Mathematical proof",
-    subtopics: ["Structure of proof", "Induction", "Contradiction and counterexample"],
-    estHours: 5,
-    difficulty: 4,
-    preferredBlockTypes: ["deep_work", "standard_focus"],
-    sourceMaterials: [
-      guide("AA Guide 2021", "Proof expectations appear across Topics 1 to 5."),
-      textbook("Hodder AA SL 2019", "Ch. 11 Proof."),
-      textbook("Hodder AA HL 2019", "Ch. 5 Mathematical proof."),
-    ],
-  },
-  {
-    id: "maths-topic1-complex-numbers",
-    subjectId: "maths-aa-hl",
-    unitId: "maths-topic-1",
-    unitTitle: "Topic 1 - Number and algebra",
-    title: "Complex numbers",
-    subtopics: ["Cartesian and polar form", "De Moivre's theorem", "Roots of complex numbers"],
-    estHours: 7,
-    difficulty: 5,
-    preferredBlockTypes: ["deep_work", "standard_focus"],
-    sourceMaterials: [
-      guide("AA Guide 2021", "HL Topic 1 complex-number extension."),
-      textbook("Hodder AA HL 2019", "Ch. 4 Complex numbers."),
+      textbook("Hodder AA SL 2019", "Ch. 2 Core sequences."),
     ],
   },
   {
@@ -749,37 +660,7 @@ const mathsTopicBlueprints: SeedTopicBlueprint[] = gateMathsHlBookTopicsAfterSlB
     preferredBlockTypes: ["standard_focus", "review"],
     sourceMaterials: [
       guide("AA Guide 2021", "Topic 2 function notation and behaviour."),
-      textbook("Hodder AA SL 2019", "Ch. 3 Core functions; Ch. 14 AA functions."),
-    ],
-  },
-  {
-    id: "maths-topic2-graphs-models",
-    subjectId: "maths-aa-hl",
-    unitId: "maths-topic-2",
-    unitTitle: "Topic 2 - Functions",
-    title: "Graphs, transformations, and equation solving",
-    subtopics: ["Transformations", "Rational and exponential models", "Analytical and graphical solutions"],
-    estHours: 7,
-    difficulty: 4,
-    preferredBlockTypes: ["deep_work", "standard_focus"],
-    sourceMaterials: [
-      guide("AA Guide 2021", "Topic 2 graphs and equations."),
-      textbook("Hodder AA SL 2019", "Ch. 16 Graphs; Ch. 17 Equations."),
-    ],
-  },
-  {
-    id: "maths-topic2-polynomials",
-    subjectId: "maths-aa-hl",
-    unitId: "maths-topic-2",
-    unitTitle: "Topic 2 - Functions",
-    title: "Polynomials and rational functions",
-    subtopics: ["Polynomial graphs", "Factor and remainder theorems", "Root relationships"],
-    estHours: 5,
-    difficulty: 4,
-    preferredBlockTypes: ["deep_work", "standard_focus"],
-    sourceMaterials: [
-      guide("AA Guide 2021", "Topic 2 HL polynomial behaviour."),
-      textbook("Hodder AA HL 2019", "Ch. 6 Polynomials; Ch. 7 Functions."),
+      textbook("Hodder AA SL 2019", "Ch. 3 Core functions."),
     ],
   },
   {
@@ -802,15 +683,302 @@ const mathsTopicBlueprints: SeedTopicBlueprint[] = gateMathsHlBookTopicsAfterSlB
     subjectId: "maths-aa-hl",
     unitId: "maths-topic-3",
     unitTitle: "Topic 3 - Geometry and trigonometry",
-    title: "Geometry and trigonometry",
-    subtopics: ["Trigonometric functions", "Identities and equations", "Applications to geometry"],
-    estHours: 6,
+    title: "Core geometry and trigonometry",
+    subtopics: ["Trigonometric ratios", "Identities and equations", "Applications to geometry"],
+    estHours: 2.5,
     difficulty: 4,
     preferredBlockTypes: ["standard_focus", "drill"],
     sourceMaterials: [
       guide("AA Guide 2021", "Topic 3 trigonometry and geometry."),
-      textbook("Hodder AA SL 2019", "Ch. 5 Core geometry and trigonometry; Ch. 18 AA trigonometry."),
+      textbook("Hodder AA SL 2019", "Ch. 5 Core geometry and trigonometry."),
+    ],
+  },
+  {
+    id: "maths-topic4-statistics",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-4",
+    unitTitle: "Topic 4 - Statistics and probability",
+    title: "Core statistics and data representation",
+    subtopics: ["Sampling", "Summary statistics", "Correlation and regression"],
+    estHours: 3,
+    difficulty: 3,
+    preferredBlockTypes: ["standard_focus", "review"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "Topic 4 descriptive statistics."),
+      textbook("Hodder AA SL 2019", "Ch. 6 Statistics."),
+    ],
+  },
+  {
+    id: "maths-topic4-probability-distributions",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-4",
+    unitTitle: "Topic 4 - Statistics and probability",
+    title: "Core probability techniques and distributions",
+    subtopics: ["Conditional probability", "Discrete random variables", "Binomial and normal distributions"],
+    estHours: 6,
+    difficulty: 4,
+    preferredBlockTypes: ["standard_focus", "drill"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "Topic 4 probability foundation."),
+      textbook("Hodder AA SL 2019", "Ch. 7 Probability; Ch. 8 Probability distributions."),
+    ],
+  },
+  {
+    id: "maths-topic5-differentiation-core",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-5",
+    unitTitle: "Topic 5 - Calculus",
+    title: "Core differentiation",
+    subtopics: ["Limits", "Derivative rules", "Tangents and normals"],
+    estHours: 4,
+    difficulty: 4,
+    preferredBlockTypes: ["standard_focus", "drill"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "Topic 5 introductory calculus."),
+      textbook("Hodder AA SL 2019", "Ch. 9 Core differentiation."),
+    ],
+  },
+  {
+    id: "maths-topic5-integration-core",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-5",
+    unitTitle: "Topic 5 - Calculus",
+    title: "Core integration",
+    subtopics: ["Anti-differentiation", "Definite integrals", "Area under curves"],
+    estHours: 3,
+    difficulty: 4,
+    preferredBlockTypes: ["standard_focus", "drill"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "Topic 5 integrals and accumulation."),
+      textbook("Hodder AA SL 2019", "Ch. 10 Core integration."),
+    ],
+  },
+  {
+    id: "maths-topic1-proof",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-1",
+    unitTitle: "Topic 1 - Number and algebra",
+    title: "Mathematical proof",
+    subtopics: ["Structure of proof", "Induction", "Contradiction and counterexample"],
+    estHours: 3,
+    difficulty: 4,
+    preferredBlockTypes: ["deep_work", "standard_focus"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "Proof expectations appear across Topics 1 to 5."),
+      textbook("Hodder AA SL 2019", "Ch. 11 Proof."),
+    ],
+  },
+  {
+    id: "maths-topic1-aa-logarithms",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-1",
+    unitTitle: "Topic 1 - Number and algebra",
+    title: "AA logarithms and modelling",
+    subtopics: ["Logarithmic laws", "Exponential and logarithmic models", "Parameter effects"],
+    estHours: 2,
+    difficulty: 4,
+    preferredBlockTypes: ["standard_focus", "review"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "Topic 1 AA logarithmic modelling."),
+      textbook("Hodder AA SL 2019", "Ch. 12 AA logarithms."),
+    ],
+  },
+  {
+    id: "maths-topic1-aa-sequences-series",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-1",
+    unitTitle: "Topic 1 - Number and algebra",
+    title: "AA sequences and series",
+    subtopics: ["Sigma notation", "Series expansion patterns", "Proof and recurrence links"],
+    estHours: 2.5,
+    difficulty: 4,
+    preferredBlockTypes: ["standard_focus", "review"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "Topic 1 AA sequence and series extension."),
+      textbook("Hodder AA SL 2019", "Ch. 13 AA sequences and series."),
+    ],
+  },
+  {
+    id: "maths-topic2-aa-functions",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-2",
+    unitTitle: "Topic 2 - Functions",
+    title: "AA functions and inverse models",
+    subtopics: ["Domain and range analysis", "Composite functions", "Inverse-function models"],
+    estHours: 2,
+    difficulty: 4,
+    preferredBlockTypes: ["standard_focus", "review"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "Topic 2 AA function extension."),
+      textbook("Hodder AA SL 2019", "Ch. 14 AA functions."),
+    ],
+  },
+  {
+    id: "maths-topic2-graphs-models",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-2",
+    unitTitle: "Topic 2 - Functions",
+    title: "Graphs, transformations, and equation solving",
+    subtopics: ["Transformations", "Rational and exponential models", "Analytical and graphical solutions"],
+    estHours: 6,
+    difficulty: 4,
+    preferredBlockTypes: ["deep_work", "standard_focus"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "Topic 2 graphs and equations."),
+      textbook("Hodder AA SL 2019", "Ch. 16 Graphs; Ch. 17 Equations."),
+    ],
+  },
+  {
+    id: "maths-topic3-aa-trigonometry",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-3",
+    unitTitle: "Topic 3 - Geometry and trigonometry",
+    title: "AA trigonometric modelling",
+    subtopics: ["Further identities", "Circular functions", "Extended equation solving"],
+    estHours: 1.5,
+    difficulty: 4,
+    preferredBlockTypes: ["standard_focus", "drill"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "Topic 3 AA trigonometry extension."),
+      textbook("Hodder AA SL 2019", "Ch. 18 AA trigonometry."),
+    ],
+  },
+  {
+    id: "maths-topic4-aa-statistics",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-4",
+    unitTitle: "Topic 4 - Statistics and probability",
+    title: "AA statistics and regression",
+    subtopics: ["Regression diagnostics", "Interpreting spread", "Data-model comparison"],
+    estHours: 2,
+    difficulty: 4,
+    preferredBlockTypes: ["standard_focus", "review"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "Topic 4 AA statistics extension."),
+      textbook("Hodder AA SL 2019", "Ch. 19 AA statistics."),
+    ],
+  },
+  {
+    id: "maths-topic5-aa-differentiation",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-5",
+    unitTitle: "Topic 5 - Calculus",
+    title: "AA differentiation applications",
+    subtopics: ["Curve sketching", "Optimization", "Related rates"],
+    estHours: 2,
+    difficulty: 4,
+    preferredBlockTypes: ["standard_focus", "drill"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "Topic 5 AA differentiation extension."),
+      textbook("Hodder AA SL 2019", "Ch. 20 AA differentiation."),
+    ],
+  },
+  {
+    id: "maths-topic5-aa-integration",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-5",
+    unitTitle: "Topic 5 - Calculus",
+    title: "AA integration applications",
+    subtopics: ["Area and accumulation", "Differential-model links", "Extended integral applications"],
+    estHours: 2,
+    difficulty: 4,
+    preferredBlockTypes: ["standard_focus", "drill"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "Topic 5 AA integration extension."),
+      textbook("Hodder AA SL 2019", "Ch. 21 AA integration."),
+    ],
+  },
+], "Follow the Hodder AA SL book chapter order strictly before moving to the next chapter.");
+
+const mathsHlBookTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
+  {
+    id: "maths-topic1-counting-binomial",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-1",
+    unitTitle: "Topic 1 - Number and algebra",
+    title: "Counting principles and binomial theorem",
+    subtopics: ["Permutations and combinations", "Binomial coefficients", "Counting strategies"],
+    estHours: 5,
+    difficulty: 4,
+    preferredBlockTypes: ["standard_focus", "drill"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "HL Topic 1 extension."),
+      textbook("Hodder AA HL 2019", "Ch. 1 Counting principles."),
+    ],
+  },
+  {
+    id: "maths-topic1-algebra-partial-fractions",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-1",
+    unitTitle: "Topic 1 - Number and algebra",
+    title: "Algebra, systems, and partial fractions",
+    subtopics: ["Systems of equations", "Partial fractions", "Algebraic manipulation"],
+    estHours: 6,
+    difficulty: 4,
+    preferredBlockTypes: ["deep_work", "standard_focus"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "HL Topic 1 algebraic manipulation."),
+      textbook("Hodder AA HL 2019", "Ch. 2 Algebra."),
+    ],
+  },
+  {
+    id: "maths-topic3-hl-trigonometry-extension",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-3",
+    unitTitle: "Topic 3 - Geometry and trigonometry",
+    title: "HL trigonometric extension",
+    subtopics: ["Advanced identities", "Further trigonometric equations", "Extended geometric applications"],
+    estHours: 2,
+    difficulty: 5,
+    preferredBlockTypes: ["deep_work", "standard_focus"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "HL Topic 3 trigonometric extension."),
       textbook("Hodder AA HL 2019", "Ch. 3 Trigonometry."),
+    ],
+  },
+  {
+    id: "maths-topic1-complex-numbers",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-1",
+    unitTitle: "Topic 1 - Number and algebra",
+    title: "Complex numbers",
+    subtopics: ["Cartesian and polar form", "De Moivre's theorem", "Roots of complex numbers"],
+    estHours: 7,
+    difficulty: 5,
+    preferredBlockTypes: ["deep_work", "standard_focus"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "HL Topic 1 complex-number extension."),
+      textbook("Hodder AA HL 2019", "Ch. 4 Complex numbers."),
+    ],
+  },
+  {
+    id: "maths-topic1-hl-proof-extension",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-1",
+    unitTitle: "Topic 1 - Number and algebra",
+    title: "HL proof extension",
+    subtopics: ["Refining proof structure", "Formal induction", "Proof under exam conditions"],
+    estHours: 2,
+    difficulty: 5,
+    preferredBlockTypes: ["deep_work", "standard_focus"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "HL proof demands across the AA HL course."),
+      textbook("Hodder AA HL 2019", "Ch. 5 Mathematical proof."),
+    ],
+  },
+  {
+    id: "maths-topic2-polynomials",
+    subjectId: "maths-aa-hl",
+    unitId: "maths-topic-2",
+    unitTitle: "Topic 2 - Functions",
+    title: "Polynomials and rational functions",
+    subtopics: ["Polynomial graphs", "Factor and remainder theorems", "Root relationships"],
+    estHours: 5,
+    difficulty: 4,
+    preferredBlockTypes: ["deep_work", "standard_focus"],
+    sourceMaterials: [
+      guide("AA Guide 2021", "Topic 2 HL polynomial behaviour."),
+      textbook("Hodder AA HL 2019", "Ch. 6 Polynomials; Ch. 7 Functions."),
     ],
   },
   {
@@ -829,36 +997,6 @@ const mathsTopicBlueprints: SeedTopicBlueprint[] = gateMathsHlBookTopicsAfterSlB
     ],
   },
   {
-    id: "maths-topic4-statistics",
-    subjectId: "maths-aa-hl",
-    unitId: "maths-topic-4",
-    unitTitle: "Topic 4 - Statistics and probability",
-    title: "Statistics and data representation",
-    subtopics: ["Sampling", "Summary statistics", "Correlation and regression"],
-    estHours: 5,
-    difficulty: 3,
-    preferredBlockTypes: ["standard_focus", "review"],
-    sourceMaterials: [
-      guide("AA Guide 2021", "Topic 4 descriptive statistics."),
-      textbook("Hodder AA SL 2019", "Ch. 6 Statistics; Ch. 19 AA statistics."),
-    ],
-  },
-  {
-    id: "maths-topic4-probability-distributions",
-    subjectId: "maths-aa-hl",
-    unitId: "maths-topic-4",
-    unitTitle: "Topic 4 - Statistics and probability",
-    title: "Probability techniques and distributions",
-    subtopics: ["Conditional probability", "Discrete random variables", "Binomial and normal distributions"],
-    estHours: 6,
-    difficulty: 4,
-    preferredBlockTypes: ["standard_focus", "drill"],
-    sourceMaterials: [
-      guide("AA Guide 2021", "Topic 4 probability foundation."),
-      textbook("Hodder AA SL 2019", "Ch. 7 Probability; Ch. 8 Probability distributions."),
-    ],
-  },
-  {
     id: "maths-topic4-advanced-probability",
     subjectId: "maths-aa-hl",
     unitId: "maths-topic-4",
@@ -871,36 +1009,6 @@ const mathsTopicBlueprints: SeedTopicBlueprint[] = gateMathsHlBookTopicsAfterSlB
     sourceMaterials: [
       guide("AA Guide 2021", "Topic 4 HL probability extension."),
       textbook("Hodder AA HL 2019", "Ch. 9 Probability."),
-    ],
-  },
-  {
-    id: "maths-topic5-differentiation-core",
-    subjectId: "maths-aa-hl",
-    unitId: "maths-topic-5",
-    unitTitle: "Topic 5 - Calculus",
-    title: "Core differentiation",
-    subtopics: ["Limits", "Derivative rules", "Tangents and normals"],
-    estHours: 6,
-    difficulty: 4,
-    preferredBlockTypes: ["standard_focus", "drill"],
-    sourceMaterials: [
-      guide("AA Guide 2021", "Topic 5 introductory calculus."),
-      textbook("Hodder AA SL 2019", "Ch. 9 Core differentiation; Ch. 20 AA differentiation."),
-    ],
-  },
-  {
-    id: "maths-topic5-integration-core",
-    subjectId: "maths-aa-hl",
-    unitId: "maths-topic-5",
-    unitTitle: "Topic 5 - Calculus",
-    title: "Core integration",
-    subtopics: ["Anti-differentiation", "Definite integrals", "Area under curves"],
-    estHours: 5,
-    difficulty: 4,
-    preferredBlockTypes: ["standard_focus", "drill"],
-    sourceMaterials: [
-      guide("AA Guide 2021", "Topic 5 integrals and accumulation."),
-      textbook("Hodder AA SL 2019", "Ch. 10 Core integration; Ch. 21 AA integration."),
     ],
   },
   {
@@ -963,8 +1071,24 @@ const mathsTopicBlueprints: SeedTopicBlueprint[] = gateMathsHlBookTopicsAfterSlB
       textbook("Hodder AA HL 2019", "Ch. 11D-11E Series and differential equations."),
     ],
   },
-  ], "Follow the seeded Maths AA HL syllabus order strictly before moving to the next topic."),
-);
+], "Follow the Hodder AA HL book chapter order strictly after finishing the SL book.");
+
+const mathsTopicBlueprints: SeedTopicBlueprint[] = [
+  ...mathsSlBookTopicBlueprints,
+  ...mathsHlBookTopicBlueprints.map((blueprint, index) => {
+    if (index !== 0) {
+      return blueprint;
+    }
+
+    const bridgeNote =
+      "Finish the full Hodder AA SL book sequence before starting the Hodder AA HL book.";
+    return {
+      ...blueprint,
+      dependsOnTopicId: MATHS_SL_BOOK_FINISH_TOPIC_ID,
+      notes: blueprint.notes ? `${blueprint.notes} ${bridgeNote}` : bridgeNote,
+    };
+  }),
+];
 
 const chemistryTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
   {

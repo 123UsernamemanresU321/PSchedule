@@ -32,14 +32,14 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-04-08-olympiad-performance-v43";
+const PLANNING_MODEL_VERSION = "2026-04-13-maths-book-order-v44";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-08-olympiad-bplus-roadmap-v11";
 const PREFERENCE_DEFAULTS_VERSION = "2026-04-07-priority-defaults-v1";
 const EXTENDED_GOALS_VERSION = "2026-03-19-post-syllabus-papers-v8";
 const LANGUAGE_MAINTENANCE_VERSION = "2026-03-19-languages-v1";
-const SEED_TOPIC_ORDERING_VERSION = "2026-03-19-seed-ordering-v3";
+const SEED_TOPIC_ORDERING_VERSION = "2026-04-13-maths-book-order-v4";
 const LEGACY_OLYMPIAD_DEFAULT_PRIORITY = 0.85;
 const LEGACY_CPP_BOOK_DEFAULT_PRIORITY = 0.45;
 const MIN_HEALTHY_SCHEDULED_COVERAGE_RATIO = 0.999;
@@ -954,6 +954,118 @@ function mergeSeedTopicProgress<T extends PlannerSnapshot["topics"][number]>(
   });
 }
 
+const MATHS_PROGRESS_CARRY_RULES: Array<{
+  sourceId: string;
+  targetIds: string[];
+}> = [
+  {
+    sourceId: "maths-topic1-exponents-logs",
+    targetIds: ["maths-topic1-exponents-logs", "maths-topic1-aa-logarithms"],
+  },
+  {
+    sourceId: "maths-topic1-sequences-series",
+    targetIds: ["maths-topic1-sequences-series", "maths-topic1-aa-sequences-series"],
+  },
+  {
+    sourceId: "maths-topic2-functions-core",
+    targetIds: ["maths-topic2-functions-core", "maths-topic2-aa-functions"],
+  },
+  {
+    sourceId: "maths-topic3-trigonometry",
+    targetIds: [
+      "maths-topic3-trigonometry",
+      "maths-topic3-aa-trigonometry",
+      "maths-topic3-hl-trigonometry-extension",
+    ],
+  },
+  {
+    sourceId: "maths-topic4-statistics",
+    targetIds: ["maths-topic4-statistics", "maths-topic4-aa-statistics"],
+  },
+  {
+    sourceId: "maths-topic5-differentiation-core",
+    targetIds: ["maths-topic5-differentiation-core", "maths-topic5-aa-differentiation"],
+  },
+  {
+    sourceId: "maths-topic5-integration-core",
+    targetIds: ["maths-topic5-integration-core", "maths-topic5-aa-integration"],
+  },
+  {
+    sourceId: "maths-topic1-proof",
+    targetIds: ["maths-topic1-proof", "maths-topic1-hl-proof-extension"],
+  },
+];
+
+function buildMigratedMathsTopics(options: {
+  seededTopics: PlannerSnapshot["topics"];
+  existingTopics: PlannerSnapshot["topics"];
+}) {
+  const seededTopicsById = new Map(options.seededTopics.map((topic) => [topic.id, topic]));
+  const existingTopicsById = new Map(options.existingTopics.map((topic) => [topic.id, topic]));
+  const assignedCompletedHours = new Map<string, number>();
+  const assignedMastery = new Map<string, number>();
+  const assignedReviewDue = new Map<string, string | null>();
+  const assignedLastStudiedAt = new Map<string, string | null>();
+  const assignedNotes = new Map<string, string | undefined>();
+  const coveredSourceIds = new Set<string>();
+
+  MATHS_PROGRESS_CARRY_RULES.forEach((rule) => {
+    const sourceTopic = existingTopicsById.get(rule.sourceId);
+    const hasMaterializedSplitTargets = rule.targetIds
+      .slice(1)
+      .some((targetId) => existingTopicsById.has(targetId));
+
+    if (!sourceTopic || hasMaterializedSplitTargets) {
+      return;
+    }
+
+    coveredSourceIds.add(rule.sourceId);
+    let remainingCompletedHours = Math.max(sourceTopic.completedHours, 0);
+
+    rule.targetIds.forEach((targetId, index) => {
+      const seededTopic = seededTopicsById.get(targetId);
+      if (!seededTopic) {
+        return;
+      }
+
+      const allocatedHours = Math.min(seededTopic.estHours, remainingCompletedHours);
+      remainingCompletedHours = Math.max(0, remainingCompletedHours - allocatedHours);
+      assignedCompletedHours.set(targetId, allocatedHours);
+      assignedMastery.set(
+        targetId,
+        allocatedHours >= seededTopic.estHours - 0.001
+          ? Math.max(sourceTopic.mastery, 4)
+          : allocatedHours > 0
+            ? Math.max(sourceTopic.mastery, 3)
+            : seededTopic.mastery,
+      );
+      assignedReviewDue.set(targetId, index === 0 ? sourceTopic.reviewDue : null);
+      assignedLastStudiedAt.set(targetId, allocatedHours > 0 ? sourceTopic.lastStudiedAt : null);
+      assignedNotes.set(targetId, index === 0 ? sourceTopic.notes ?? seededTopic.notes : seededTopic.notes);
+    });
+  });
+
+  return options.seededTopics.map((seededTopic) => {
+    if (assignedCompletedHours.has(seededTopic.id)) {
+      return normalizeTopicProgress({
+        ...seededTopic,
+        completedHours: assignedCompletedHours.get(seededTopic.id) ?? 0,
+        mastery: assignedMastery.get(seededTopic.id) ?? seededTopic.mastery,
+        reviewDue: assignedReviewDue.get(seededTopic.id) ?? null,
+        lastStudiedAt: assignedLastStudiedAt.get(seededTopic.id) ?? null,
+        notes: assignedNotes.get(seededTopic.id) ?? seededTopic.notes,
+      });
+    }
+
+    const existingTopic = existingTopicsById.get(seededTopic.id);
+    if (existingTopic && !coveredSourceIds.has(existingTopic.id)) {
+      return mergeSeedTopicProgress(seededTopic, existingTopic);
+    }
+
+    return normalizeTopicProgress(seededTopic);
+  });
+}
+
 type OlympiadMigrationBucket =
   | "geometry"
   | "algebra"
@@ -1071,7 +1183,6 @@ function buildMigratedOlympiadTopics(options: {
 
 async function syncPlanningSubjectsToCurrentSeed(snapshot: PlannerSnapshot, referenceDate: Date) {
   const seedDataset = buildSeedDataset(referenceDate);
-  const existingTopicsById = new Map(snapshot.topics.map((topic) => [topic.id, topic]));
   const seededSubjects = seedDataset.subjects.filter((subject) =>
     PLANNING_SYNC_SUBJECT_IDS.includes(subject.id),
   );
@@ -1083,12 +1194,24 @@ async function syncPlanningSubjectsToCurrentSeed(snapshot: PlannerSnapshot, refe
     PLANNING_SYNC_SUBJECT_IDS.includes(topic.subjectId as SubjectId),
   );
   const seededTopicIds = new Set(seededTopics.map((topic) => topic.id));
-  const mergedTopics = seededTopics.map((seededTopic) =>
-    mergeSeedTopicProgress(
+  const existingMathsTopics = snapshot.topics.filter((topic) => topic.subjectId === "maths-aa-hl");
+  const mergedMathsTopicsById = new Map(
+    buildMigratedMathsTopics({
+      seededTopics: seededTopics.filter((topic) => topic.subjectId === "maths-aa-hl"),
+      existingTopics: existingMathsTopics,
+    }).map((topic) => [topic.id, topic]),
+  );
+  const existingTopicsById = new Map(snapshot.topics.map((topic) => [topic.id, topic]));
+  const mergedTopics = seededTopics.map((seededTopic) => {
+    if (seededTopic.subjectId === "maths-aa-hl") {
+      return mergedMathsTopicsById.get(seededTopic.id) ?? normalizeTopicProgress(seededTopic);
+    }
+
+    return mergeSeedTopicProgress(
       seededTopic,
       existingTopicsById.get(seededTopic.id),
-    ),
-  );
+    );
+  });
   const obsoleteGoalIds = snapshot.goals
     .filter((goal) => PLANNING_SYNC_SUBJECT_IDS.includes(goal.subjectId as SubjectId))
     .filter((goal) => !seededGoalIds.has(goal.id))

@@ -192,11 +192,11 @@ test("dedicated past-paper review topics do not spawn extra review-of-review can
 test("maths topics stay hard-gated in seeded order", () => {
   const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
   const hlBookTopic = dataset.topics.find(
-    (topic) => topic.id === "maths-topic1-complex-numbers",
+    (topic) => topic.id === "maths-topic1-counting-binomial",
   );
 
   assert.ok(hlBookTopic, "expected a seeded HL-book maths topic");
-  assert.equal(hlBookTopic.dependsOnTopicId, "maths-topic1-proof");
+  assert.equal(hlBookTopic.dependsOnTopicId, "maths-topic5-aa-integration");
 
   const blockedCandidates = buildTaskCandidates({
     topics: [hlBookTopic as Topic],
@@ -210,8 +210,8 @@ test("maths topics stay hard-gated in seeded order", () => {
   const slBoundaryBlock = createStudyBlock({
     id: "proof-boundary",
     subjectId: "maths-aa-hl",
-    topicId: "maths-topic1-proof",
-    title: "Mathematical proof",
+    topicId: "maths-topic5-aa-integration",
+    title: "AA integration applications",
     start: "2026-06-01T08:00:00.000Z",
     end: "2026-06-01T09:30:00.000Z",
     estimatedMinutes: 300,
@@ -225,7 +225,7 @@ test("maths topics stay hard-gated in seeded order", () => {
   });
 
   assert.equal(unlockedCandidates.length, 1);
-  assert.equal(unlockedCandidates[0]?.topicId, "maths-topic1-complex-numbers");
+  assert.equal(unlockedCandidates[0]?.topicId, "maths-topic1-counting-binomial");
 });
 
 test("physics topics are hard-gated in seeded syllabus order", () => {
@@ -248,6 +248,10 @@ test("maths, chemistry, olympiad, and c++ also follow seeded prerequisite order"
   assert.equal(
     dataset.topics.find((topic) => topic.id === "maths-topic1-sequences-series")?.dependsOnTopicId,
     "maths-topic1-exponents-logs",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "maths-topic1-aa-logarithms")?.dependsOnTopicId,
+    "maths-topic1-proof",
   );
   assert.equal(
     dataset.topics.find((topic) => topic.id === "chem-structure-1-2-nuclear-atom")?.dependsOnTopicId,
