@@ -1,4 +1,4 @@
-import { differenceInCalendarDays, isSameDay } from "date-fns";
+import { differenceInCalendarDays, endOfDay, isSameDay } from "date-fns";
 
 import { mainSubjectIds } from "@/lib/constants/planner";
 import {
@@ -331,6 +331,9 @@ export function getCalendarCompletionForecast(options: {
     completedHours + assumedCompletedHoursBeforeReference,
   );
   const remainingTargetHours = Math.max(targetHours - effectiveCompletedHours, 0);
+  const deadline = finalGoal?.deadline ?? options.subject.deadline;
+  const milestoneDeadline = activeGoal?.deadline ?? deadline;
+  const deadlineCutoff = endOfDay(fromDateKey(deadline));
   const futureBlocks = options.studyBlocks
     .filter(
       (block) =>
@@ -340,28 +343,39 @@ export function getCalendarCompletionForecast(options: {
     .filter((block) => !["missed"].includes(block.status))
     .filter((block) => new Date(block.end) >= referenceDate)
     .sort((left, right) => new Date(left.end).getTime() - new Date(right.end).getTime());
-  const lastScheduledDate = futureBlocks.length
-    ? new Date(futureBlocks[futureBlocks.length - 1].end)
-    : null;
+  const futureBlocksToDeadline = futureBlocks.filter(
+    (block) => new Date(block.end).getTime() <= deadlineCutoff.getTime(),
+  );
 
-  let scheduledHours = 0;
-  let completionDate: Date | null = remainingTargetHours <= 0 ? referenceDate : null;
+  const getCoverageSnapshot = (candidateBlocks: StudyBlock[]) => {
+    let scheduledHours = 0;
+    let completionDate: Date | null = remainingTargetHours <= 0 ? referenceDate : null;
 
-  futureBlocks.forEach((block) => {
-    if (completionDate) {
-      return;
-    }
+    candidateBlocks.forEach((block) => {
+      if (completionDate) {
+        return;
+      }
 
-    scheduledHours += (block.actualMinutes ?? block.estimatedMinutes) / 60;
-    if (effectiveCompletedHours + scheduledHours >= targetHours) {
-      completionDate = new Date(block.end);
-    }
-  });
+      scheduledHours += (block.actualMinutes ?? block.estimatedMinutes) / 60;
+      if (effectiveCompletedHours + scheduledHours >= targetHours) {
+        completionDate = new Date(block.end);
+      }
+    });
 
-  const scheduledHoursToHorizon = Number(Math.min(scheduledHours, remainingTargetHours).toFixed(1));
-  const missingHours = Number(Math.max(remainingTargetHours - scheduledHours, 0).toFixed(1));
-  const deadline = finalGoal?.deadline ?? options.subject.deadline;
-  const milestoneDeadline = activeGoal?.deadline ?? deadline;
+    return {
+      completionDate,
+      scheduledHours: Number(Math.min(scheduledHours, remainingTargetHours).toFixed(1)),
+      lastScheduledDate: candidateBlocks.length
+        ? new Date(candidateBlocks[candidateBlocks.length - 1].end)
+        : null,
+    };
+  };
+
+  const deadlineCoverage = getCoverageSnapshot(futureBlocksToDeadline);
+  const horizonCoverage = getCoverageSnapshot(futureBlocks);
+  const scheduledHoursToDeadline = deadlineCoverage.scheduledHours;
+  const scheduledHoursToHorizon = horizonCoverage.scheduledHours;
+  const missingHours = Number(Math.max(remainingTargetHours - scheduledHoursToDeadline, 0).toFixed(1));
   const deadlineWeekStart = toDateKey(startOfPlannerWeek(new Date(deadline)));
   const currentWeekStart = toDateKey(startOfPlannerWeek(referenceDate));
   const relevantWeeklyPlans = (options.weeklyPlans ?? [])
@@ -387,16 +401,20 @@ export function getCalendarCompletionForecast(options: {
     targetHours: Number(targetHours.toFixed(1)),
     completedHours: Number(effectiveCompletedHours.toFixed(1)),
     remainingTargetHours: Number(remainingTargetHours.toFixed(1)),
+    scheduledHoursToDeadline,
     scheduledHoursToHorizon,
     missingHours,
-    lastScheduledDate,
-    completionDate,
+    lastScheduledDate: deadlineCoverage.lastScheduledDate,
+    completionDate: deadlineCoverage.completionDate,
+    horizonCompletionDate: horizonCoverage.completionDate,
     isCalendarImpossible,
     needsMoreBlocks,
     hasUnusedCapacityBeforeDeadline,
-    isFullyScheduled: !!completionDate,
+    isFullyScheduled: !!deadlineCoverage.completionDate,
+    isFullyScheduledOnHorizon: !!horizonCoverage.completionDate,
     isOnTrack:
-      !!completionDate && completionDate.getTime() <= new Date(deadline).getTime(),
+      !!deadlineCoverage.completionDate &&
+      deadlineCoverage.completionDate.getTime() <= deadlineCutoff.getTime(),
   };
 }
 

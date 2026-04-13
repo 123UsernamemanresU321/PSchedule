@@ -291,57 +291,66 @@ export function WeeklyReviewPage() {
           ) : null}
 
           <div className="grid gap-4 xl:grid-cols-4 md:grid-cols-2">
-            {completionForecasts.map((forecast) => (
-              <div key={forecast.subject.id} className="rounded-sm border border-white/6 bg-white/4 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <SubjectBadge subjectId={forecast.subject.id} label={forecast.subject.shortName} />
-                  <Badge
-                    variant={
-                      forecast.isCalendarImpossible
-                        ? "danger"
+            {completionForecasts.map((forecast) => {
+              const projectedCompletionDate =
+                forecast.completionDate ?? forecast.horizonCompletionDate;
+
+              return (
+                <div key={forecast.subject.id} className="rounded-sm border border-white/6 bg-white/4 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <SubjectBadge subjectId={forecast.subject.id} label={forecast.subject.shortName} />
+                    <Badge
+                      variant={
+                        forecast.isCalendarImpossible
+                          ? "danger"
+                          : forecast.isOnTrack
+                            ? "success"
+                            : "warning"
+                      }
+                    >
+                      {forecast.isCalendarImpossible
+                        ? "Impossible"
                         : forecast.isOnTrack
-                          ? "success"
-                          : "warning"
-                    }
-                  >
-                    {forecast.isCalendarImpossible
-                      ? "Impossible"
-                      : forecast.isOnTrack
-                        ? "On calendar"
-                        : forecast.needsMoreBlocks
-                          ? "Needs more blocks"
-                          : "Past deadline"}
-                  </Badge>
-                </div>
-                <p className="mt-4 text-sm text-muted-foreground">Projected completion</p>
-                <p className="mt-2 text-2xl font-semibold text-foreground">
-                  {forecast.completionDate
-                    ? forecast.completionDate.toLocaleDateString()
-                    : forecast.isCalendarImpossible
-                      ? "Calendar impossible"
-                      : "Still extending"}
-                </p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Final goal by {forecast.deadline}
-                </p>
-                {forecast.milestoneDeadline !== forecast.deadline ? (
-                  <p className="mt-1 text-xs text-muted-foreground/85">
-                    Current milestone by {forecast.milestoneDeadline}
-                  </p>
-                ) : null}
-                <p className="mt-3 text-sm text-muted-foreground">
-                  {forecast.isFullyScheduled
-                    ? `${forecast.remainingTargetHours.toFixed(1)}h remaining is already covered on the calendar.`
-                    : forecast.lastScheduledDate
-                      ? forecast.isCalendarImpossible
-                        ? `${forecast.missingHours.toFixed(1)}h still missing after ${forecast.lastScheduledDate.toLocaleDateString()}.`
-                        : `${forecast.missingHours.toFixed(1)}h still needs scheduling after ${forecast.lastScheduledDate.toLocaleDateString()}.`
+                          ? "On calendar"
+                          : forecast.horizonCompletionDate
+                            ? "Past deadline"
+                            : forecast.needsMoreBlocks
+                              ? "Needs more blocks"
+                              : "Past deadline"}
+                    </Badge>
+                  </div>
+                  <p className="mt-4 text-sm text-muted-foreground">Projected completion</p>
+                  <p className="mt-2 text-2xl font-semibold text-foreground">
+                    {projectedCompletionDate
+                      ? projectedCompletionDate.toLocaleDateString()
                       : forecast.isCalendarImpossible
-                        ? `${forecast.missingHours.toFixed(1)}h still missing because there are no future blocks yet.`
-                        : `${forecast.missingHours.toFixed(1)}h still needs more blocks before the deadline.`}
-                </p>
-              </div>
-            ))}
+                        ? "Calendar impossible"
+                        : "Still extending"}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Final goal by {forecast.deadline}
+                  </p>
+                  {forecast.milestoneDeadline !== forecast.deadline ? (
+                    <p className="mt-1 text-xs text-muted-foreground/85">
+                      Current milestone by {forecast.milestoneDeadline}
+                    </p>
+                  ) : null}
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    {forecast.isFullyScheduled
+                      ? `${forecast.remainingTargetHours.toFixed(1)}h remaining is already covered before the deadline.`
+                      : forecast.horizonCompletionDate
+                        ? `All ${forecast.remainingTargetHours.toFixed(1)}h are on the horizon, but completion lands after ${fromDateKey(forecast.deadline).toLocaleDateString()}.`
+                        : forecast.lastScheduledDate
+                          ? forecast.isCalendarImpossible
+                            ? `${forecast.missingHours.toFixed(1)}h still missing after ${forecast.lastScheduledDate.toLocaleDateString()}.`
+                            : `${forecast.missingHours.toFixed(1)}h still needs scheduling after ${forecast.lastScheduledDate.toLocaleDateString()}.`
+                          : forecast.isCalendarImpossible
+                            ? `${forecast.missingHours.toFixed(1)}h still missing because there are no future blocks yet.`
+                            : `${forecast.missingHours.toFixed(1)}h still needs more blocks before the deadline.`}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </CardContent>
       </Card>

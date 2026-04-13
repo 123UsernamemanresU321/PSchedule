@@ -31,6 +31,7 @@ import {
   getWeeklyPlan,
 } from "@/lib/analytics/metrics";
 import { mainSubjectIds } from "@/lib/constants/planner";
+import { fromDateKey } from "@/lib/dates/helpers";
 import { usePlannerStore } from "@/lib/store/planner-store";
 
 export function DashboardPage() {
@@ -149,57 +150,66 @@ export function DashboardPage() {
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 xl:grid-cols-5 md:grid-cols-2">
-            {completionForecasts.map((forecast) => (
-              <div key={forecast.subject.id} className="rounded-sm border border-white/6 bg-white/4 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <SubjectBadge subjectId={forecast.subject.id} label={forecast.subject.shortName} />
-                  <Badge
-                    variant={
-                      forecast.isCalendarImpossible
-                        ? "danger"
+            {completionForecasts.map((forecast) => {
+              const projectedCompletionDate =
+                forecast.completionDate ?? forecast.horizonCompletionDate;
+
+              return (
+                <div key={forecast.subject.id} className="rounded-sm border border-white/6 bg-white/4 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <SubjectBadge subjectId={forecast.subject.id} label={forecast.subject.shortName} />
+                    <Badge
+                      variant={
+                        forecast.isCalendarImpossible
+                          ? "danger"
+                          : forecast.isOnTrack
+                            ? "success"
+                            : "warning"
+                      }
+                    >
+                      {forecast.isCalendarImpossible
+                        ? "Impossible"
                         : forecast.isOnTrack
-                          ? "success"
-                          : "warning"
-                    }
-                  >
-                    {forecast.isCalendarImpossible
-                      ? "Impossible"
-                      : forecast.isOnTrack
-                        ? "On calendar"
-                        : forecast.needsMoreBlocks
-                          ? "Needs more blocks"
-                          : "Past deadline"}
-                  </Badge>
-                </div>
-                <p className="mt-4 text-sm text-muted-foreground">Projected finish</p>
-                <p className="mt-2 text-2xl font-semibold text-foreground">
-                  {forecast.completionDate
-                    ? format(forecast.completionDate, "d MMM yyyy")
-                    : forecast.isCalendarImpossible
-                      ? "Calendar impossible"
-                      : "Still extending"}
-                </p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Final goal by {forecast.deadline}
-                </p>
-                {forecast.milestoneDeadline !== forecast.deadline ? (
-                  <p className="mt-1 text-xs text-muted-foreground/85">
-                    Current milestone by {forecast.milestoneDeadline}
-                  </p>
-                ) : null}
-                <p className="mt-4 text-sm text-muted-foreground">
-                  {forecast.isFullyScheduled
-                    ? `${forecast.remainingTargetHours.toFixed(1)}h remaining is already covered on the horizon.`
-                    : forecast.lastScheduledDate
-                      ? forecast.isCalendarImpossible
-                        ? `${forecast.missingHours.toFixed(1)}h still missing after ${format(forecast.lastScheduledDate, "d MMM")}.`
-                        : `${forecast.missingHours.toFixed(1)}h still needs scheduling after ${format(forecast.lastScheduledDate, "d MMM")}.`
+                          ? "On calendar"
+                          : forecast.horizonCompletionDate
+                            ? "Past deadline"
+                            : forecast.needsMoreBlocks
+                              ? "Needs more blocks"
+                              : "Past deadline"}
+                    </Badge>
+                  </div>
+                  <p className="mt-4 text-sm text-muted-foreground">Projected finish</p>
+                  <p className="mt-2 text-2xl font-semibold text-foreground">
+                    {projectedCompletionDate
+                      ? format(projectedCompletionDate, "d MMM yyyy")
                       : forecast.isCalendarImpossible
-                        ? `${forecast.missingHours.toFixed(1)}h still missing because the horizon has no usable coverage left.`
-                        : `${forecast.missingHours.toFixed(1)}h still needs more blocks before the deadline.`}
-                </p>
-              </div>
-            ))}
+                        ? "Calendar impossible"
+                        : "Still extending"}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Final goal by {forecast.deadline}
+                  </p>
+                  {forecast.milestoneDeadline !== forecast.deadline ? (
+                    <p className="mt-1 text-xs text-muted-foreground/85">
+                      Current milestone by {forecast.milestoneDeadline}
+                    </p>
+                  ) : null}
+                  <p className="mt-4 text-sm text-muted-foreground">
+                    {forecast.isFullyScheduled
+                      ? `${forecast.remainingTargetHours.toFixed(1)}h remaining is already covered before the deadline.`
+                      : forecast.horizonCompletionDate
+                        ? `All ${forecast.remainingTargetHours.toFixed(1)}h are on the horizon, but completion lands after ${format(fromDateKey(forecast.deadline), "d MMM")}.`
+                        : forecast.lastScheduledDate
+                          ? forecast.isCalendarImpossible
+                            ? `${forecast.missingHours.toFixed(1)}h still missing after ${format(forecast.lastScheduledDate, "d MMM")}.`
+                            : `${forecast.missingHours.toFixed(1)}h still needs scheduling after ${format(forecast.lastScheduledDate, "d MMM")}.`
+                          : forecast.isCalendarImpossible
+                            ? `${forecast.missingHours.toFixed(1)}h still missing because the horizon has no usable coverage left.`
+                            : `${forecast.missingHours.toFixed(1)}h still needs more blocks before the deadline.`}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </CardContent>
       </Card>

@@ -360,6 +360,110 @@ test("calendar completion forecast distinguishes impossible from simply underpla
   assert.equal(impossibleForecast.isCalendarImpossible, true);
 });
 
+test("calendar completion forecast treats after-deadline coverage as past-deadline, not on-track", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-13T08:00:00"));
+  const subject = dataset.subjects.find((candidate) => candidate.id === "physics-hl");
+  const topic = dataset.topics.find((candidate) => candidate.subjectId === "physics-hl");
+
+  assert.ok(subject, "expected physics subject");
+  assert.ok(topic, "expected physics topic");
+
+  const scopedTopic = {
+    ...topic,
+    estHours: 4,
+    completedHours: 0,
+  };
+  const goal = {
+    id: "physics-short-goal",
+    title: "Physics short goal",
+    subjectId: "physics-hl" as const,
+    deadline: "2026-03-20",
+    targetCompletion: 1,
+    priorityWeight: 1,
+    topicIds: [scopedTopic.id],
+  };
+
+  const forecast = getCalendarCompletionForecast({
+    subject,
+    topics: [scopedTopic],
+    goals: [goal],
+    studyBlocks: [
+      createStudyBlock({
+        id: "physics-before-deadline",
+        subjectId: "physics-hl",
+        topicId: scopedTopic.id,
+        estimatedMinutes: 120,
+        start: "2026-03-18T08:00:00.000Z",
+        end: "2026-03-18T10:00:00.000Z",
+      }),
+      createStudyBlock({
+        id: "physics-after-deadline",
+        subjectId: "physics-hl",
+        topicId: scopedTopic.id,
+        estimatedMinutes: 120,
+        start: "2026-03-24T08:00:00.000Z",
+        end: "2026-03-24T10:00:00.000Z",
+      }),
+    ],
+    weeklyPlans: [createWeeklyPlan({ slackMinutes: 0 })],
+    referenceDate: new Date("2026-03-13T08:00:00"),
+  });
+
+  assert.equal(forecast.completionDate, null);
+  assert.equal(forecast.isOnTrack, false);
+  assert.equal(forecast.isFullyScheduled, false);
+  assert.equal(forecast.isFullyScheduledOnHorizon, true);
+  assert.equal(forecast.isCalendarImpossible, true);
+  assert.equal(forecast.missingHours, 2);
+  assert.equal(forecast.horizonCompletionDate?.toISOString(), "2026-03-24T10:00:00.000Z");
+});
+
+test("calendar completion forecast treats blocks on the deadline day as on-track", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-13T08:00:00"));
+  const subject = dataset.subjects.find((candidate) => candidate.id === "physics-hl");
+  const topic = dataset.topics.find((candidate) => candidate.subjectId === "physics-hl");
+
+  assert.ok(subject, "expected physics subject");
+  assert.ok(topic, "expected physics topic");
+
+  const scopedTopic = {
+    ...topic,
+    estHours: 2,
+    completedHours: 0,
+  };
+  const goal = {
+    id: "physics-deadline-day-goal",
+    title: "Physics deadline day goal",
+    subjectId: "physics-hl" as const,
+    deadline: "2026-03-20",
+    targetCompletion: 1,
+    priorityWeight: 1,
+    topicIds: [scopedTopic.id],
+  };
+
+  const forecast = getCalendarCompletionForecast({
+    subject,
+    topics: [scopedTopic],
+    goals: [goal],
+    studyBlocks: [
+      createStudyBlock({
+        id: "physics-deadline-day-block",
+        subjectId: "physics-hl",
+        topicId: scopedTopic.id,
+        estimatedMinutes: 120,
+        start: "2026-03-20T16:00:00.000Z",
+        end: "2026-03-20T18:00:00.000Z",
+      }),
+    ],
+    weeklyPlans: [createWeeklyPlan()],
+    referenceDate: new Date("2026-03-13T08:00:00"),
+  });
+
+  assert.equal(forecast.isOnTrack, true);
+  assert.equal(forecast.isFullyScheduled, true);
+  assert.equal(forecast.completionDate?.toISOString(), "2026-03-20T18:00:00.000Z");
+});
+
 test("subject progress distinguishes already planned work from truly unscheduled work", () => {
   const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
   const olympiad = dataset.subjects.find((subject) => subject.id === "olympiad");
