@@ -4892,6 +4892,36 @@ test("homework duration overrides change the reserved commitment length for one 
   );
 });
 
+test("normalizing preferences restores the recurring school-term homework baseline to ninety minutes", () => {
+  const seedPreferences = buildSeedPreferences();
+  const normalized = normalizePreferences({
+    ...seedPreferences,
+    reservedCommitmentRules: seedPreferences.reservedCommitmentRules.map((rule) =>
+      rule.id === "term-homework"
+        ? {
+            ...rule,
+            durationMinutes: 60,
+            appliesDuring: "all",
+            days: [1, 3, 5],
+            durationOverrides: {
+              "2026-03-17": 120,
+            },
+          }
+        : rule,
+    ),
+  });
+
+  const homeworkRule = normalized.reservedCommitmentRules.find(
+    (rule) => rule.id === "term-homework",
+  );
+
+  assert.ok(homeworkRule, "expected normalized homework rule");
+  assert.equal(homeworkRule!.durationMinutes, 90);
+  assert.equal(homeworkRule!.appliesDuring, "school-term");
+  assert.deepEqual(homeworkRule!.days, [0, 1, 2, 3, 4, 5, 6]);
+  assert.equal(homeworkRule!.durationOverrides?.["2026-03-17"], 120);
+});
+
 test("piano time overrides move the reserved commitment to the selected one-day start time", () => {
   const dataset = buildSeedDataset(new Date("2026-03-16T08:00:00"));
   const preferences = {

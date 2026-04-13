@@ -36,7 +36,7 @@ const PLANNING_MODEL_VERSION = "2026-04-13-maths-book-order-v44";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-08-olympiad-bplus-roadmap-v11";
-const PREFERENCE_DEFAULTS_VERSION = "2026-04-07-priority-defaults-v1";
+const PREFERENCE_DEFAULTS_VERSION = "2026-04-13-priority-homework-defaults-v2";
 const EXTENDED_GOALS_VERSION = "2026-03-19-post-syllabus-papers-v8";
 const LANGUAGE_MAINTENANCE_VERSION = "2026-03-19-languages-v1";
 const SEED_TOPIC_ORDERING_VERSION = "2026-04-13-maths-book-order-v4";
@@ -174,7 +174,7 @@ function normalizeReservedCommitmentRules(
     const seedRule =
       seedPreferences.reservedCommitmentRules.find((candidate) => candidate.id === ruleId) ?? rule;
 
-    return {
+    const normalizedRule = {
       ...rule,
       days: normalizeDays(rule.days, seedRule.days),
       additionalDates: Array.isArray(rule.additionalDates)
@@ -204,6 +204,18 @@ function normalizeReservedCommitmentRules(
           .sort(([left], [right]) => left.localeCompare(right)),
       ),
     };
+
+    if (ruleId === "term-homework") {
+      return {
+        ...normalizedRule,
+        label: seedRule.label,
+        durationMinutes: seedRule.durationMinutes,
+        days: seedRule.days,
+        appliesDuring: seedRule.appliesDuring,
+      };
+    }
+
+    return normalizedRule;
   });
 }
 
