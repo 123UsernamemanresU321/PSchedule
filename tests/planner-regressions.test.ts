@@ -5182,6 +5182,48 @@ test("normalizePreferences preserves non-legacy custom Olympiad and C++ override
   assert.equal(normalized.subjectWeightOverrides["cpp-book"], 0.2);
 });
 
+test("normalizePreferences upgrades legacy sunday recovery defaults to the new one-hour window", () => {
+  const normalized = normalizePreferences({
+    ...buildSeedPreferences(),
+    lockedRecoveryWindows: [
+      {
+        label: "Sunday recovery",
+        start: "20:00",
+        end: "22:00",
+        days: [0],
+        movable: false,
+      },
+    ],
+  });
+
+  assert.deepEqual(normalized.lockedRecoveryWindows, [
+    {
+      label: "Lunch break",
+      start: "12:00",
+      end: "13:30",
+      days: [0, 1, 2, 3, 4, 5, 6],
+      movable: false,
+      timeOverrides: {},
+    },
+    {
+      label: "Dinner reset",
+      start: "19:15",
+      end: "20:00",
+      days: [0, 1, 2, 3, 4, 5, 6],
+      movable: true,
+      timeOverrides: {},
+    },
+    {
+      label: "Sunday recovery",
+      start: "21:30",
+      end: "22:30",
+      days: [0],
+      movable: false,
+      timeOverrides: {},
+    },
+  ]);
+});
+
 test("stale chunk detection catches webpack runtime module factory crashes", () => {
   assert.equal(
     isStaleChunkMessage(

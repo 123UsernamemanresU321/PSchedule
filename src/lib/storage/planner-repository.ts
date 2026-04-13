@@ -121,14 +121,15 @@ function normalizeLockedRecoveryWindows(
 
     if (
       window.label === "Sunday recovery" &&
-      window.start === "18:00" &&
+      (window.start === "18:00" || window.start === "20:00") &&
       window.end === "22:00" &&
       normalizedDays.length === 1 &&
       normalizedDays[0] === 0
     ) {
       return {
         ...window,
-        start: "20:00",
+        start: "21:30",
+        end: "22:30",
         days: normalizedDays,
         timeOverrides: normalizedTimeOverrides,
       };
