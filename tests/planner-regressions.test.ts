@@ -5709,6 +5709,68 @@ test("calendar-derived load state softens heavy school weeks and boosts light we
   assert.ok((heavyTracks.olympiad?.recommendedWeeklyHours ?? 0) < (lightTracks.olympiad?.recommendedWeeklyHours ?? 0));
 });
 
+test("pending Olympiad rewrite obligations add extra weekly Olympiad demand instead of replacing core coverage", () => {
+  const referenceDate = new Date("2026-04-08T10:35:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const topic = dataset.topics.find((candidate) => candidate.id === "olympiad-bplus-geometry-01");
+
+  assert.ok(topic, "expected seeded geometry topic");
+
+  const baselineTracks = computeSubjectDeadlineTracks({
+    subjects: dataset.subjects,
+    goals: dataset.goals,
+    topics: dataset.topics,
+    referenceDate,
+    weekStartDate: new Date("2026-04-06T00:00:00.000Z"),
+    weekEndDate: new Date("2026-04-12T23:59:59.999Z"),
+    preferences: dataset.preferences,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+  });
+
+  const sourceBlock = createStudyBlock({
+    id: "olympiad-rewrite-source-demand",
+    subjectId: "olympiad",
+    topicId: topic.id,
+    title: topic.title,
+    unitTitle: topic.unitTitle,
+    blockType: "standard_focus",
+    status: "done",
+    start: "2026-04-08T08:00:00.000Z",
+    end: "2026-04-08T10:00:00.000Z",
+    estimatedMinutes: 120,
+    sourceMaterials: topic.sourceMaterials,
+  });
+  const completionLog = {
+    id: "log-olympiad-rewrite-source-demand",
+    studyBlockId: sourceBlock.id,
+    outcome: "done" as const,
+    actualMinutes: 120,
+    perceivedDifficulty: 4 as const,
+    notes: "",
+    recordedAt: "2026-04-08T10:30:00.000Z",
+  };
+
+  const withRewriteTracks = computeSubjectDeadlineTracks({
+    subjects: dataset.subjects,
+    goals: dataset.goals,
+    topics: dataset.topics,
+    completionLogs: [completionLog],
+    referenceDate,
+    weekStartDate: new Date("2026-04-06T00:00:00.000Z"),
+    weekEndDate: new Date("2026-04-12T23:59:59.999Z"),
+    priorPlannedBlocks: [sourceBlock],
+    preferences: dataset.preferences,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+  });
+
+  assert.ok(
+    (withRewriteTracks.olympiad?.recommendedWeeklyHours ?? 0) >
+      (baselineTracks.olympiad?.recommendedWeeklyHours ?? 0),
+  );
+});
+
 test("done on a completed Olympiad rewrite follow-up also bypasses replanning", () => {
   const rewriteBlock = createStudyBlock({
     id: "olympiad-rewrite-done-path",

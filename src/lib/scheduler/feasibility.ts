@@ -8,7 +8,10 @@ import {
   toDateKey,
 } from "@/lib/dates/helpers";
 import { isDateInActiveSchoolTerm } from "@/lib/scheduler/schedule-regime";
-import { getOlympiadWeekLoadProfile } from "@/lib/scheduler/olympiad-performance";
+import {
+  getOlympiadWeekLoadProfile,
+  getPendingOlympiadRewriteDemandHours,
+} from "@/lib/scheduler/olympiad-performance";
 import { clamp, roundToTenth, sum } from "@/lib/utils";
 import type {
   CalendarSlot,
@@ -200,6 +203,7 @@ export function computeSubjectDeadlineTracks(options: {
   subjects: Subject[];
   goals: Goal[];
   topics: Topic[];
+  completionLogs?: import("@/lib/types/planner").CompletionLog[];
   referenceDate: Date;
   horizonStartDate?: Date;
   weekStartDate?: Date;
@@ -337,11 +341,20 @@ export function computeSubjectDeadlineTracks(options: {
             )
           : 0;
 
-    if (subject.id === "olympiad" && targetRemainingHours > 0) {
-      recommendedWeeklyHours = Math.min(
-        targetRemainingHours,
-        Math.max(recommendedWeeklyHours, seasonalMinimumHours),
-      );
+    if (subject.id === "olympiad") {
+      const rewriteDemandHours = getPendingOlympiadRewriteDemandHours({
+        topics: options.topics,
+        studyBlocks: options.priorPlannedBlocks ?? [],
+        completionLogs: options.completionLogs,
+        weekStart: effectiveWeekStart,
+        weekEnd: weekEndDate,
+      });
+      if (targetRemainingHours > 0 || rewriteDemandHours > 0) {
+        recommendedWeeklyHours = Math.min(
+          targetRemainingHours + rewriteDemandHours,
+          Math.max(recommendedWeeklyHours, seasonalMinimumHours) + rewriteDemandHours,
+        );
+      }
     }
 
     if (subject.id === "cpp-book") {

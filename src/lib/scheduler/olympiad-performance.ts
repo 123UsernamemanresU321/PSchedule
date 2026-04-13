@@ -257,6 +257,48 @@ export function getPendingOlympiadRewriteObligations(options: {
   );
 }
 
+export function getPendingOlympiadRewriteDemandHours(options: {
+  topics: Topic[];
+  studyBlocks: StudyBlock[];
+  completionLogs?: CompletionLog[];
+  weekStart: Date;
+  weekEnd: Date;
+}) {
+  const weekStartTime = options.weekStart.getTime();
+  const weekEndTime = options.weekEnd.getTime();
+  const obligations = getOlympiadRewriteObligations(options);
+
+  const scheduledMinutesInWeek = obligations.reduce((total, obligation) => {
+    const scheduledBlock = obligation.scheduledBlock;
+
+    if (!scheduledBlock) {
+      return total;
+    }
+
+    const blockStart = new Date(scheduledBlock.start).getTime();
+    if (blockStart < weekStartTime || blockStart > weekEndTime) {
+      return total;
+    }
+
+    return total + scheduledBlock.estimatedMinutes;
+  }, 0);
+
+  const unscheduledMinutesAvailableThisWeek = obligations.reduce((total, obligation) => {
+    if (obligation.scheduledBlock) {
+      return total;
+    }
+
+    const availableAt = new Date(obligation.availableAt).getTime();
+    if (availableAt > weekEndTime) {
+      return total;
+    }
+
+    return total + obligation.durationMinutes;
+  }, 0);
+
+  return Math.round((scheduledMinutesInWeek + unscheduledMinutesAvailableThisWeek) / 6) / 10;
+}
+
 export function getOlympiadWeekLoadProfile(options: {
   weekStart: Date;
   fixedEvents: FixedEvent[];
