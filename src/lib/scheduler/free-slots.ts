@@ -425,7 +425,6 @@ function resolveReservedCommitmentStart(options: {
   if (
     options.rule.id === "term-homework" &&
     options.inSchoolTerm &&
-    options.preferences.schoolSchedule.enabled &&
     options.preferences.schoolSchedule.weekdays.includes(options.day.getDay())
   ) {
     return addMinutes(createDateAtTime(options.day, options.preferences.schoolSchedule.end), 30);

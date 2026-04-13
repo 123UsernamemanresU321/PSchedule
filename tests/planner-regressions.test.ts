@@ -33,6 +33,7 @@ import {
 } from "@/lib/storage/planner-repository";
 import {
   getActiveSickDaySeverity,
+  isDateInActiveSchoolTerm,
   isReservedCommitmentRuleActiveOnDate,
   resolveDailyScheduleProfile,
 } from "@/lib/scheduler/schedule-regime";
@@ -4842,6 +4843,50 @@ test("homework commitment rules can be explicitly added outside normal school-te
   };
 
   assert.equal(isReservedCommitmentRuleActiveOnDate(withHolidayAddition, holidayDate, false), true);
+});
+
+test("school-term homework still appears when term dates are configured but school blocks are disabled", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-14T08:00:00"));
+  const preferences = {
+    ...dataset.preferences,
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: false,
+      weekdays: [1, 2, 3, 4, 5],
+      start: "08:00",
+      end: "15:00",
+      terms: [
+        {
+          id: "term-2",
+          label: "Term 2",
+          startDate: "2026-04-01",
+          endDate: "2026-06-30",
+        },
+      ],
+    },
+  };
+  const weekStart = new Date("2026-04-13T00:00:00.000Z");
+
+  assert.equal(
+    isDateInActiveSchoolTerm(new Date("2026-04-14T10:00:00.000Z"), preferences),
+    true,
+  );
+
+  const commitments = expandReservedCommitmentWindowsForWeek(weekStart, preferences, [], [], []);
+  const homeworkCommitment = commitments.find(
+    (commitment) => commitment.ruleId === "term-homework" && commitment.dateKey === "2026-04-14",
+  );
+
+  assert.ok(homeworkCommitment, "expected homework during an active school term even without school blocks");
+  assert.equal(new Date(homeworkCommitment!.start).getHours(), 15);
+  assert.equal(new Date(homeworkCommitment!.start).getMinutes(), 30);
+  assert.equal(
+    Math.round(
+      (new Date(homeworkCommitment!.end).getTime() - new Date(homeworkCommitment!.start).getTime()) /
+        60000,
+    ),
+    90,
+  );
 });
 
 test("homework duration overrides change the reserved commitment length for one date", () => {

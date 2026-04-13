@@ -54,16 +54,19 @@ function isValidScheduleDate(value: string) {
   return !Number.isNaN(parsed.getTime());
 }
 
+function getConfiguredSchoolTerms(preferences: Preferences) {
+  return preferences.schoolSchedule.terms.filter(
+    (term) => isValidScheduleDate(term.startDate) && isValidScheduleDate(term.endDate),
+  );
+}
+
 export function isDateInActiveSchoolTerm(day: Date, preferences: Preferences) {
-  if (!preferences.schoolSchedule.enabled) {
+  const configuredTerms = getConfiguredSchoolTerms(preferences);
+  if (!configuredTerms.length) {
     return false;
   }
 
-  return preferences.schoolSchedule.terms.some((term) => {
-    if (!isValidScheduleDate(term.startDate) || !isValidScheduleDate(term.endDate)) {
-      return false;
-    }
-
+  return configuredTerms.some((term) => {
     return isWithinInterval(day, {
       start: fromDateKey(term.startDate),
       end: fromDateKey(term.endDate),
