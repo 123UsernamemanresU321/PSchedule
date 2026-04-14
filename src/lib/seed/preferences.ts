@@ -65,7 +65,7 @@ export function buildSeedPreferences(): Preferences {
         id: "term-homework",
         label: "Homework",
         durationMinutes: 90,
-        days: [0, 1, 2, 3, 4, 5, 6],
+        days: [1, 2, 3, 4, 5],
         appliesDuring: "school-term",
         preferredStart: "16:00",
         timeOverrides: {},

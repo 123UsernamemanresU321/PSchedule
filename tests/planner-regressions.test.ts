@@ -3993,7 +3993,7 @@ test("collapsed coverage repair detects smaller but still meaningful missing fut
   assert.ok(repairState.collapsedSubjectIds.includes("olympiad"));
 });
 
-test("excluding homework commitment windows opens extra study capacity before piano is removed", () => {
+test("excluding piano commitment windows opens extra study capacity before homework is removed", () => {
   const referenceDate = new Date("2026-03-23T08:00:00");
   const seedPreferences = buildSeedPreferences();
   const homeworkRule = seedPreferences.reservedCommitmentRules.find(
@@ -4043,186 +4043,82 @@ test("excluding homework commitment windows opens extra study capacity before pi
     fixedEvents: [],
     preferences,
   });
-  const withoutHomeworkSlots = calculateFreeSlots({
+  const withoutPianoSlots = calculateFreeSlots({
     weekStart,
     fixedEvents: [],
     preferences,
-    excludedReservedCommitmentRuleIds: ["term-homework"],
+    excludedReservedCommitmentRuleIds: ["piano-practice"],
   });
-  const withoutHomeworkOrPianoSlots = calculateFreeSlots({
+  const withoutPianoOrHomeworkSlots = calculateFreeSlots({
     weekStart,
     fixedEvents: [],
     preferences,
-    excludedReservedCommitmentRuleIds: ["term-homework", "piano-practice"],
+    excludedReservedCommitmentRuleIds: ["piano-practice", "term-homework"],
   });
 
   assert.ok(homeworkRule, "expected seeded homework rule");
   assert.ok(pianoRule, "expected seeded piano rule");
 
   assert.ok(
-    totalSlotMinutes(withoutHomeworkSlots) > totalSlotMinutes(baseSlots),
-    "expected dropping homework windows to open extra study capacity",
+    totalSlotMinutes(withoutPianoSlots) > totalSlotMinutes(baseSlots),
+    "expected dropping piano windows to open extra study capacity first",
   );
   assert.ok(
-    totalSlotMinutes(withoutHomeworkOrPianoSlots) >= totalSlotMinutes(withoutHomeworkSlots),
-    "expected dropping piano after homework to never reduce study capacity",
+    totalSlotMinutes(withoutPianoOrHomeworkSlots) >= totalSlotMinutes(withoutPianoSlots),
+    "expected dropping homework after piano to never reduce study capacity",
   );
 });
 
-test("later overloaded weeks drop soft commitments without stripping them from earlier healthy weeks", () => {
-  const referenceDate = new Date("2026-03-23T08:00:00");
-  const weekStart = startOfPlannerWeek(referenceDate);
-  const seedPreferences = buildSeedPreferences();
-  const homeworkRule = seedPreferences.reservedCommitmentRules.find(
-    (rule) => rule.id === "term-homework",
-  );
-  const pianoRule = seedPreferences.reservedCommitmentRules.find(
-    (rule) => rule.id === "piano-practice",
-  );
+test("late overloaded school-term weeks drop piano before homework without stripping healthy weeks", () => {
+  const referenceDate = new Date("2026-04-14T08:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
   const preferences = {
-    ...seedPreferences,
+    ...dataset.preferences,
     schoolSchedule: {
-      ...seedPreferences.schoolSchedule,
-      enabled: false,
-      terms: [],
-    },
-    holidaySchedule: {
-      ...seedPreferences.holidaySchedule,
+      ...dataset.preferences.schoolSchedule,
       enabled: true,
-      dailyStudyWindow: {
-        start: "08:00",
-        end: "20:00",
-      },
+      weekdays: [1, 2, 3, 4, 5],
+      start: "08:00",
+      end: "15:00",
+      terms: [
+        {
+          id: "term-2",
+          label: "Term 2",
+          startDate: "2026-04-01",
+          endDate: "2026-06-30",
+        },
+      ],
     },
-    reservedCommitmentRules: [
-      {
-        ...homeworkRule!,
-        appliesDuring: "all" as const,
-        days: [1, 2, 3, 4, 5],
-        preferredStart: "16:00",
-        durationMinutes: 120,
-      },
-      {
-        ...pianoRule!,
-        appliesDuring: "all" as const,
-        days: [1, 3, 5],
-        preferredStart: "18:30",
-        durationMinutes: 60,
-      },
-    ],
   };
 
   const result = generateStudyPlanHorizon({
-    startWeek: weekStart,
-    endWeek: addDays(weekStart, 7),
-    goals: [
-      {
-        id: "physics-soft-commitment-goal",
-        title: "Physics soft commitment goal",
-        subjectId: "physics-hl",
-        deadline: "2026-04-05",
-        targetCompletion: 1,
-        priorityWeight: 1,
-      },
-    ],
-    subjects: [
-      {
-        id: "physics-hl",
-        name: "Physics HL",
-        shortName: "Physics",
-        category: "physics",
-        description: "",
-        defaultPriority: 0.7,
-        weeklyMinimumHours: 0,
-        examMode: "syllabus",
-        colorToken: "",
-        gradientClassName: "",
-        deadline: "2026-04-05",
-      },
-    ],
-    topics: [
-      {
-        id: "physics-soft-commitment-topic",
-        subjectId: "physics-hl",
-        unitId: "physics-soft-commitment-unit",
-        unitTitle: "Physics soft commitment unit",
-        title: "Physics soft commitment topic",
-        subtopics: [],
-        availableFrom: "2026-03-30",
-        estHours: 25,
-        completedHours: 0,
-        difficulty: 3,
-        status: "not_started",
-        mastery: 0,
-        reviewDue: null,
-        lastStudiedAt: null,
-        sourceMaterials: [],
-        preferredBlockTypes: ["standard_focus"],
-        order: 1,
-      },
-    ],
-    fixedEvents: [
-      {
-        id: "soft-commitment-busy-1",
-        title: "Busy 1",
-        start: "2026-03-30T08:00:00.000Z",
-        end: "2026-03-30T17:00:00.000Z",
-        recurrence: "none",
-        flexibility: "fixed",
-        category: "activity",
-      },
-      {
-        id: "soft-commitment-busy-2",
-        title: "Busy 2",
-        start: "2026-03-31T08:00:00.000Z",
-        end: "2026-03-31T17:00:00.000Z",
-        recurrence: "none",
-        flexibility: "fixed",
-        category: "activity",
-      },
-      {
-        id: "soft-commitment-busy-3",
-        title: "Busy 3",
-        start: "2026-04-01T08:00:00.000Z",
-        end: "2026-04-01T17:00:00.000Z",
-        recurrence: "none",
-        flexibility: "fixed",
-        category: "activity",
-      },
-      {
-        id: "soft-commitment-busy-4",
-        title: "Busy 4",
-        start: "2026-04-02T08:00:00.000Z",
-        end: "2026-04-02T17:00:00.000Z",
-        recurrence: "none",
-        flexibility: "fixed",
-        category: "activity",
-      },
-      {
-        id: "soft-commitment-busy-5",
-        title: "Busy 5",
-        start: "2026-04-03T08:00:00.000Z",
-        end: "2026-04-03T17:00:00.000Z",
-        recurrence: "none",
-        flexibility: "fixed",
-        category: "activity",
-      },
-    ],
-    preferences,
-    existingStudyBlocks: [],
+    startWeek: referenceDate,
+    endWeek: addDays(referenceDate, 77),
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    completionLogs: [],
+    fixedEvents: dataset.fixedEvents,
+    sickDays: [],
     focusedDays: [],
     focusedWeeks: [],
+    preferences,
+    existingStudyBlocks: [],
   });
 
-  const firstWeekPlan = result.weeklyPlans.find((plan) => plan.weekStart === "2026-03-23");
-  const overloadedWeekPlan = result.weeklyPlans.find((plan) => plan.weekStart === "2026-03-30");
+  const healthyWeekPlan = result.weeklyPlans.find((plan) => plan.weekStart === "2026-04-13");
+  const overloadedWeekPlan = result.weeklyPlans.find((plan) => plan.weekStart === "2026-06-08");
 
-  assert.ok(firstWeekPlan, "expected a weekly plan for the first week");
-  assert.ok(overloadedWeekPlan, "expected a weekly plan for the overloaded week");
-  assert.deepEqual(firstWeekPlan.excludedReservedCommitmentRuleIds, []);
+  assert.ok(healthyWeekPlan, "expected a weekly plan for the healthy school-term week");
+  assert.ok(overloadedWeekPlan, "expected a weekly plan for the overloaded school-term week");
+  assert.deepEqual(healthyWeekPlan.excludedReservedCommitmentRuleIds, []);
   assert.ok(
-    overloadedWeekPlan.excludedReservedCommitmentRuleIds.includes("term-homework"),
-    "expected the overloaded week to drop homework before falling behind",
+    overloadedWeekPlan.excludedReservedCommitmentRuleIds.includes("piano-practice"),
+    "expected the overloaded week to drop piano first",
+  );
+  assert.ok(
+    !overloadedWeekPlan.excludedReservedCommitmentRuleIds.includes("term-homework"),
+    "expected homework to remain while piano is dropped first",
   );
 });
 
@@ -4876,8 +4772,16 @@ test("school-term homework still appears when term dates are configured but scho
   const homeworkCommitment = commitments.find(
     (commitment) => commitment.ruleId === "term-homework" && commitment.dateKey === "2026-04-14",
   );
+  const saturdayHomeworkCommitment = commitments.find(
+    (commitment) => commitment.ruleId === "term-homework" && commitment.dateKey === "2026-04-18",
+  );
 
   assert.ok(homeworkCommitment, "expected homework during an active school term even without school blocks");
+  assert.equal(
+    saturdayHomeworkCommitment,
+    undefined,
+    "expected automatic homework to stay off non-school weekdays",
+  );
   assert.equal(new Date(homeworkCommitment!.start).getHours(), 15);
   assert.equal(new Date(homeworkCommitment!.start).getMinutes(), 30);
   assert.equal(
@@ -4963,7 +4867,7 @@ test("normalizing preferences restores the recurring school-term homework baseli
   assert.ok(homeworkRule, "expected normalized homework rule");
   assert.equal(homeworkRule!.durationMinutes, 90);
   assert.equal(homeworkRule!.appliesDuring, "school-term");
-  assert.deepEqual(homeworkRule!.days, [0, 1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(homeworkRule!.days, [1, 2, 3, 4, 5]);
   assert.equal(homeworkRule!.durationOverrides?.["2026-03-17"], 120);
 });
 

@@ -32,7 +32,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-04-14-homework-term-fallback-v45";
+const PLANNING_MODEL_VERSION = "2026-04-14-homework-priority-v46";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-08-olympiad-bplus-roadmap-v11";
@@ -210,7 +210,10 @@ function normalizeReservedCommitmentRules(
         ...normalizedRule,
         label: seedRule.label,
         durationMinutes: seedRule.durationMinutes,
-        days: seedRule.days,
+        days: normalizeDays(
+          preferences?.schoolSchedule?.weekdays,
+          seedPreferences.schoolSchedule.weekdays,
+        ),
         appliesDuring: seedRule.appliesDuring,
       };
     }

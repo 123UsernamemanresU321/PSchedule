@@ -82,7 +82,7 @@ function getReservedCommitmentMinutes(
 ) {
   const dateKey = toDateKey(day);
   return preferences.reservedCommitmentRules.reduce((total, rule) => {
-    if (!isReservedCommitmentRuleActiveOnDate(rule, day, inSchoolTerm)) {
+    if (!isReservedCommitmentRuleActiveOnDate(rule, day, inSchoolTerm, preferences)) {
       return total;
     }
 
@@ -105,6 +105,7 @@ export function isReservedCommitmentRuleActiveOnDate(
   rule: ReservedCommitmentRule,
   day: Date,
   inSchoolTerm: boolean,
+  preferences?: Preferences,
 ) {
   const dateKey = toDateKey(day);
   if (rule.excludedDates?.includes(dateKey)) {
@@ -118,6 +119,10 @@ export function isReservedCommitmentRuleActiveOnDate(
   const appliesToRegime = doesReservedCommitmentRuleMatchRegime(rule, inSchoolTerm);
   if (!appliesToRegime) {
     return false;
+  }
+
+  if (rule.id === "term-homework" && inSchoolTerm && preferences) {
+    return preferences.schoolSchedule.weekdays.includes(day.getDay());
   }
 
   return rule.days.includes(day.getDay());

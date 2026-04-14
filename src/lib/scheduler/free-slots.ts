@@ -513,13 +513,28 @@ export function expandReservedCommitmentWindowsForWeek(
       skipMovableRecovery: false,
     }).map((window) => createInterval(window.start, window.end));
     const resolvedIntervals: TimeInterval[] = [];
+    const prioritizedRules = preferences.reservedCommitmentRules
+      .map((rule, index) => ({
+        rule,
+        index,
+        priority:
+          rule.id === "term-homework" &&
+          inSchoolTerm &&
+          preferences.schoolSchedule.weekdays.includes(day.getDay())
+            ? 0
+            : rule.id === "piano-practice"
+              ? 1
+              : 2,
+      }))
+      .sort((left, right) => left.priority - right.priority || left.index - right.index)
+      .map((entry) => entry.rule);
 
-    return preferences.reservedCommitmentRules.flatMap((rule) => {
+    return prioritizedRules.flatMap((rule) => {
       if (excludedRuleIdSet.has(rule.id)) {
         return [];
       }
 
-      if (!isReservedCommitmentRuleActiveOnDate(rule, day, inSchoolTerm)) {
+      if (!isReservedCommitmentRuleActiveOnDate(rule, day, inSchoolTerm, preferences)) {
         return [];
       }
 

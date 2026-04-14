@@ -54,8 +54,8 @@ const WEEKLY_BALANCE_PENALTY_PER_HOUR = 3.5;
 const CONTINUITY_BONUS = 5.5;
 const SOFT_COMMITMENT_FALLBACK_PHASES = [
   [] as string[],
-  ["term-homework"],
-  ["term-homework", "piano-practice"],
+  ["piano-practice"],
+  ["piano-practice", "term-homework"],
 ];
 
 function getAllowedBlockTypesForSlot(slot: CalendarSlot) {
