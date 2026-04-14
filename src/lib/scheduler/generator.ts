@@ -673,17 +673,7 @@ function selectExcludedReservedCommitmentRuleIdsForWeek(options: {
       ),
     ),
   );
-  const remainingWeeks = Math.max(
-    1,
-    Math.floor(
-      (startOfPlannerWeek(options.endWeek).getTime() - startOfPlannerWeek(options.currentWeek).getTime()) /
-        (7 * 24 * 60 * 60 * 1000),
-    ) + 1,
-  );
-  const averageMinutesNeededPerWeek = roundUpToAllocatableMinutes(
-    remainingTaskMinutes / remainingWeeks,
-  );
-  const targetCapacityMinutes = Math.max(weeklyRequiredMinutes, averageMinutesNeededPerWeek);
+  const targetCapacityMinutes = weeklyRequiredMinutes;
   const blockedStudyBlocks = options.lockedBlocks ?? [];
 
   for (const excludedReservedCommitmentRuleIds of SOFT_COMMITMENT_FALLBACK_PHASES) {
