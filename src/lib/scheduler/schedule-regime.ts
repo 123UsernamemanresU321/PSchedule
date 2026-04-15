@@ -67,9 +67,14 @@ export function isDateInActiveSchoolTerm(day: Date, preferences: Preferences) {
   }
 
   return configuredTerms.some((term) => {
+    // Extend the end boundary to the very end of the last day of term so
+    // that queries at any time during that day (e.g. 3 PM) still count as
+    // being inside the term, not just before midnight.
+    const termEnd = fromDateKey(term.endDate);
+    termEnd.setHours(23, 59, 59, 999);
     return isWithinInterval(day, {
       start: fromDateKey(term.startDate),
-      end: fromDateKey(term.endDate),
+      end: termEnd,
     });
   });
 }
@@ -122,7 +127,9 @@ export function isReservedCommitmentRuleActiveOnDate(
   }
 
   if (rule.id === "term-homework" && inSchoolTerm && preferences) {
-    return preferences.schoolSchedule.weekdays.includes(day.getDay());
+    // Respect user-configured rule.days if set; fall back to school weekdays.
+    const activeDays = rule.days.length > 0 ? rule.days : preferences.schoolSchedule.weekdays;
+    return activeDays.includes(day.getDay());
   }
 
   return rule.days.includes(day.getDay());

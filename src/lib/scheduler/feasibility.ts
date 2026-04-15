@@ -508,10 +508,10 @@ export function buildWeeklyPlan(options: {
       return;
     }
 
-    assignedMinutesBySubject[block.subjectId] += block.estimatedMinutes;
+    assignedMinutesBySubject[block.subjectId] = (assignedMinutesBySubject[block.subjectId] ?? 0) + block.estimatedMinutes;
 
     if (block.status === "done" || block.status === "partial") {
-      completedMinutesBySubject[block.subjectId] += block.actualMinutes ?? block.estimatedMinutes;
+      completedMinutesBySubject[block.subjectId] = (completedMinutesBySubject[block.subjectId] ?? 0) + (block.actualMinutes ?? block.estimatedMinutes);
     }
   });
 
@@ -694,10 +694,10 @@ export function buildUnconfiguredWeeklyPlan(options: {
       return;
     }
 
-    assignedHoursBySubject[block.subjectId] += roundToTenth(block.estimatedMinutes / 60);
+    assignedHoursBySubject[block.subjectId] = (assignedHoursBySubject[block.subjectId] ?? 0) + roundToTenth(block.estimatedMinutes / 60);
 
     if (block.status === "done" || block.status === "partial") {
-      completedHoursBySubject[block.subjectId] += roundToTenth(
+      completedHoursBySubject[block.subjectId] = (completedHoursBySubject[block.subjectId] ?? 0) + roundToTenth(
         (block.actualMinutes ?? block.estimatedMinutes) / 60,
       );
     }

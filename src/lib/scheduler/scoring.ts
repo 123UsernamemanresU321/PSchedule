@@ -127,7 +127,7 @@ export function scoreTaskCandidate(
           : 0;
   const sequencePenalty =
     task.kind === "topic"
-      ? clamp(task.blockedByEarlierTopics, 0, 6) * 13
+      ? clamp(task.blockedByEarlierTopics, 0, 6) * 8
       : 0;
   const badSlotFitPenalty = blockOption.slotFitPenalty;
   const fragmentationPenalty = blockOption.fragmentationPenalty;

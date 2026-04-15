@@ -111,6 +111,14 @@ function getRecoveryWindowTimingForDate(
 }
 
 function getRecurringDurationMinutes(start: Date, end: Date) {
+  // Use the actual full duration between start and end to correctly handle
+  // multi-day recurring events (e.g. a weekend trip from Fri 08:00 to Sun 12:00).
+  const directMinutes = minutesBetween(start, end);
+  if (directMinutes > 0) {
+    return directMinutes;
+  }
+
+  // Fallback for edge cases where end time-of-day wraps past midnight.
   const normalizedEnd = new Date(start);
   normalizedEnd.setHours(end.getHours(), end.getMinutes(), end.getSeconds(), end.getMilliseconds());
 

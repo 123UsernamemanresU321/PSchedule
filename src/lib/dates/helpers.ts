@@ -95,5 +95,5 @@ export function daysUntil(target: string, referenceDate: Date) {
 }
 
 export function dayIndexFromDateKey(dateKey: string) {
-  return new Date(dateKey).getDay();
+  return fromDateKey(dateKey).getDay();
 }

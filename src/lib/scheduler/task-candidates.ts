@@ -367,7 +367,7 @@ export function buildTaskCandidates(options: {
           const coveredRatio =
             Math.min(earlierTopic.completedHours + plannedHours, earlierTopic.estHours) /
             Math.max(earlierTopic.estHours, 0.25);
-          return coveredRatio < 0.7;
+          return coveredRatio < 0.5;
         });
 
         accumulator[topic.id] = unmetEarlierTopics.length;

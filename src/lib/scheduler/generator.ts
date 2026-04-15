@@ -220,13 +220,15 @@ function buildDayCapacityByDate(
   dailyCapBoostMinutes: number,
 ) {
   return freeSlots.reduce<Record<string, DayCapacityEntry>>((accumulator, slot) => {
-    const dailyCap = slot.dayStudyCapMinutes + dailyCapBoostMinutes;
     const current = accumulator[slot.dateKey] ?? {
       capacity: 0,
       dayIndex: slot.dayIndex,
       scheduleRegime: slot.scheduleRegime,
     };
-    current.capacity = Math.min(dailyCap, current.capacity + slot.durationMinutes);
+    // Accumulate the full slot duration. The daily cap is enforced later by
+    // the allocation loop's dailyBudget check, so hard-capping here would
+    // silently strand small free slots that exceed the cap.
+    current.capacity = current.capacity + slot.durationMinutes;
     current.dayIndex = slot.dayIndex;
     current.scheduleRegime = slot.scheduleRegime;
     accumulator[slot.dateKey] = current;
@@ -946,8 +948,16 @@ function allocateTasksToSlots(options: {
 
     const requiredMinutes = requiredMinutesBySubject[task.subjectId] ?? 0;
     const assignedMinutes = assignedMinutesBySubject[task.subjectId] ?? 0;
-    const futureFocusedReserveMinutes =
+    const rawFutureFocusedReserveMinutes =
       options.futureFocusedReserveMinutesBySubject?.[task.subjectId] ?? 0;
+    // Ensure the current week always retains at least 1 hour of allocatable
+    // capacity for subjects with required hours, even when future focused days
+    // have reserved minutes. Without this guard, a large future reserve can
+    // zero-out the current week and leave the subject unplanned.
+    const futureFocusedReserveMinutes = Math.min(
+      rawFutureFocusedReserveMinutes,
+      Math.max(0, requiredMinutes - MIN_ALLOCATABLE_MINUTES * 2),
+    );
     const allocatableMinutesBeforeFutureFocus = Math.max(
       requiredMinutes - futureFocusedReserveMinutes,
       0,
