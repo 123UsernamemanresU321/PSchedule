@@ -896,6 +896,7 @@ function allocateTasksToSlots(options: {
   availabilityOverrideSubjectIds?: Subject["id"][];
   olympiadLoadMultiplier?: number;
   olympiadWeaknessStrand?: "geometry" | "algebra" | "number-theory" | "combinatorics" | null;
+  isFinalPass?: boolean;
 }) {
   const weekStartKey = toDateKey(options.weekStart);
   const subjectMap = new Map(options.subjects.map((subject) => [subject.id, subject]));
@@ -1669,7 +1670,8 @@ function allocateTasksToSlots(options: {
       if (
         focusedOverflowSubjectId &&
         options.fillAvailableStudyDays &&
-        remainingSlotMinutes >= 60
+        remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES &&
+        (options.isFinalPass ?? true)
       ) {
         const overflowDuration = Math.min(
           remainingSlotMinutes,
@@ -1722,7 +1724,11 @@ function allocateTasksToSlots(options: {
           : options.protectRecovery ?? (!needsIntensityRamp || allTargetsMet);
 
       if (!winner) {
-        if (options.fillAvailableStudyDays && remainingSlotMinutes >= 60) {
+        if (
+          options.fillAvailableStudyDays &&
+          remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES &&
+          (options.isFinalPass ?? true)
+        ) {
           const overflowSubjectId = getOverflowPracticeSubjectId(slot.dateKey);
           const overflowDuration = Math.min(
             remainingSlotMinutes,
@@ -2223,6 +2229,7 @@ export function generateStudyPlanForWeek(options: {
       availabilityOverrideSubjectIds,
       olympiadLoadMultiplier: olympiadWeekLoadProfile.multiplier,
       olympiadWeaknessStrand: olympiadWeaknessProfile.activeStrand,
+      isFinalPass: passPolicy === passPolicies[passPolicies.length - 1],
     });
 
     if (!result.scheduledBlocks.length) {
