@@ -334,19 +334,46 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   saveFixedEvent: async (event) => {
     const referenceDate = new Date();
     const existingSnapshot = await loadPlannerSnapshot();
-    const overlappingActiveBlocks = getActiveStudyBlocksOverlappingFixedEvent(
-      existingSnapshot,
-      event,
-      referenceDate,
-    );
+    const existingEvent = existingSnapshot.fixedEvents.find((e) => e.id === event.id);
 
-    if (overlappingActiveBlocks.length) {
-      throw new Error(
-        "That fixed event overlaps a study block already in progress. Finish or mark that block first, then add the fixed event.",
+    const isOnlyMetadataChanged =
+      !!existingEvent &&
+      existingEvent.start === event.start &&
+      existingEvent.end === event.end &&
+      existingEvent.recurrence === event.recurrence &&
+      existingEvent.flexibility === event.flexibility &&
+      existingEvent.category === event.category &&
+      existingEvent.isAllDay === event.isAllDay &&
+      JSON.stringify(existingEvent.daysOfWeek) === JSON.stringify(event.daysOfWeek) &&
+      existingEvent.repeatUntil === event.repeatUntil &&
+      JSON.stringify(existingEvent.excludedDates || []) === JSON.stringify(event.excludedDates || []);
+
+    if (!isOnlyMetadataChanged) {
+      const overlappingActiveBlocks = getActiveStudyBlocksOverlappingFixedEvent(
+        existingSnapshot,
+        event,
+        referenceDate,
       );
+
+      if (overlappingActiveBlocks.length) {
+        throw new Error(
+          "That fixed event overlaps a study block already in progress. Finish or mark that block first, then add the fixed event.",
+        );
+      }
     }
 
     await saveFixedEvent(event);
+
+    if (isOnlyMetadataChanged) {
+      const snapshot = await loadPlannerSnapshot();
+      set({
+        ...snapshot,
+        loading: false,
+        error: null,
+      });
+      return;
+    }
+
     const snapshot = await recalculateCurrentWeek({
       preserveFlexibleFutureBlocks: false,
       aggressiveFutureReset: true,

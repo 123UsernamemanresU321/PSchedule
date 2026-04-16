@@ -73,6 +73,7 @@ export function buildSeedPreferences(): Preferences {
     ],
     maxHeavySessionsPerDay: 2,
     maxStudyHoursPerDay: 5,
+    breaksEnabled: true,
     minBreakMinutes: 15,
     weeklyBufferRatio: 0.18,
     bufferMinutesBeforeFixedEvent: 15,

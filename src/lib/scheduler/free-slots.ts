@@ -505,6 +505,7 @@ export function expandReservedCommitmentWindowsForWeek(
   fixedEvents: FixedEvent[] = [],
   sickDays: SickDay[] = [],
   excludedRuleIds: string[] = [],
+  planningStart?: Date,
 ): ReservedCommitmentOccurrence[] {
   const expandedFixedEvents = expandPlannerFixedEventsForWeek(weekStart, fixedEvents, preferences);
   const excludedRuleIdSet = new Set(excludedRuleIds);
@@ -576,7 +577,11 @@ export function expandReservedCommitmentWindowsForWeek(
 
       resolvedIntervals.push(...commitmentSegments);
 
-      return commitmentSegments.map((segment, segmentIndex) => ({
+      const validSegments = planningStart
+        ? commitmentSegments.filter((segment) => segment.end.getTime() > planningStart.getTime())
+        : commitmentSegments;
+
+      return validSegments.map((segment, segmentIndex) => ({
         id: `${rule.id}:${toDateKey(day)}:${segmentIndex + 1}`,
         ruleId: rule.id,
         dateKey: toDateKey(day),
@@ -596,6 +601,7 @@ export function expandLockedRecoveryWindowsForWeek(
   sickDays: SickDay[] = [],
   blockedStudyBlocks: StudyBlock[] = [],
   skipMovableRecovery = false,
+  planningStart?: Date,
 ): RecoveryWindowOccurrence[] {
   const expandedFixedEvents = expandPlannerFixedEventsForWeek(weekStart, fixedEvents, preferences);
 
@@ -615,7 +621,8 @@ export function expandLockedRecoveryWindowsForWeek(
       end: window.end.toISOString(),
       label: window.label,
       movable: window.movable,
-    })),
+    }))
+    .filter((window) => !planningStart || new Date(window.end).getTime() > planningStart.getTime()),
   );
 }
 
@@ -667,6 +674,7 @@ export function calculateFreeSlots(options: {
     options.fixedEvents,
     sickDays,
     options.excludedReservedCommitmentRuleIds ?? [],
+    planningStart,
   );
   const blockedStudyBlocks = options.blockedStudyBlocks ?? [];
   const recoveryWindows = expandLockedRecoveryWindowsForWeek(
@@ -676,6 +684,7 @@ export function calculateFreeSlots(options: {
     sickDays,
     blockedStudyBlocks,
     options.skipMovableRecovery ?? false,
+    planningStart,
   );
 
   const slots: CalendarSlot[] = [];

@@ -989,6 +989,10 @@ function allocateTasksToSlots(options: {
   }
 
   function canInsertRecoveryBlock(slot: CalendarSlot, usedToday: number, dailyBudget: number) {
+    if (!breaksEnabled) {
+      return false;
+    }
+
     if (slot.durationMinutes < MIN_ALLOCATABLE_MINUTES) {
       return false;
     }
@@ -1151,7 +1155,10 @@ function allocateTasksToSlots(options: {
     options.preferences.maxHeavySessionsPerDay +
     (needsIntensityRamp ? 1 : 0) +
     (options.heavySessionBoost ?? 0);
-  const minBreakMinutes = options.minBreakMinutes ?? options.preferences.minBreakMinutes;
+  const breaksEnabled = options.preferences.breaksEnabled ?? true;
+  const minBreakMinutes = breaksEnabled
+    ? (options.minBreakMinutes ?? options.preferences.minBreakMinutes)
+    : 0;
   const focusedSubjectsByDate = options.focusedSubjectsByDate ?? {};
   const weeklyMixTargetMinutesBySubject = buildWeeklyMixTargetMinutesBySubject({
     requiredMinutesBySubject,

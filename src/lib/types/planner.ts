@@ -285,6 +285,7 @@ export interface Preferences {
   reservedCommitmentRules: ReservedCommitmentRule[];
   maxHeavySessionsPerDay: number;
   maxStudyHoursPerDay: number;
+  breaksEnabled: boolean;
   minBreakMinutes: number;
   weeklyBufferRatio: number;
   bufferMinutesBeforeFixedEvent: number;

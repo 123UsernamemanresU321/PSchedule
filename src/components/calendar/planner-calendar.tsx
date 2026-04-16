@@ -268,12 +268,14 @@ export function PlannerCalendar({
       end: new Date(event.end),
     })),
   ];
-  const breakEvents = buildVisibleBreakEvents({
-    studyBlocks,
-    weekStart,
-    minBreakMinutes: preferences.minBreakMinutes,
-    blockedIntervals,
-  });
+  const breakEvents = (preferences.breaksEnabled ?? true)
+    ? buildVisibleBreakEvents({
+        studyBlocks,
+        weekStart,
+        minBreakMinutes: preferences.minBreakMinutes,
+        blockedIntervals,
+      })
+    : [];
   const calendarEvents = [
     ...visibleRecoveryWindows.map((window) => ({
       id: `recovery:${window.id}`,

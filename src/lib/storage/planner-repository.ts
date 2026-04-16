@@ -452,6 +452,7 @@ export function normalizePreferences(preferences?: Partial<Preferences> | null):
   return {
     ...seedPreferences,
     ...preferences,
+    breaksEnabled: preferences?.breaksEnabled ?? seedPreferences.breaksEnabled,
     dailyStudyWindow: {
       ...seedPreferences.dailyStudyWindow,
       ...(preferences?.dailyStudyWindow ?? {}),

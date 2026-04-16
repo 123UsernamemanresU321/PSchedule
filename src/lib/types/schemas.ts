@@ -295,6 +295,7 @@ export const preferencesSchema = z.object({
   ]),
   maxHeavySessionsPerDay: z.number(),
   maxStudyHoursPerDay: z.number(),
+  breaksEnabled: z.boolean().catch(true),
   minBreakMinutes: z.number(),
   weeklyBufferRatio: z.number(),
   bufferMinutesBeforeFixedEvent: z.number(),

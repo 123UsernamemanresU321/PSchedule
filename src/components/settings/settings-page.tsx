@@ -634,6 +634,20 @@ export function SettingsPage() {
                     }
                   />
                 </div>
+                <div className="space-y-2 flex flex-col justify-center">
+                  <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Enable breaks</label>
+                  <div className="h-10 flex items-center">
+                    <Switch
+                      checked={form.breaksEnabled ?? true}
+                      onCheckedChange={(checked) =>
+                        setForm({
+                          ...form,
+                          breaksEnabled: checked,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
                 <div className="space-y-2">
                   <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Minimum break (min)</label>
                   <Input
