@@ -32,7 +32,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-04-18-soft-commitment-durations-v47";
+const PLANNING_MODEL_VERSION = "2026-04-18-horizon-dashboard-v48";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-08-olympiad-bplus-roadmap-v11";
@@ -646,6 +646,10 @@ export function getCollapsedCoverageRepairState(
       const topicCoverageRatio = futureTopicHours / Math.max(progress.remainingHours, 0.1);
       const hasMeaningfulUnscheduledWork =
         progress.remainingHours > 0.25 && progress.unscheduledHours > 0.25;
+      const hasStrictIncompleteCoverage =
+        subject.id !== CPP_BOOK_SUBJECT_ID &&
+        progress.remainingHours > 0.25 &&
+        progress.unscheduledHours > 0.25;
       const hasNearZeroCoverage =
         progress.remainingHours > 1 &&
         progress.unscheduledHours > Math.max(1, progress.remainingHours - 1) &&
@@ -665,9 +669,11 @@ export function getCollapsedCoverageRepairState(
         futureTopicBlocks,
         scheduledCoverageRatio,
         topicCoverageRatio,
+        hasStrictIncompleteCoverage,
         isCollapsed:
-          hasMeaningfulUnscheduledWork &&
-          (hasNearZeroCoverage || hasCollapsedPartialCoverage),
+          hasStrictIncompleteCoverage ||
+          (hasMeaningfulUnscheduledWork &&
+            (hasNearZeroCoverage || hasCollapsedPartialCoverage)),
       };
     });
   const collapsedSubjectIds = states

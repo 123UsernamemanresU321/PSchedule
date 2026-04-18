@@ -4,9 +4,19 @@ import { addDays } from "date-fns";
 
 import { buildSeedDataset } from "@/lib/seed";
 import { buildSeedPreferences } from "@/lib/seed/preferences";
-import { getCalendarCompletionForecast, getSubjectProgress } from "@/lib/analytics/metrics";
-import { isStaleChunkMessage } from "@/components/planner/planner-bootstrap";
+import {
+  countHorizonTrackStatus,
+  countTrackStatus,
+  getCalendarCompletionForecast,
+  getDashboardCoverageState,
+  getDashboardHorizonMetrics,
+  getSubjectProgress,
+} from "@/lib/analytics/metrics";
+import {
+  isStaleChunkMessage,
+} from "@/components/planner/planner-bootstrap";
 import { createDateAtTime, fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
+import { mainSubjectIds } from "@/lib/constants/planner";
 import {
   calculateFreeSlots,
   expandLockedRecoveryWindowsForWeek,
@@ -515,6 +525,21 @@ test("calendar completion forecast treats blocks on the deadline day as on-track
   assert.equal(forecast.completionDate?.toISOString(), "2026-03-20T18:00:00.000Z");
 });
 
+test("seeded first-pass school milestones move to August 14 while olympiad and C++ stay unchanged", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-18T08:00:00"));
+  const physicsGoal = dataset.goals.find((goal) => goal.id === "goal-physics-hl");
+  const mathsGoal = dataset.goals.find((goal) => goal.id === "goal-maths-aa-hl");
+  const chemistryGoal = dataset.goals.find((goal) => goal.id === "goal-chemistry-hl");
+  const olympiadGoal = dataset.goals.find((goal) => goal.id === "goal-olympiad-phase-1");
+  const cppGoal = dataset.goals.find((goal) => goal.id === "goal-cpp-book");
+
+  assert.equal(physicsGoal?.deadline, "2026-08-14");
+  assert.equal(mathsGoal?.deadline, "2026-08-14");
+  assert.equal(chemistryGoal?.deadline, "2026-08-14");
+  assert.equal(olympiadGoal?.deadline, "2026-06-30");
+  assert.equal(cppGoal?.deadline, "2027-06-30");
+});
+
 test("subject progress distinguishes already planned work from truly unscheduled work", () => {
   const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
   const olympiad = dataset.subjects.find((subject) => subject.id === "olympiad");
@@ -647,6 +672,37 @@ test("horizon generation fully places remaining topic hours when future capacity
 
   assert.equal(progress.scheduledFutureHours, 6);
   assert.equal(progress.unscheduledHours, 0);
+});
+
+test("clean full-horizon seed keeps every non-C++ subject fully scheduled", () => {
+  const referenceDate = new Date("2026-04-18T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const result = generateStudyPlanHorizon({
+    startWeek: startOfPlannerWeek(referenceDate),
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    completionLogs: [],
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+    existingStudyBlocks: [],
+  });
+
+  dataset.subjects
+    .filter((subject) => subject.id !== "cpp-book")
+    .forEach((subject) => {
+      const progress = getSubjectProgress(subject, dataset.topics, result.studyBlocks, referenceDate);
+      if (progress.remainingHours > 0.25) {
+        assert.equal(
+          progress.unscheduledHours,
+          0,
+          `expected ${subject.id} to stay fully scheduled on a clean horizon`,
+        );
+      }
+    });
 });
 
 test("weekly allocation keeps filling after sequential topics unlock midweek", () => {
@@ -2880,6 +2936,107 @@ test("collapsed coverage repair state also flags illegal future overlaps", () =>
     repairState.invalidOverlapIssues.length > 0,
     "expected future overlap damage to trigger repair detection",
   );
+});
+
+test("collapsed coverage repair state flags even small non-C++ future gaps", () => {
+  const referenceDate = new Date("2026-04-18T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const result = generateStudyPlanHorizon({
+    startWeek: startOfPlannerWeek(referenceDate),
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    completionLogs: [],
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+    existingStudyBlocks: [],
+  });
+  const mathsBlock = result.studyBlocks.find(
+    (block) =>
+      block.subjectId === "maths-aa-hl" &&
+      ["planned", "rescheduled"].includes(block.status) &&
+      new Date(block.end).getTime() > referenceDate.getTime() &&
+      block.estimatedMinutes >= 30,
+  );
+
+  assert.ok(mathsBlock, "expected a future maths block");
+
+  const damagedSnapshot = {
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    studyBlocks: result.studyBlocks.map((block) =>
+      block.id === mathsBlock!.id
+        ? {
+            ...block,
+            estimatedMinutes: block.estimatedMinutes - 30,
+          }
+        : block,
+    ),
+    completionLogs: [],
+    weeklyPlans: result.weeklyPlans,
+    preferences: dataset.preferences,
+  };
+  const repairState = getCollapsedCoverageRepairState(damagedSnapshot, referenceDate);
+
+  assert.equal(repairState.hasCollapsedCoverage, true);
+  assert.ok(repairState.collapsedSubjectIds.includes("maths-aa-hl"));
+});
+
+test("dashboard horizon helpers stay stable even when weekly plans swing between behind and on-track", () => {
+  const referenceDate = new Date("2026-04-18T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const result = generateStudyPlanHorizon({
+    startWeek: startOfPlannerWeek(referenceDate),
+    endWeek: addDays(startOfPlannerWeek(referenceDate), 35),
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    completionLogs: [],
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+    existingStudyBlocks: [],
+  });
+  const forecasts = dataset.subjects
+    .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
+    .map((subject) =>
+      getCalendarCompletionForecast({
+        subject,
+        topics: dataset.topics,
+        goals: dataset.goals,
+        studyBlocks: result.studyBlocks,
+        weeklyPlans: result.weeklyPlans,
+        referenceDate,
+      }),
+    );
+  const weeklyTrackStart = countTrackStatus(result.weeklyPlans[0]);
+  const weeklyTrackNext = countTrackStatus(result.weeklyPlans[1]);
+  const horizonTrack = countHorizonTrackStatus(forecasts);
+  const coverageState = getDashboardCoverageState(forecasts);
+  const dashboardMetrics = getDashboardHorizonMetrics({
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    studyBlocks: result.studyBlocks,
+    referenceDate,
+  });
+
+  assert.notDeepEqual(weeklyTrackStart, weeklyTrackNext);
+  assert.equal(
+    horizonTrack.onTrack + horizonTrack.atRisk + horizonTrack.behind,
+    forecasts.length,
+  );
+  assert.ok(["On target", "Catch-up", "Calendar-impossible"].includes(coverageState.label));
+  assert.ok(dashboardMetrics.totalTrackedHours > 0);
 });
 
 test("repair baseline drops future preserved study blocks that overlap homework or piano", () => {

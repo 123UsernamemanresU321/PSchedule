@@ -261,6 +261,107 @@ export function getDashboardMetrics(studyBlocks: StudyBlock[], weeklyPlan: Weekl
   };
 }
 
+export function getDashboardHorizonMetrics(options: {
+  subjects: Subject[];
+  topics: Topic[];
+  studyBlocks: StudyBlock[];
+  referenceDate?: Date;
+}) {
+  const referenceDate = options.referenceDate ?? new Date();
+  const trackedProgress = options.subjects
+    .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
+    .map((subject) => getSubjectProgress(subject, options.topics, options.studyBlocks, referenceDate));
+  const plannedTodayMinutes = getPlannedMinutesForDay(options.studyBlocks, referenceDate);
+  const completedTodayMinutes = getCompletedMinutesForDay(options.studyBlocks, referenceDate);
+  const totalTrackedHours = trackedProgress.reduce((total, progress) => total + progress.totalHours, 0);
+  const totalCompletedHours = trackedProgress.reduce(
+    (total, progress) => total + (progress.totalHours - progress.remainingHours),
+    0,
+  );
+  const totalRemainingHours = trackedProgress.reduce((total, progress) => total + progress.remainingHours, 0);
+  const totalScheduledFutureHours = trackedProgress.reduce(
+    (total, progress) => total + progress.scheduledFutureHours,
+    0,
+  );
+  const totalUnscheduledHours = trackedProgress.reduce(
+    (total, progress) => total + progress.unscheduledHours,
+    0,
+  );
+
+  return {
+    plannedTodayHours: hoursFromMinutes(plannedTodayMinutes),
+    completedTodayHours: hoursFromMinutes(completedTodayMinutes),
+    horizonProgressPercent:
+      totalTrackedHours > 0 ? Math.round((totalCompletedHours / totalTrackedHours) * 100) : 0,
+    totalTrackedHours: Number(totalTrackedHours.toFixed(1)),
+    totalCompletedHours: Number(totalCompletedHours.toFixed(1)),
+    totalRemainingHours: Number(totalRemainingHours.toFixed(1)),
+    totalScheduledFutureHours: Number(totalScheduledFutureHours.toFixed(1)),
+    totalUnscheduledHours: Number(totalUnscheduledHours.toFixed(1)),
+  };
+}
+
+function isForecastOnActiveMilestone(
+  forecast: ReturnType<typeof getCalendarCompletionForecast>,
+) {
+  const activeDeadlineCutoff = endOfDay(fromDateKey(forecast.milestoneDeadline));
+  const projectedCompletionDate = forecast.completionDate ?? forecast.horizonCompletionDate;
+
+  return !!projectedCompletionDate && projectedCompletionDate.getTime() <= activeDeadlineCutoff.getTime();
+}
+
+export function countHorizonTrackStatus(
+  forecasts: Array<ReturnType<typeof getCalendarCompletionForecast>>,
+) {
+  return forecasts.reduce(
+    (accumulator, forecast) => {
+      if (isForecastOnActiveMilestone(forecast)) {
+        accumulator.onTrack += 1;
+      } else if (forecast.isFullyScheduledOnHorizon) {
+        accumulator.atRisk += 1;
+      } else {
+        accumulator.behind += 1;
+      }
+
+      return accumulator;
+    },
+    {
+      onTrack: 0,
+      atRisk: 0,
+      behind: 0,
+    },
+  );
+}
+
+export function getDashboardCoverageState(
+  forecasts: Array<ReturnType<typeof getCalendarCompletionForecast>>,
+) {
+  const calendarImpossibleCount = forecasts.filter((forecast) => forecast.isCalendarImpossible).length;
+  const offMilestoneCount = forecasts.filter((forecast) => !isForecastOnActiveMilestone(forecast)).length;
+
+  if (calendarImpossibleCount > 0) {
+    return {
+      label: "Calendar-impossible",
+      tone: "danger" as const,
+      detail: `${calendarImpossibleCount} tracked subject${calendarImpossibleCount === 1 ? "" : "s"} still cannot reach the active deadline with the current horizon.`,
+    };
+  }
+
+  if (offMilestoneCount > 0) {
+    return {
+      label: "Catch-up",
+      tone: "warning" as const,
+      detail: `${offMilestoneCount} tracked subject${offMilestoneCount === 1 ? "" : "s"} finish after the active milestone, even though the horizon still covers the work.`,
+    };
+  }
+
+  return {
+    label: "On target",
+    tone: "success" as const,
+    detail: "All tracked subjects currently finish by their active milestone deadlines.",
+  };
+}
+
 export function getActiveWeekRange(studyBlocks: StudyBlock[]) {
   const first = studyBlocks[0];
   return first ? toDateKey(startOfPlannerWeek(new Date(first.start))) : toDateKey(startOfPlannerWeek(new Date()));

@@ -20,14 +20,13 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   getCalendarCompletionForecast,
-  countTrackStatus,
-  getDashboardMetrics,
+  countHorizonTrackStatus,
+  getDashboardCoverageState,
+  getDashboardHorizonMetrics,
   getHorizonRoadmapSummary,
   getSubjectProgress,
   getTodayBlocks,
   getUrgentTopics,
-  getWeekBlocks,
-  getWeeklyCoverageState,
   getWeeklyPlan,
 } from "@/lib/analytics/metrics";
 import { mainSubjectIds } from "@/lib/constants/planner";
@@ -35,6 +34,7 @@ import { fromDateKey } from "@/lib/dates/helpers";
 import { usePlannerStore } from "@/lib/store/planner-store";
 
 export function DashboardPage() {
+  const referenceDate = new Date();
   const currentWeekStart = usePlannerStore((state) => state.currentWeekStart);
   const goals = usePlannerStore((state) => state.goals);
   const subjects = usePlannerStore((state) => state.subjects);
@@ -46,16 +46,12 @@ export function DashboardPage() {
   const preferences = usePlannerStore((state) => state.preferences);
 
   const weeklyPlan = getWeeklyPlan(weeklyPlans, currentWeekStart);
-  const weekBlocks = getWeekBlocks(studyBlocks, currentWeekStart);
-  const todayBlocks = getTodayBlocks(weekBlocks);
-  const metrics = getDashboardMetrics(weekBlocks, weeklyPlan);
-  const trackStatus = countTrackStatus(weeklyPlan);
-  const weeklyCoverageState = getWeeklyCoverageState(weeklyPlan);
+  const todayBlocks = getTodayBlocks(studyBlocks, referenceDate);
   const urgentTopics = getUrgentTopics(topics, subjects).slice(0, 3);
   const roadmapSummary = getHorizonRoadmapSummary(weeklyPlans, topics, currentWeekStart);
   const subjectProgress = subjects
     .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
-    .map((subject) => getSubjectProgress(subject, topics, studyBlocks));
+    .map((subject) => getSubjectProgress(subject, topics, studyBlocks, referenceDate));
   const completionForecasts = subjects
     .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
     .map((subject) =>
@@ -65,9 +61,17 @@ export function DashboardPage() {
         goals,
         studyBlocks,
         weeklyPlans,
-        referenceDate: new Date(),
+        referenceDate,
       }),
     );
+  const metrics = getDashboardHorizonMetrics({
+    subjects,
+    topics,
+    studyBlocks,
+    referenceDate,
+  });
+  const trackStatus = countHorizonTrackStatus(completionForecasts);
+  const dashboardCoverageState = getDashboardCoverageState(completionForecasts);
 
   const chartData = subjectProgress.map((progress) => ({
     name: progress.subject.shortName.replace(" HL", ""),
@@ -91,10 +95,10 @@ export function DashboardPage() {
           accent={<Clock3 className="h-5 w-5 text-primary" />}
         />
         <MetricCard
-          eyebrow="Weekly progress"
-          value={`${metrics.weeklyProgressPercent}%`}
-          detail={`${metrics.weeklyCompletedHours.toFixed(1)} of ${metrics.weeklyPlannedHours.toFixed(1)} hrs completed`}
-          tone={metrics.weeklyProgressPercent >= 70 ? "success" : "default"}
+          eyebrow="Horizon progress"
+          value={`${metrics.horizonProgressPercent}%`}
+          detail={`${metrics.totalCompletedHours.toFixed(1)} of ${metrics.totalTrackedHours.toFixed(1)} hrs completed across tracked subjects`}
+          tone={metrics.horizonProgressPercent >= 70 ? "success" : "default"}
           accent={<ArrowUpRight className="h-5 w-5 text-success" />}
         />
         <MetricCard
@@ -106,9 +110,9 @@ export function DashboardPage() {
         />
         <MetricCard
           eyebrow="Coverage state"
-          value={weeklyCoverageState.label}
-          detail={weeklyPlan?.feasibilityWarnings[0] ?? "Buffer capacity is still protecting the week."}
-          tone={weeklyCoverageState.tone}
+          value={dashboardCoverageState.label}
+          detail={dashboardCoverageState.detail}
+          tone={dashboardCoverageState.tone}
           accent={<Flame className="h-5 w-5 text-warning" />}
         />
       </div>
@@ -270,7 +274,7 @@ export function DashboardPage() {
               ))
             ) : (
               <div className="rounded-sm border border-dashed border-white/10 px-4 py-6 text-sm text-muted-foreground">
-                No blocks scheduled for today in the selected week.
+                No blocks scheduled for today.
               </div>
             )}
           </CardContent>
@@ -309,8 +313,8 @@ export function DashboardPage() {
         <Card>
           <CardHeader className="flex-row items-end justify-between">
             <div>
-              <CardTitle>This week&apos;s required hours by subject</CardTitle>
-              <p className="text-sm text-muted-foreground">Required versus already assigned hours for the active week.</p>
+              <CardTitle>Selected week&apos;s required hours by subject</CardTitle>
+              <p className="text-sm text-muted-foreground">Required versus already assigned hours for the selected calendar week.</p>
             </div>
           </CardHeader>
           <CardContent className="h-[320px] pt-2">
@@ -345,7 +349,7 @@ export function DashboardPage() {
                 </p>
                 <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
                   <span>{progress.atRiskTopics.length} topic risks</span>
-                  <span>{weeklyPlan?.assignedHoursBySubject[progress.subject.id]?.toFixed(1) ?? "0.0"}h assigned</span>
+                  <span>{weeklyPlan?.assignedHoursBySubject[progress.subject.id]?.toFixed(1) ?? "0.0"}h assigned in selected week</span>
                 </div>
               </div>
             ))}

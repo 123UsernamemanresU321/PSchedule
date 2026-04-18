@@ -149,7 +149,7 @@ export function buildSeedSubjects(referenceDate = new Date()): Subject[] {
 }
 
 export function buildSeedGoals(referenceDate = new Date()): Goal[] {
-  const deadline = format(getAcademicDeadline(referenceDate), "yyyy-MM-dd");
+  const firstSchoolMilestoneDeadline = `${referenceDate.getFullYear()}-08-14`;
   const olympiadPhaseOneDeadline = `${referenceDate.getFullYear()}-06-30`;
   const olympiadPhaseTwoDeadline = `${referenceDate.getFullYear()}-09-30`;
   const olympiadCampDeadline = `${referenceDate.getFullYear()}-11-30`;
@@ -166,9 +166,9 @@ export function buildSeedGoals(referenceDate = new Date()): Goal[] {
   return [
     {
       id: "goal-physics-hl",
-      title: "Finish all Physics HL guide topics A.1-E.5 by July 31",
+      title: `Finish all Physics HL guide topics A.1-E.5 by ${firstSchoolMilestoneDeadline}`,
       subjectId: "physics-hl",
-      deadline,
+      deadline: firstSchoolMilestoneDeadline,
       targetCompletion: physicsSyllabusTargetCompletion,
       priorityWeight: 1,
     },
@@ -182,9 +182,9 @@ export function buildSeedGoals(referenceDate = new Date()): Goal[] {
     },
     {
       id: "goal-maths-aa-hl",
-      title: "Finish the full Maths AA HL syllabus, including HL extension, by July 31",
+      title: `Finish the full Maths AA HL syllabus, including HL extension, by ${firstSchoolMilestoneDeadline}`,
       subjectId: "maths-aa-hl",
-      deadline,
+      deadline: firstSchoolMilestoneDeadline,
       targetCompletion: mathsSyllabusTargetCompletion,
       priorityWeight: 1,
     },
@@ -198,9 +198,9 @@ export function buildSeedGoals(referenceDate = new Date()): Goal[] {
     },
     {
       id: "goal-chemistry-hl",
-      title: "Finish all Chemistry HL structure and reactivity topics by July 31",
+      title: `Finish all Chemistry HL structure and reactivity topics by ${firstSchoolMilestoneDeadline}`,
       subjectId: "chemistry-hl",
-      deadline,
+      deadline: firstSchoolMilestoneDeadline,
       targetCompletion: chemistrySyllabusTargetCompletion,
       priorityWeight: 0.9,
     },
