@@ -18,6 +18,7 @@ import {
 import { getActiveSickDaySeverity } from "@/lib/scheduler/schedule-regime";
 import { fromDateKey } from "@/lib/dates/helpers";
 import type {
+  EffectiveReservedCommitmentDuration,
   FixedEvent,
   FocusedDay,
   FocusedWeek,
@@ -120,6 +121,7 @@ interface PlannerCalendarProps {
   sickDays: SickDay[];
   focusedDays: FocusedDay[];
   focusedWeeks: FocusedWeek[];
+  effectiveReservedCommitmentDurations?: EffectiveReservedCommitmentDuration[];
   excludedReservedCommitmentRuleIds?: string[];
   preferences: Preferences;
   studyBlocks: StudyBlock[];
@@ -149,6 +151,7 @@ export function PlannerCalendar({
   sickDays,
   focusedDays,
   focusedWeeks,
+  effectiveReservedCommitmentDurations = [],
   excludedReservedCommitmentRuleIds = [],
   preferences,
   studyBlocks,
@@ -198,6 +201,7 @@ export function PlannerCalendar({
     fixedEvents,
     sickDays,
     excludedReservedCommitmentRuleIds,
+    effectiveReservedCommitmentDurations,
   );
   const sickDayEvents = Array.from({ length: 7 }, (_, index) => addDays(visibleWeekStart, index)).flatMap((day) => {
     const severity = getActiveSickDaySeverity(day, sickDays);

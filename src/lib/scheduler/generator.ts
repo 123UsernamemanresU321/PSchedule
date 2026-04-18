@@ -6,7 +6,10 @@ import {
   buildWeeklyPlan,
   computeSubjectDeadlineTracks,
 } from "@/lib/scheduler/feasibility";
-import { calculateFreeSlots } from "@/lib/scheduler/free-slots";
+import {
+  calculateFreeSlots,
+  expandReservedCommitmentWindowsForWeek,
+} from "@/lib/scheduler/free-slots";
 import {
   getOlympiadNumberTheoryEligibilityStatus,
   getOlympiadStageGateStatus,
@@ -32,6 +35,7 @@ import type {
   FocusedDay,
   FocusedWeek,
   Goal,
+  EffectiveReservedCommitmentDuration,
   SickDay,
   CompletionLog,
   Preferences,
@@ -52,11 +56,8 @@ const WEEKLY_DIVERSITY_PROPORTIONAL_SHARE_WEIGHT = 0.45;
 const WEEKLY_BALANCE_BONUS_PER_HOUR = 6.5;
 const WEEKLY_BALANCE_PENALTY_PER_HOUR = 3.5;
 const CONTINUITY_BONUS = 5.5;
-const SOFT_COMMITMENT_FALLBACK_PHASES = [
-  [] as string[],
-  ["piano-practice"],
-  ["piano-practice", "term-homework"],
-];
+const SOFT_COMMITMENT_REDUCTION_STEP_MINUTES = 30;
+const SOFT_COMMITMENT_REDUCTION_RULE_ORDER = ["piano-practice", "term-homework"] as const;
 
 function getAllowedBlockTypesForSlot(slot: CalendarSlot) {
   switch (slot.sickDaySeverity) {
@@ -215,10 +216,7 @@ interface DayCapacityEntry {
   scheduleRegime: CalendarSlot["scheduleRegime"];
 }
 
-function buildDayCapacityByDate(
-  freeSlots: CalendarSlot[],
-  dailyCapBoostMinutes: number,
-) {
+function buildDayCapacityByDate(freeSlots: CalendarSlot[]) {
   return freeSlots.reduce<Record<string, DayCapacityEntry>>((accumulator, slot) => {
     const current = accumulator[slot.dateKey] ?? {
       capacity: 0,
@@ -579,6 +577,195 @@ function sumFreeSlotMinutes(slots: CalendarSlot[]) {
   return Math.round(sum(slots.map((slot) => slot.durationMinutes)));
 }
 
+function sortEffectiveReservedCommitmentDurations(
+  durations: EffectiveReservedCommitmentDuration[],
+) {
+  return [...durations].sort(
+    (left, right) =>
+      left.dateKey.localeCompare(right.dateKey) ||
+      left.ruleId.localeCompare(right.ruleId),
+  );
+}
+
+function summarizeEffectiveReservedCommitmentDurations(
+  windows: Array<{
+    dateKey: string;
+    ruleId: string;
+    start: string;
+    end: string;
+  }>,
+) {
+  const durationsByKey = new Map<string, EffectiveReservedCommitmentDuration>();
+
+  windows.forEach((window) => {
+    const durationMinutes = Math.max(
+      0,
+      Math.round((new Date(window.end).getTime() - new Date(window.start).getTime()) / 60000),
+    );
+
+    if (durationMinutes <= 0) {
+      return;
+    }
+
+    const key = `${window.dateKey}:${window.ruleId}`;
+    const current = durationsByKey.get(key);
+
+    if (current) {
+      current.durationMinutes += durationMinutes;
+      return;
+    }
+
+    durationsByKey.set(key, {
+      dateKey: window.dateKey,
+      ruleId: window.ruleId,
+      durationMinutes,
+    });
+  });
+
+  return sortEffectiveReservedCommitmentDurations(Array.from(durationsByKey.values()));
+}
+
+function deriveExcludedReservedCommitmentRuleIds(options: {
+  baseDurations: EffectiveReservedCommitmentDuration[];
+  effectiveDurations: EffectiveReservedCommitmentDuration[];
+}) {
+  const baseMinutesByRule = new Map<string, number>();
+  const effectiveMinutesByRule = new Map<string, number>();
+
+  options.baseDurations.forEach((entry) => {
+    baseMinutesByRule.set(entry.ruleId, (baseMinutesByRule.get(entry.ruleId) ?? 0) + entry.durationMinutes);
+  });
+  options.effectiveDurations.forEach((entry) => {
+    effectiveMinutesByRule.set(
+      entry.ruleId,
+      (effectiveMinutesByRule.get(entry.ruleId) ?? 0) + entry.durationMinutes,
+    );
+  });
+
+  return Array.from(baseMinutesByRule.entries())
+    .filter(([, baseMinutes]) => baseMinutes > 0)
+    .filter(([ruleId]) => (effectiveMinutesByRule.get(ruleId) ?? 0) <= 0)
+    .map(([ruleId]) => ruleId)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function buildBaseReservedCommitmentDurationsForWeek(options: {
+  weekStart: Date;
+  fixedEvents: import("@/lib/types/planner").FixedEvent[];
+  sickDays?: SickDay[];
+  preferences: Preferences;
+  planningStart: Date;
+}) {
+  return summarizeEffectiveReservedCommitmentDurations(
+    expandReservedCommitmentWindowsForWeek(
+      options.weekStart,
+      options.preferences,
+      options.fixedEvents,
+      options.sickDays ?? [],
+      [],
+      [],
+      options.planningStart,
+    ),
+  );
+}
+
+function buildReducedReservedCommitmentDurations(
+  durations: EffectiveReservedCommitmentDuration[],
+  target: EffectiveReservedCommitmentDuration,
+) {
+  return sortEffectiveReservedCommitmentDurations(
+    durations.map((entry) =>
+      entry.dateKey === target.dateKey && entry.ruleId === target.ruleId
+        ? {
+            ...entry,
+            durationMinutes: Math.max(0, entry.durationMinutes - SOFT_COMMITMENT_REDUCTION_STEP_MINUTES),
+          }
+        : entry,
+    ),
+  );
+}
+
+function calculateFreeSlotCapacityForWeek(options: {
+  weekStart: Date;
+  fixedEvents: import("@/lib/types/planner").FixedEvent[];
+  sickDays?: SickDay[];
+  preferences: Preferences;
+  blockedStudyBlocks: StudyBlock[];
+  planningStart: Date;
+  effectiveReservedCommitmentDurations: EffectiveReservedCommitmentDuration[];
+}) {
+  return sumFreeSlotMinutes(
+    calculateFreeSlots({
+      weekStart: options.weekStart,
+      fixedEvents: options.fixedEvents,
+      sickDays: options.sickDays ?? [],
+      preferences: options.preferences,
+      blockedStudyBlocks: options.blockedStudyBlocks,
+      planningStart: options.planningStart,
+      effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
+    }),
+  );
+}
+
+function chooseBestSoftCommitmentReduction(options: {
+  ruleId: (typeof SOFT_COMMITMENT_REDUCTION_RULE_ORDER)[number];
+  currentDurations: EffectiveReservedCommitmentDuration[];
+  weekStart: Date;
+  fixedEvents: import("@/lib/types/planner").FixedEvent[];
+  sickDays?: SickDay[];
+  preferences: Preferences;
+  blockedStudyBlocks: StudyBlock[];
+  planningStart: Date;
+}):
+  | {
+      reducedDurations: EffectiveReservedCommitmentDuration[];
+      capacityMinutes: number;
+      dateKey: string;
+    }
+  | null {
+  const reducibleDurations = options.currentDurations.filter(
+    (entry) => entry.ruleId === options.ruleId && entry.durationMinutes >= SOFT_COMMITMENT_REDUCTION_STEP_MINUTES,
+  );
+
+  if (!reducibleDurations.length) {
+    return null;
+  }
+
+  let bestCandidate: {
+    reducedDurations: EffectiveReservedCommitmentDuration[];
+    capacityMinutes: number;
+    dateKey: string;
+  } | null = null;
+
+  reducibleDurations.forEach((entry) => {
+    const reducedDurations = buildReducedReservedCommitmentDurations(options.currentDurations, entry);
+    const capacityMinutes = calculateFreeSlotCapacityForWeek({
+      weekStart: options.weekStart,
+      fixedEvents: options.fixedEvents,
+      sickDays: options.sickDays,
+      preferences: options.preferences,
+      blockedStudyBlocks: options.blockedStudyBlocks,
+      planningStart: options.planningStart,
+      effectiveReservedCommitmentDurations: reducedDurations,
+    });
+
+    if (
+      !bestCandidate ||
+      capacityMinutes > bestCandidate.capacityMinutes ||
+      (capacityMinutes === bestCandidate.capacityMinutes &&
+        entry.dateKey.localeCompare(bestCandidate.dateKey) > 0)
+    ) {
+      bestCandidate = {
+        reducedDurations,
+        capacityMinutes,
+        dateKey: entry.dateKey,
+      };
+    }
+  });
+
+  return bestCandidate;
+}
+
 function buildWeeklyMixTargetMinutesBySubject(options: {
   requiredMinutesBySubject: Record<string, number>;
   effectiveCapacityMinutes: number;
@@ -619,7 +806,7 @@ function buildWeeklyMixTargetMinutesBySubject(options: {
   return targets;
 }
 
-function selectExcludedReservedCommitmentRuleIdsForWeek(options: {
+export function selectEffectiveReservedCommitmentPlanForWeek(options: {
   currentWeek: Date;
   endWeek: Date;
   goals: Goal[];
@@ -638,6 +825,13 @@ function selectExcludedReservedCommitmentRuleIdsForWeek(options: {
   availabilityOverrideSubjectIds?: Subject["id"][];
 }) {
   const referenceDate = getPlannerReferenceDate(options.currentWeek);
+  const baseDurations = buildBaseReservedCommitmentDurationsForWeek({
+    weekStart: options.currentWeek,
+    fixedEvents: options.fixedEvents,
+    sickDays: options.sickDays,
+    preferences: options.preferences,
+    planningStart: referenceDate,
+  });
   const remainingTasks = buildTaskCandidates({
     topics: options.topics,
     existingPlannedBlocks: options.existingPlannedBlocks,
@@ -650,8 +844,14 @@ function selectExcludedReservedCommitmentRuleIdsForWeek(options: {
     sum(remainingTasks.map((task) => task.remainingMinutes)),
   );
 
-  if (remainingTaskMinutes <= 0) {
-    return [] as string[];
+  if (!baseDurations.length || remainingTaskMinutes <= 0) {
+    return {
+      effectiveReservedCommitmentDurations: baseDurations,
+      excludedReservedCommitmentRuleIds: deriveExcludedReservedCommitmentRuleIds({
+        baseDurations,
+        effectiveDurations: baseDurations,
+      }),
+    };
   }
 
   const deadlineTracks = computeSubjectDeadlineTracks({
@@ -677,25 +877,54 @@ function selectExcludedReservedCommitmentRuleIdsForWeek(options: {
   );
   const targetCapacityMinutes = weeklyRequiredMinutes;
   const blockedStudyBlocks = options.lockedBlocks ?? [];
+  let currentDurations = baseDurations;
+  let capacityMinutes = calculateFreeSlotCapacityForWeek({
+    weekStart: options.currentWeek,
+    fixedEvents: options.fixedEvents,
+    sickDays: options.sickDays,
+    preferences: options.preferences,
+    blockedStudyBlocks,
+    planningStart: referenceDate,
+    effectiveReservedCommitmentDurations: currentDurations,
+  });
 
-  for (const excludedReservedCommitmentRuleIds of SOFT_COMMITMENT_FALLBACK_PHASES) {
-    const freeSlots = calculateFreeSlots({
-      weekStart: options.currentWeek,
-      fixedEvents: options.fixedEvents,
-      sickDays: options.sickDays ?? [],
-      preferences: options.preferences,
-      blockedStudyBlocks,
-      planningStart: referenceDate,
-      excludedReservedCommitmentRuleIds,
-    });
-    const capacityMinutes = sumFreeSlotMinutes(freeSlots);
+  while (capacityMinutes + MIN_ALLOCATABLE_MINUTES < targetCapacityMinutes) {
+    let reduced = false;
 
-    if (capacityMinutes + MIN_ALLOCATABLE_MINUTES >= targetCapacityMinutes) {
-      return excludedReservedCommitmentRuleIds;
+    for (const ruleId of SOFT_COMMITMENT_REDUCTION_RULE_ORDER) {
+      const candidate = chooseBestSoftCommitmentReduction({
+        ruleId,
+        currentDurations,
+        weekStart: options.currentWeek,
+        fixedEvents: options.fixedEvents,
+        sickDays: options.sickDays,
+        preferences: options.preferences,
+        blockedStudyBlocks,
+        planningStart: referenceDate,
+      });
+
+      if (!candidate) {
+        continue;
+      }
+
+      currentDurations = candidate.reducedDurations;
+      capacityMinutes = candidate.capacityMinutes;
+      reduced = true;
+      break;
+    }
+
+    if (!reduced) {
+      break;
     }
   }
 
-  return SOFT_COMMITMENT_FALLBACK_PHASES.at(-1) ?? [];
+  return {
+    effectiveReservedCommitmentDurations: currentDurations,
+    excludedReservedCommitmentRuleIds: deriveExcludedReservedCommitmentRuleIds({
+      baseDurations,
+      effectiveDurations: currentDurations,
+    }),
+  };
 }
 
 function buildFutureFocusedReserveMinutesBySubject(options: {
@@ -711,8 +940,12 @@ function buildFutureFocusedReserveMinutesBySubject(options: {
   subjectDeadlinesById: Record<string, string>;
   existingPlannedBlocks: StudyBlock[];
   availabilityOverrideSubjectIds?: Subject["id"][];
+  effectiveReservedCommitmentDurations?: EffectiveReservedCommitmentDuration[];
   excludedReservedCommitmentRuleIds?: string[];
-  getExcludedReservedCommitmentRuleIdsForWeek?: (weekStart: Date) => string[];
+  getEffectiveReservedCommitmentPlanForWeek?: (weekStart: Date) => {
+    effectiveReservedCommitmentDurations: EffectiveReservedCommitmentDuration[];
+    excludedReservedCommitmentRuleIds: string[];
+  };
 }) {
   const futureFocusedSubjectIds = new Set<string>();
 
@@ -779,11 +1012,16 @@ function buildFutureFocusedReserveMinutesBySubject(options: {
       preferences: options.preferences,
       blockedStudyBlocks: [],
       planningStart: futureWeek,
+      effectiveReservedCommitmentDurations:
+        options.getEffectiveReservedCommitmentPlanForWeek?.(futureWeek)
+          ?.effectiveReservedCommitmentDurations ??
+        options.effectiveReservedCommitmentDurations,
       excludedReservedCommitmentRuleIds:
-        options.getExcludedReservedCommitmentRuleIdsForWeek?.(futureWeek) ??
+        options.getEffectiveReservedCommitmentPlanForWeek?.(futureWeek)
+          ?.excludedReservedCommitmentRuleIds ??
         options.excludedReservedCommitmentRuleIds,
     });
-    const dayCapacityByDate = buildDayCapacityByDate(futureWeekSlots, 0);
+    const dayCapacityByDate = buildDayCapacityByDate(futureWeekSlots);
     const focusedTargetMinutesByDate = buildFocusedTargetMinutesByDate({
       focusedSubjectsByDate,
       dayCapacityByDate,
@@ -1139,8 +1377,7 @@ function allocateTasksToSlots(options: {
   );
   const requiredMinutes = sum(Object.values(requiredMinutesBySubject));
   const needsIntensityRamp = requiredMinutes > bufferedCapacityMinutes;
-  const dailyCapBoostMinutes = options.dailyCapBoostMinutes ?? 0;
-  const dayCapacityByDate = buildDayCapacityByDate(options.freeSlots, dailyCapBoostMinutes);
+  const dayCapacityByDate = buildDayCapacityByDate(options.freeSlots);
   const lastSlotEndByDate = buildLastSlotEndByDate(options.freeSlots);
   const effectiveCapacityMinutes = clamp(
     options.fillAvailableStudyDays
@@ -2028,6 +2265,7 @@ export function generateStudyPlanForWeek(options: {
   dailyCapBoostMinutes?: number;
   horizonStartDate?: Date;
   availabilityOverrideSubjectIds?: Subject["id"][];
+  effectiveReservedCommitmentDurations?: EffectiveReservedCommitmentDuration[];
   excludedReservedCommitmentRuleIds?: string[];
 }): SchedulerResult {
   const weekStart = startOfPlannerWeek(options.weekStart ?? new Date());
@@ -2092,6 +2330,7 @@ export function generateStudyPlanForWeek(options: {
         topics: options.topics,
         goals: options.goals,
         referenceDate,
+        effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
         excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
         preferences: options.preferences,
       }),
@@ -2114,6 +2353,7 @@ export function generateStudyPlanForWeek(options: {
     preferences: options.preferences,
     blockedStudyBlocks: lockedBlocks,
     planningStart: referenceDate,
+    effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
     excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
   });
   const capacityFreeSlots = calculateFreeSlots({
@@ -2124,6 +2364,7 @@ export function generateStudyPlanForWeek(options: {
     blockedStudyBlocks: lockedBlocks,
     planningStart: referenceDate,
     skipMovableRecovery: true,
+    effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
     excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
   });
   const shouldFillAvailableStudyDays = true;
@@ -2205,6 +2446,7 @@ export function generateStudyPlanForWeek(options: {
       blockedStudyBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
       planningStart: referenceDate,
       skipMovableRecovery: passPolicy.skipMovableRecovery,
+      effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
       excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
     });
 
@@ -2257,6 +2499,7 @@ export function generateStudyPlanForWeek(options: {
     preferences: options.preferences,
     blockedStudyBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
     planningStart: referenceDate,
+    effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
     excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
   });
   const finalTasks = buildTaskCandidates({
@@ -2300,6 +2543,7 @@ export function generateStudyPlanForWeek(options: {
     }),
     priorPlannedBlocks: existingPlannedBlocks,
     cumulativePlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
+    effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
     excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
     preferences: options.preferences,
   });
@@ -2422,7 +2666,7 @@ export function generateStudyPlanHorizon(options: {
       return toDateKey(startOfPlannerWeek(new Date(block.start))) === weekKey;
     });
     const existingPlannedBlocks = [...accumulatedBlocks, ...lockedBlocks];
-    const excludedReservedCommitmentRuleIds = selectExcludedReservedCommitmentRuleIdsForWeek({
+    const effectiveReservedCommitmentPlan = selectEffectiveReservedCommitmentPlanForWeek({
       currentWeek,
       endWeek: effectiveEndWeek,
       goals: options.goals,
@@ -2453,8 +2697,8 @@ export function generateStudyPlanHorizon(options: {
       subjectDeadlinesById,
       existingPlannedBlocks,
       availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
-      getExcludedReservedCommitmentRuleIdsForWeek: (candidateWeek) =>
-        selectExcludedReservedCommitmentRuleIdsForWeek({
+      getEffectiveReservedCommitmentPlanForWeek: (candidateWeek) =>
+        selectEffectiveReservedCommitmentPlanForWeek({
           currentWeek: candidateWeek,
           endWeek: effectiveEndWeek,
           goals: options.goals,
@@ -2488,7 +2732,10 @@ export function generateStudyPlanHorizon(options: {
       futureFocusedReserveMinutesBySubject,
       horizonStartDate,
       availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
-      excludedReservedCommitmentRuleIds,
+      effectiveReservedCommitmentDurations:
+        effectiveReservedCommitmentPlan.effectiveReservedCommitmentDurations,
+      excludedReservedCommitmentRuleIds:
+        effectiveReservedCommitmentPlan.excludedReservedCommitmentRuleIds,
     });
 
     horizonStudyBlocks.push(...result.studyBlocks);

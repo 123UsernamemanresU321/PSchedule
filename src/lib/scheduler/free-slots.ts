@@ -18,6 +18,7 @@ import {
 } from "@/lib/dates/helpers";
 import type {
   CalendarSlot,
+  EffectiveReservedCommitmentDuration,
   FixedEvent,
   Preferences,
   SickDay,
@@ -499,16 +500,31 @@ function placeReservedCommitmentIntervals(options: {
   return remainingMinutes <= 0 ? segments : [];
 }
 
+function buildEffectiveReservedCommitmentDurationMap(
+  overrides: EffectiveReservedCommitmentDuration[] = [],
+) {
+  return new Map(
+    overrides.map((override) => [
+      `${override.dateKey}:${override.ruleId}`,
+      Math.max(0, override.durationMinutes),
+    ]),
+  );
+}
+
 export function expandReservedCommitmentWindowsForWeek(
   weekStart: Date,
   preferences: Preferences,
   fixedEvents: FixedEvent[] = [],
   sickDays: SickDay[] = [],
   excludedRuleIds: string[] = [],
+  effectiveReservedCommitmentDurations: EffectiveReservedCommitmentDuration[] = [],
   planningStart?: Date,
 ): ReservedCommitmentOccurrence[] {
   const expandedFixedEvents = expandPlannerFixedEventsForWeek(weekStart, fixedEvents, preferences);
   const excludedRuleIdSet = new Set(excludedRuleIds);
+  const effectiveDurationByKey = buildEffectiveReservedCommitmentDurationMap(
+    effectiveReservedCommitmentDurations,
+  );
 
   return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)).flatMap((day) => {
     const inSchoolTerm = isDateInActiveSchoolTerm(day, preferences);
@@ -548,11 +564,17 @@ export function expandReservedCommitmentWindowsForWeek(
       }
 
       const activeSickDaySeverity = getActiveSickDaySeverity(day, sickDays);
-      const durationMinutes = getReservedCommitmentDurationForDate(
+      const dateKey = toDateKey(day);
+      const baseDurationMinutes = getReservedCommitmentDurationForDate(
         rule,
-        toDateKey(day),
+        dateKey,
         activeSickDaySeverity ? getSickDayEffectProfile(activeSickDaySeverity) : null,
       );
+      const durationOverride = effectiveDurationByKey.get(`${dateKey}:${rule.id}`);
+      const durationMinutes =
+        durationOverride == null
+          ? baseDurationMinutes
+          : Math.min(baseDurationMinutes, durationOverride);
 
       if (durationMinutes <= 0) {
         return [];
@@ -664,6 +686,7 @@ export function calculateFreeSlots(options: {
   planningStart?: Date;
   skipMovableRecovery?: boolean;
   excludedReservedCommitmentRuleIds?: string[];
+  effectiveReservedCommitmentDurations?: EffectiveReservedCommitmentDuration[];
 }) {
   const { weekStart, preferences, planningStart } = options;
   const sickDays = options.sickDays ?? [];
@@ -674,6 +697,7 @@ export function calculateFreeSlots(options: {
     options.fixedEvents,
     sickDays,
     options.excludedReservedCommitmentRuleIds ?? [],
+    options.effectiveReservedCommitmentDurations ?? [],
     planningStart,
   );
   const blockedStudyBlocks = options.blockedStudyBlocks ?? [];

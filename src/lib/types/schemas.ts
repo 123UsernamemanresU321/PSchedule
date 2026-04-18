@@ -184,6 +184,16 @@ export const weeklyPlanSchema = z.object({
   usedSundayMinutes: z.number().optional().default(0),
   overloadMinutes: z.number().optional().default(0),
   coverageComplete: z.boolean().optional().default(false),
+  effectiveReservedCommitmentDurations: z
+    .array(
+      z.object({
+        dateKey: z.string(),
+        ruleId: z.string(),
+        durationMinutes: z.number().min(0),
+      }),
+    )
+    .optional()
+    .default([]),
   excludedReservedCommitmentRuleIds: z.array(z.string()).optional().default([]),
   weeksRemainingToDeadline: z.number().optional().default(1),
   horizonEndDate: z.string().optional().default(""),
@@ -284,7 +294,7 @@ export const preferencesSchema = z.object({
       id: "term-homework",
       label: "Homework",
       durationMinutes: 90,
-      days: [1, 2, 3, 4, 5],
+      days: [0, 1, 2, 3, 4, 5],
       appliesDuring: "school-term" as const,
       preferredStart: "16:00",
       additionalDates: [],

@@ -206,10 +206,17 @@ export interface WeeklyPlan {
   usedSundayMinutes: number;
   overloadMinutes: number;
   coverageComplete: boolean;
+  effectiveReservedCommitmentDurations: EffectiveReservedCommitmentDuration[];
   excludedReservedCommitmentRuleIds: string[];
   weeksRemainingToDeadline: number;
   horizonEndDate: string;
   generatedAt: string;
+}
+
+export interface EffectiveReservedCommitmentDuration {
+  dateKey: string;
+  ruleId: string;
+  durationMinutes: number;
 }
 
 export interface TimeWindow {

@@ -15,6 +15,7 @@ import {
 import { clamp, roundToTenth, sum } from "@/lib/utils";
 import type {
   CalendarSlot,
+  EffectiveReservedCommitmentDuration,
   FixedEvent,
   Goal,
   Preferences,
@@ -423,6 +424,7 @@ export function buildWeeklyPlan(options: {
   deadlinePaceHoursBySubject?: Record<string, number>;
   forcedCoverageMinutes?: number;
   usedSundayMinutes?: number;
+  effectiveReservedCommitmentDurations?: EffectiveReservedCommitmentDuration[];
   excludedReservedCommitmentRuleIds?: string[];
   unscheduledTasks?: Array<{ subjectId: string | null; remainingMinutes: number }>;
   priorPlannedBlocks?: StudyBlock[];
@@ -643,6 +645,11 @@ export function buildWeeklyPlan(options: {
     usedSundayMinutes,
     overloadMinutes,
     coverageComplete,
+    effectiveReservedCommitmentDurations: [...(options.effectiveReservedCommitmentDurations ?? [])].sort(
+      (left, right) =>
+        left.dateKey.localeCompare(right.dateKey) ||
+        left.ruleId.localeCompare(right.ruleId),
+    ),
     excludedReservedCommitmentRuleIds: Array.from(
       new Set(options.excludedReservedCommitmentRuleIds ?? []),
     ).sort((left, right) => left.localeCompare(right)),
@@ -659,6 +666,7 @@ export function buildUnconfiguredWeeklyPlan(options: {
   topics: Topic[];
   goals: Goal[];
   referenceDate: Date;
+  effectiveReservedCommitmentDurations?: EffectiveReservedCommitmentDuration[];
   excludedReservedCommitmentRuleIds?: string[];
   preferences?: Preferences;
 }) {
@@ -739,6 +747,11 @@ export function buildUnconfiguredWeeklyPlan(options: {
     usedSundayMinutes: 0,
     overloadMinutes: 0,
     coverageComplete: false,
+    effectiveReservedCommitmentDurations: [...(options.effectiveReservedCommitmentDurations ?? [])].sort(
+      (left, right) =>
+        left.dateKey.localeCompare(right.dateKey) ||
+        left.ruleId.localeCompare(right.ruleId),
+    ),
     excludedReservedCommitmentRuleIds: Array.from(
       new Set(options.excludedReservedCommitmentRuleIds ?? []),
     ).sort((left, right) => left.localeCompare(right)),

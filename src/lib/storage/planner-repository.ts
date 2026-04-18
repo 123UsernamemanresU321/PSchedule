@@ -32,7 +32,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-04-14-homework-priority-v46";
+const PLANNING_MODEL_VERSION = "2026-04-18-soft-commitment-durations-v47";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-08-olympiad-bplus-roadmap-v11";
@@ -206,14 +206,18 @@ function normalizeReservedCommitmentRules(
     };
 
     if (ruleId === "term-homework") {
+      const recurringHomeworkDays = Array.from(
+        new Set([0, ...normalizeDays(
+          preferences?.schoolSchedule?.weekdays,
+          seedPreferences.schoolSchedule.weekdays,
+        )]),
+      ).sort((left, right) => left - right);
+
       return {
         ...normalizedRule,
         label: seedRule.label,
         durationMinutes: seedRule.durationMinutes,
-        days: normalizeDays(
-          preferences?.schoolSchedule?.weekdays,
-          seedPreferences.schoolSchedule.weekdays,
-        ),
+        days: recurringHomeworkDays,
         appliesDuring: seedRule.appliesDuring,
       };
     }
@@ -567,6 +571,22 @@ function normalizeWeeklyPlan(
     usedSundayMinutes: weeklyPlan.usedSundayMinutes ?? 0,
     overloadMinutes: weeklyPlan.overloadMinutes ?? 0,
     coverageComplete: weeklyPlan.coverageComplete ?? false,
+    effectiveReservedCommitmentDurations: Array.from(
+      new Map(
+        (weeklyPlan.effectiveReservedCommitmentDurations ?? []).map((entry) => [
+          `${entry.dateKey}:${entry.ruleId}`,
+          {
+            dateKey: entry.dateKey,
+            ruleId: entry.ruleId,
+            durationMinutes: Math.max(0, entry.durationMinutes),
+          },
+        ]),
+      ).values(),
+    ).sort(
+      (left, right) =>
+        left.dateKey.localeCompare(right.dateKey) ||
+        left.ruleId.localeCompare(right.ruleId),
+    ),
     excludedReservedCommitmentRuleIds: Array.from(
       new Set(weeklyPlan.excludedReservedCommitmentRuleIds ?? []),
     ).sort((left, right) => left.localeCompare(right)),

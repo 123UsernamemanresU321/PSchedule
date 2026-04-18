@@ -94,6 +94,8 @@ export function validateGeneratedHorizon(options: {
 
     relevantWeekStarts.forEach((weekStartKey) => {
       const weekStart = new Date(`${weekStartKey}T00:00:00`);
+      const effectiveReservedCommitmentDurations =
+        weeklyPlanByWeekStart.get(weekStartKey)?.effectiveReservedCommitmentDurations ?? [];
       const excludedReservedCommitmentRuleIds =
         weeklyPlanByWeekStart.get(weekStartKey)?.excludedReservedCommitmentRuleIds ?? [];
       const reservedCommitments = expandReservedCommitmentWindowsForWeek(
@@ -102,6 +104,7 @@ export function validateGeneratedHorizon(options: {
         options.fixedEvents!,
         options.sickDays ?? [],
         excludedReservedCommitmentRuleIds,
+        effectiveReservedCommitmentDurations,
       );
       const recoveryWindows = expandLockedRecoveryWindowsForWeek(
         weekStart,

@@ -280,6 +280,9 @@ export function CalendarPage() {
           sickDays={sickDays}
           focusedDays={focusedDays}
           focusedWeeks={focusedWeeks}
+          effectiveReservedCommitmentDurations={
+            visibleWeekPlan?.effectiveReservedCommitmentDurations ?? []
+          }
           excludedReservedCommitmentRuleIds={
             visibleWeekPlan?.excludedReservedCommitmentRuleIds ?? []
           }

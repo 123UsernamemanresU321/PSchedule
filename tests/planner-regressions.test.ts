@@ -16,6 +16,7 @@ import {
   generateStudyPlanForWeek,
   generateStudyPlanHorizon,
   getInlineBreakMinutes,
+  selectEffectiveReservedCommitmentPlanForWeek,
   shouldPreserveStudyBlockOnRegeneration,
 } from "@/lib/scheduler/generator";
 import {
@@ -117,6 +118,7 @@ function createWeeklyPlan(overrides: Partial<WeeklyPlan> = {}): WeeklyPlan {
     usedSundayMinutes: 0,
     overloadMinutes: 0,
     coverageComplete: false,
+    effectiveReservedCommitmentDurations: [],
     excludedReservedCommitmentRuleIds: [],
     weeksRemainingToDeadline: 10,
     horizonEndDate: "2026-07-31",
@@ -2999,6 +3001,7 @@ test("generated horizons never double-book study with homework or piano commitme
       dataset.fixedEvents,
       dataset.sickDays,
       plan.excludedReservedCommitmentRuleIds,
+      plan.effectiveReservedCommitmentDurations,
     ),
   );
   const softCommitments = reservedCommitments.filter(
@@ -4772,6 +4775,9 @@ test("school-term homework still appears when term dates are configured but scho
   const homeworkCommitment = commitments.find(
     (commitment) => commitment.ruleId === "term-homework" && commitment.dateKey === "2026-04-14",
   );
+  const sundayHomeworkCommitment = commitments.find(
+    (commitment) => commitment.ruleId === "term-homework" && commitment.dateKey === "2026-04-19",
+  );
   const saturdayHomeworkCommitment = commitments.find(
     (commitment) => commitment.ruleId === "term-homework" && commitment.dateKey === "2026-04-18",
   );
@@ -4782,6 +4788,10 @@ test("school-term homework still appears when term dates are configured but scho
     undefined,
     "expected automatic homework to stay off non-school weekdays",
   );
+  assert.ok(
+    sundayHomeworkCommitment,
+    "expected automatic homework to stay on Sunday during an active school term",
+  );
   assert.equal(new Date(homeworkCommitment!.start).getHours(), 15);
   assert.equal(new Date(homeworkCommitment!.start).getMinutes(), 30);
   assert.equal(
@@ -4790,6 +4800,10 @@ test("school-term homework still appears when term dates are configured but scho
         60000,
     ),
     90,
+  );
+  assert.equal(
+    sundayHomeworkCommitment?.start,
+    createDateAtTime(fromDateKey("2026-04-19"), "16:00").toISOString(),
   );
 });
 
@@ -4867,8 +4881,182 @@ test("normalizing preferences restores the recurring school-term homework baseli
   assert.ok(homeworkRule, "expected normalized homework rule");
   assert.equal(homeworkRule!.durationMinutes, 90);
   assert.equal(homeworkRule!.appliesDuring, "school-term");
-  assert.deepEqual(homeworkRule!.days, [1, 2, 3, 4, 5]);
+  assert.deepEqual(homeworkRule!.days, [0, 1, 2, 3, 4, 5]);
   assert.equal(homeworkRule!.durationOverrides?.["2026-03-17"], 120);
+});
+
+test("effective reserved commitment durations shorten piano windows before homework windows", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-14T08:00:00"));
+  const weekStart = new Date("2026-04-13T00:00:00.000Z");
+  const preferences = {
+    ...dataset.preferences,
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: false,
+      terms: [
+        {
+          id: "term-2",
+          label: "Term 2",
+          startDate: "2026-04-01",
+          endDate: "2026-06-30",
+        },
+      ],
+    },
+    holidaySchedule: {
+      ...dataset.preferences.holidaySchedule,
+      enabled: true,
+      dailyStudyWindow: {
+        start: "08:00",
+        end: "21:00",
+      },
+    },
+    reservedCommitmentRules: dataset.preferences.reservedCommitmentRules.map((rule) =>
+      rule.id === "term-homework"
+        ? {
+            ...rule,
+            appliesDuring: "all" as const,
+            days: [0, 1],
+            preferredStart: "10:00",
+            durationMinutes: 90,
+          }
+        : rule.id === "piano-practice"
+          ? {
+              ...rule,
+              appliesDuring: "all" as const,
+              days: [0, 1],
+              preferredStart: "13:00",
+              durationMinutes: 60,
+            }
+          : rule,
+    ),
+  };
+
+  const commitments = expandReservedCommitmentWindowsForWeek(
+    weekStart,
+    preferences,
+    [],
+    [],
+    [],
+    [
+      {
+        dateKey: "2026-04-13",
+        ruleId: "piano-practice",
+        durationMinutes: 30,
+      },
+      {
+        dateKey: "2026-04-13",
+        ruleId: "term-homework",
+        durationMinutes: 90,
+      },
+    ],
+  );
+  const mondayPiano = commitments.find(
+    (commitment) => commitment.ruleId === "piano-practice" && commitment.dateKey === "2026-04-13",
+  );
+  const mondayHomework = commitments.find(
+    (commitment) => commitment.ruleId === "term-homework" && commitment.dateKey === "2026-04-13",
+  );
+
+  assert.ok(mondayPiano);
+  assert.ok(mondayHomework);
+  assert.equal(
+    Math.round(
+      (new Date(mondayPiano!.end).getTime() - new Date(mondayPiano!.start).getTime()) / 60000,
+    ),
+    30,
+  );
+  assert.equal(
+    Math.round(
+      (new Date(mondayHomework!.end).getTime() - new Date(mondayHomework!.start).getTime()) / 60000,
+    ),
+    90,
+  );
+});
+
+test("soft commitment planning reduces piano in thirty-minute steps before homework", () => {
+  const referenceDate = new Date("2026-04-14T08:00:00.000Z");
+  const weekStart = new Date("2026-04-13T00:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const preferences = {
+    ...dataset.preferences,
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: true,
+      weekdays: [1, 2, 3, 4, 5],
+      start: "08:00",
+      end: "15:00",
+      terms: [
+        {
+          id: "term-2",
+          label: "Term 2",
+          startDate: "2026-04-01",
+          endDate: "2026-06-30",
+        },
+      ],
+    },
+    dailyStudyWindow: {
+      start: "16:00",
+      end: "20:00",
+    },
+    holidaySchedule: {
+      ...dataset.preferences.holidaySchedule,
+      dailyStudyWindow: {
+        start: "09:00",
+        end: "18:00",
+      },
+    },
+  };
+
+  const plan = selectEffectiveReservedCommitmentPlanForWeek({
+    currentWeek: weekStart,
+    endWeek: new Date("2026-04-27T00:00:00.000Z"),
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    completionLogs: [],
+    fixedEvents: dataset.fixedEvents,
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    preferences,
+    existingPlannedBlocks: [],
+    lockedBlocks: [],
+    horizonStartDate: weekStart,
+    subjectDeadlinesById: Object.fromEntries(dataset.subjects.map((subject) => [subject.id, subject.deadline])),
+  });
+  const baseCommitmentMinutes = expandReservedCommitmentWindowsForWeek(weekStart, preferences, [], [], []).reduce(
+    (accumulator, entry) => {
+      const durationMinutes =
+        (new Date(entry.end).getTime() - new Date(entry.start).getTime()) / 60000;
+      accumulator[entry.ruleId] = (accumulator[entry.ruleId] ?? 0) + durationMinutes;
+      return accumulator;
+    },
+    {} as Record<string, number>,
+  );
+  const effectiveCommitmentMinutes = plan.effectiveReservedCommitmentDurations.reduce(
+    (accumulator, entry) => {
+      accumulator[entry.ruleId] = (accumulator[entry.ruleId] ?? 0) + entry.durationMinutes;
+      return accumulator;
+    },
+    {} as Record<string, number>,
+  );
+
+  assert.ok(
+    (effectiveCommitmentMinutes["piano-practice"] ?? 0) <
+      (baseCommitmentMinutes["piano-practice"] ?? 0),
+    "expected piano to reduce before homework under weekly pressure",
+  );
+  assert.ok(
+    (effectiveCommitmentMinutes["term-homework"] ?? 0) <=
+      (baseCommitmentMinutes["term-homework"] ?? 0),
+    "expected homework never to increase above the base active duration",
+  );
+  assert.ok(
+    (effectiveCommitmentMinutes["term-homework"] ?? 0) ===
+      (baseCommitmentMinutes["term-homework"] ?? 0) ||
+      (effectiveCommitmentMinutes["piano-practice"] ?? 0) === 0,
+    "expected homework reduction only after piano has already been fully exhausted",
+  );
 });
 
 test("piano time overrides move the reserved commitment to the selected one-day start time", () => {
