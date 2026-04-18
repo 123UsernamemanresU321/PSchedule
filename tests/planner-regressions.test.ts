@@ -56,6 +56,7 @@ import {
   getOlympiadWeekLoadProfile,
   getOlympiadWeaknessProfile,
 } from "@/lib/scheduler/olympiad-performance";
+import { buildSchoolTermWeekTemplate } from "@/lib/scheduler/school-term-template";
 import { computeSubjectDeadlineTracks } from "@/lib/scheduler/feasibility";
 import {
   buildTaskCandidates,
@@ -137,6 +138,31 @@ function createWeeklyPlan(overrides: Partial<WeeklyPlan> = {}): WeeklyPlan {
   };
 }
 
+function withConfiguredSchoolTerm(
+  preferences: Preferences,
+  overrides: Partial<Preferences["schoolSchedule"]> = {},
+): Preferences {
+  return {
+    ...preferences,
+    schoolSchedule: {
+      ...preferences.schoolSchedule,
+      enabled: true,
+      weekdays: [1, 2, 3, 4, 5],
+      start: "08:00",
+      end: "15:00",
+      terms: [
+        {
+          id: "term-2",
+          label: "Term 2",
+          startDate: "2026-04-01",
+          endDate: "2026-06-30",
+        },
+      ],
+      ...overrides,
+    },
+  };
+}
+
 function withFakeNow<T>(nowIso: string, callback: () => T): T {
   const RealDate = globalThis.Date;
   class FakeDate extends RealDate {
@@ -193,6 +219,7 @@ test("paired paper reviews retain their dependency scheduling window", () => {
 
   assert.ok(reviewTopic, "expected seeded review topic");
   assert.equal(reviewTopic.maxDaysAfterDependency, 7);
+  assert.equal(reviewTopic.minDaysAfterDependency, 0);
 
   const existingPracticeBlock = createStudyBlock({
     id: "practice-1",
@@ -215,7 +242,7 @@ test("paired paper reviews retain their dependency scheduling window", () => {
 
   assert.ok(reviewCandidate, "expected a schedulable review candidate");
   assert.equal(reviewCandidate?.paperCode, "PHY-W08-P2");
-  assert.equal(reviewCandidate?.availableAt?.slice(0, 10), "2026-09-23");
+  assert.equal(reviewCandidate?.availableAt?.slice(0, 10), "2026-09-22");
   assert.equal(reviewCandidate?.latestAt?.slice(0, 10), "2026-09-29");
 });
 
@@ -4201,6 +4228,77 @@ test("collapsed coverage repair detects smaller but still meaningful missing fut
   assert.ok(repairState.collapsedSubjectIds.includes("olympiad"));
 });
 
+test("strict non-C++ future gaps trigger the hard future-reset baseline and fully recover", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const base = generateStudyPlanHorizon({
+    startWeek: referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+  });
+  let removedMinutes = 0;
+  const brokenStudyBlocks = base.studyBlocks.filter((block) => {
+    if (block.subjectId !== "maths-aa-hl" || !block.topicId || removedMinutes >= 60) {
+      return true;
+    }
+
+    removedMinutes += block.estimatedMinutes;
+    return false;
+  });
+  const repairState = getCollapsedCoverageRepairState(
+    {
+      goals: dataset.goals,
+      subjects: dataset.subjects,
+      topics: dataset.topics,
+      fixedEvents: dataset.fixedEvents,
+      sickDays: dataset.sickDays,
+      focusedDays: dataset.focusedDays,
+      focusedWeeks: dataset.focusedWeeks,
+      studyBlocks: brokenStudyBlocks,
+      completionLogs: [],
+      weeklyPlans: base.weeklyPlans,
+      preferences: dataset.preferences,
+    },
+    referenceDate,
+  );
+  const hardResetBaseline = buildHardConstraintFutureResetBaselineStudyBlocks(
+    brokenStudyBlocks,
+    referenceDate,
+  );
+  const repaired = generateStudyPlanHorizon({
+    startWeek: referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+    existingStudyBlocks: hardResetBaseline,
+    preserveFlexibleFutureBlocks: false,
+  });
+  const mathsSubject = dataset.subjects.find((subject) => subject.id === "maths-aa-hl");
+
+  assert.equal(repairState.hasHardConstraintCoverageFailure, true);
+  assert.ok(repairState.hardConstraintSubjectIds.includes("maths-aa-hl"));
+  assert.equal(
+    hardResetBaseline.some((block) => new Date(block.end).getTime() > referenceDate.getTime()),
+    false,
+  );
+  assert.ok(mathsSubject, "expected maths subject");
+  assert.equal(
+    getSubjectProgress(mathsSubject!, dataset.topics, repaired.studyBlocks, referenceDate).unscheduledHours,
+    0,
+  );
+});
+
 test("excluding piano commitment windows opens extra study capacity before homework is removed", () => {
   const referenceDate = new Date("2026-03-23T08:00:00");
   const seedPreferences = buildSeedPreferences();
@@ -5895,21 +5993,169 @@ test("olympiad B+ mock ladder uses exact continuous sitting durations across pha
   assert.equal(monthlyMockDayOne?.exactSessionMinutes, 270);
 });
 
-test("school-term deadline pacing enforces the Olympiad B+ floor while demoting C++", () => {
-  const referenceDate = new Date("2026-04-07T08:00:00");
-  const dataset = buildSeedDataset(referenceDate);
-  const tracks = computeSubjectDeadlineTracks({
+test("school-term deadline pacing keeps C++ at zero while Olympiad remains heavier in normal weeks than heavy weeks", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-18T08:00:00"));
+  const preferences = withConfiguredSchoolTerm(dataset.preferences);
+  const heavyAssessmentEvent = {
+    id: "assessment-marathon",
+    title: "Assessment marathon",
+    start: "2026-04-22T14:00:00.000Z",
+    end: "2026-04-22T19:00:00.000Z",
+    recurrence: "none" as const,
+    flexibility: "fixed" as const,
+    category: "assessment" as const,
+    isAllDay: false,
+  };
+  const heavyTracks = computeSubjectDeadlineTracks({
     subjects: dataset.subjects,
     goals: dataset.goals,
     topics: dataset.topics,
-    referenceDate,
-    weekStartDate: new Date("2026-04-06T00:00:00"),
-    weekEndDate: new Date("2026-04-12T23:59:59"),
-    preferences: buildSeedPreferences(),
+    referenceDate: new Date("2026-04-20T08:00:00.000Z"),
+    weekStartDate: new Date("2026-04-20T00:00:00.000Z"),
+    weekEndDate: new Date("2026-04-26T23:59:59.000Z"),
+    preferences,
+    fixedEvents: [heavyAssessmentEvent],
+    sickDays: [],
+  });
+  const normalTracks = computeSubjectDeadlineTracks({
+    subjects: dataset.subjects,
+    goals: dataset.goals,
+    topics: dataset.topics,
+    referenceDate: new Date("2026-04-27T08:00:00.000Z"),
+    weekStartDate: new Date("2026-04-27T00:00:00.000Z"),
+    weekEndDate: new Date("2026-05-03T23:59:59.000Z"),
+    preferences,
+    fixedEvents: [],
+    sickDays: [],
   });
 
-  assert.ok((tracks.olympiad?.recommendedWeeklyHours ?? 0) >= 10);
-  assert.equal(tracks["cpp-book"]?.recommendedWeeklyHours ?? 0, 0);
+  assert.ok((heavyTracks.olympiad?.recommendedWeeklyHours ?? 0) >= 7);
+  assert.ok((normalTracks.olympiad?.recommendedWeeklyHours ?? 0) >= 8);
+  assert.ok(
+    (normalTracks.olympiad?.recommendedWeeklyHours ?? 0) >
+      (heavyTracks.olympiad?.recommendedWeeklyHours ?? 0),
+  );
+  assert.equal(heavyTracks["cpp-book"]?.recommendedWeeklyHours ?? 0, 0);
+  assert.equal(normalTracks["cpp-book"]?.recommendedWeeklyHours ?? 0, 0);
+});
+
+test("configured school-term template encodes the weekday rotation and weekend paper pair", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-18T08:00:00.000Z"));
+  const template = buildSchoolTermWeekTemplate({
+    weekStart: new Date("2026-04-20T00:00:00.000Z"),
+    topics: dataset.topics,
+    preferences: withConfiguredSchoolTerm(dataset.preferences),
+    existingPlannedBlocks: [],
+  });
+  const requirementById = Object.fromEntries(
+    template.requirements.map((requirement) => [requirement.id, requirement]),
+  );
+
+  assert.equal(template.active, true);
+  assert.equal(requirementById["2026-04-20-learning"]?.subjectId, "maths-aa-hl");
+  assert.equal(requirementById["2026-04-21-learning"]?.subjectId, "physics-hl");
+  assert.equal(requirementById["2026-04-22-learning"]?.subjectId, "chemistry-hl");
+  assert.equal(requirementById["2026-04-23-learning"]?.subjectId, "maths-aa-hl");
+  assert.equal(requirementById["2026-04-24-learning"]?.subjectId, "physics-hl");
+  assert.equal(requirementById["2026-04-25-paper-cycle-exam"]?.exactTopicId, "maths-aa-past-papers-week-1-paper-1");
+  assert.equal(
+    requirementById["2026-04-25-paper-cycle-correction"]?.exactTopicId,
+    "maths-aa-past-papers-week-1-paper-1-review",
+  );
+  assert.deepEqual(template.lightReviewOnlyDateKeys, ["2026-04-26"]);
+  assert.equal(template.dayStudyCapOverrideMinutesByDate["2026-04-20"], 210);
+  assert.equal(template.dayStudyCapOverrideMinutesByDate["2026-04-25"], 300);
+  assert.equal(template.dayStudyCapOverrideMinutesByDate["2026-04-26"], 120);
+});
+
+test("generated configured school-term weeks follow the hard weekday template and keep Sunday light", () => {
+  const referenceDate = new Date("2026-04-18T08:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const preferences = withConfiguredSchoolTerm(dataset.preferences);
+  const result = generateStudyPlanForWeek({
+    weekStart: new Date("2026-04-20T00:00:00.000Z"),
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences,
+  });
+  const blocksByDate = result.studyBlocks.filter((block) => !!block.subjectId).reduce(
+    (accumulator, block) => {
+      accumulator[block.date] = [...(accumulator[block.date] ?? []), block];
+      return accumulator;
+    },
+    {} as Record<string, StudyBlock[]>,
+  );
+  const mondayBlocks = blocksByDate["2026-04-20"] ?? [];
+  const tuesdayBlocks = blocksByDate["2026-04-21"] ?? [];
+  const fridayBlocks = blocksByDate["2026-04-24"] ?? [];
+  const saturdayBlocks = blocksByDate["2026-04-25"] ?? [];
+  const sundayBlocks = blocksByDate["2026-04-26"] ?? [];
+
+  assert.ok(
+    mondayBlocks.some(
+      (block) =>
+        block.subjectId === "maths-aa-hl" &&
+        block.studyLayer === "learning",
+    ),
+  );
+  assert.ok(
+    mondayBlocks.some(
+      (block) =>
+        block.subjectId === "maths-aa-hl" &&
+        block.studyLayer === "application",
+    ),
+  );
+  assert.ok(
+    mondayBlocks.some(
+      (block) =>
+        block.subjectId === "maths-aa-hl" &&
+        block.studyLayer === "correction",
+    ),
+  );
+  assert.ok(
+    mondayBlocks.some(
+      (block) => block.subjectId === "olympiad" && block.studyLayer === "learning",
+    ),
+  );
+  assert.ok(
+    tuesdayBlocks.some(
+      (block) =>
+        block.subjectId === "physics-hl" &&
+        block.studyLayer === "learning",
+    ),
+  );
+  assert.ok(
+    fridayBlocks.some(
+      (block) =>
+        block.subjectId === "physics-hl" &&
+        block.studyLayer === "learning",
+    ),
+  );
+  assert.ok(
+    saturdayBlocks.some(
+      (block) => block.topicId === "maths-aa-past-papers-week-1-paper-1" && block.studyLayer === "exam_sim",
+    ),
+  );
+  assert.ok(
+    saturdayBlocks.some(
+      (block) =>
+        block.topicId === "maths-aa-past-papers-week-1-paper-1-review" &&
+        block.studyLayer === "correction",
+    ),
+  );
+  assert.ok(
+    sundayBlocks.every(
+      (block) => block.studyLayer !== "learning" && block.studyLayer !== "exam_sim",
+    ),
+  );
+  assert.ok(
+    sundayBlocks.reduce((total, block) => total + block.estimatedMinutes, 0) <= 120,
+  );
 });
 
 test("phase 1 retunes Olympiad toward conversion with lighter new-content strand hours", () => {

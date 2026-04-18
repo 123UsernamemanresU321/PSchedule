@@ -18,6 +18,10 @@ import {
   getOlympiadWeekLoadProfile,
   getOlympiadWeaknessProfile,
 } from "@/lib/scheduler/olympiad-performance";
+import {
+  buildSchoolTermWeekTemplate,
+  IB_ANCHOR_SUBJECT_IDS,
+} from "@/lib/scheduler/school-term-template";
 import { scoreTaskCandidate, buildGeneratedReason } from "@/lib/scheduler/scoring";
 import type { BlockSelectionPolicy } from "@/lib/scheduler/slot-classifier";
 import { selectBlockOption } from "@/lib/scheduler/slot-classifier";
@@ -41,6 +45,7 @@ import type {
   Preferences,
   SchedulerResult,
   StudyBlock,
+  StudyLayer,
   Subject,
   TaskCandidate,
   Topic,
@@ -1217,6 +1222,7 @@ function createStudyBlockFromTask(options: {
     rescheduleCount: 0,
     assignmentLocked: false,
     assignmentEditedAt: null,
+    studyLayer: options.task.studyLayer ?? null,
     followUpKind: options.task.followUpKind ?? null,
     followUpSourceStudyBlockId: options.task.followUpSourceStudyBlockId ?? null,
     followUpDueAt: options.task.followUpDueAt ?? null,
@@ -1249,6 +1255,8 @@ function allocateTasksToSlots(options: {
   olympiadLoadMultiplier?: number;
   olympiadWeaknessStrand?: "geometry" | "algebra" | "number-theory" | "combinatorics" | null;
   isFinalPass?: boolean;
+  dayStudyCapOverrideMinutesByDate?: Record<string, number>;
+  schoolTermTemplate?: ReturnType<typeof buildSchoolTermWeekTemplate>;
 }) {
   const weekStartKey = toDateKey(options.weekStart);
   const subjectMap = new Map(options.subjects.map((subject) => [subject.id, subject]));
@@ -1511,6 +1519,7 @@ function allocateTasksToSlots(options: {
     ? (options.minBreakMinutes ?? options.preferences.minBreakMinutes)
     : 0;
   const focusedSubjectsByDate = options.focusedSubjectsByDate ?? {};
+  const schoolTermTemplate = options.schoolTermTemplate;
   const weeklyMixTargetMinutesBySubject = buildWeeklyMixTargetMinutesBySubject({
     requiredMinutesBySubject,
     effectiveCapacityMinutes,
@@ -1535,6 +1544,49 @@ function allocateTasksToSlots(options: {
   let workingTasks = cloneTasks(options.tasks);
   const scheduledBlocks: StudyBlock[] = [];
   let usedSundayMinutes = 0;
+
+  function blockMatchesTemplateRequirement(
+    block: Pick<StudyBlock, "date" | "subjectId" | "topicId" | "estimatedMinutes" | "studyLayer">,
+    requirement: NonNullable<ReturnType<typeof buildSchoolTermWeekTemplate>>["requirements"][number],
+  ) {
+    if (!requirement.allowedDateKeys.includes(block.date)) {
+      return false;
+    }
+
+    if (block.subjectId !== requirement.subjectId) {
+      return false;
+    }
+
+    if (requirement.exactTopicId && block.topicId !== requirement.exactTopicId) {
+      return false;
+    }
+
+    return !!block.studyLayer && requirement.studyLayers.includes(block.studyLayer);
+  }
+
+  function getTemplateAssignedMinutes(
+    requirement: NonNullable<ReturnType<typeof buildSchoolTermWeekTemplate>>["requirements"][number],
+  ) {
+    return [...options.lockedBlocks, ...scheduledBlocks].reduce((total, block) => {
+      if (!blockMatchesTemplateRequirement(block, requirement)) {
+        return total;
+      }
+
+      return total + block.estimatedMinutes;
+    }, 0);
+  }
+
+  function getUnmetTemplateRequirements(dateKey: string) {
+    if (!schoolTermTemplate?.active) {
+      return [];
+    }
+
+    return schoolTermTemplate.requirements.filter(
+      (requirement) =>
+        requirement.allowedDateKeys.includes(dateKey) &&
+        getTemplateAssignedMinutes(requirement) + 14 < requirement.minimumMinutes,
+    );
+  }
 
   function syncWorkingTasks(restrictedSubjectIds?: string[]) {
     const topics = restrictedSubjectIds?.length
@@ -1778,6 +1830,10 @@ function allocateTasksToSlots(options: {
       return false;
     }
 
+    if (options.dayStudyCapOverrideMinutesByDate?.[dateKey] != null) {
+      return false;
+    }
+
     const previousBlock = scheduledBlocks[scheduledBlocks.length - 1];
     if (!previousBlock || previousBlock.date !== dateKey || !previousBlock.subjectId) {
       return false;
@@ -1815,11 +1871,33 @@ function allocateTasksToSlots(options: {
     );
   }
 
+  function isWeekendPaperCycleTask(task: TaskCandidate, slotDateKey: string) {
+    if (!schoolTermTemplate?.active || !task.topicId || !task.subjectId) {
+      return false;
+    }
+
+    if (!IB_ANCHOR_SUBJECT_IDS.includes(task.subjectId as (typeof IB_ANCHOR_SUBJECT_IDS)[number])) {
+      return false;
+    }
+
+    const topic = topicMap.get(task.topicId);
+    if (!topic?.unitId.includes("past-papers-week-")) {
+      return false;
+    }
+
+    const slotDay = new Date(`${slotDateKey}T12:00:00`).getDay();
+    const isWeekendDate = slotDay === 0 || slotDay === 6;
+
+    return !isWeekendDate && (task.studyLayer === "exam_sim" || task.studyLayer === "correction");
+  }
+
   function buildScoredOptionsForSlot(config: {
     slot: CalendarSlot;
     allowWeeklyTargetOverride?: boolean;
     restrictedSubjectIds?: string[];
     restrictedTopicIds?: string[];
+    requiredStudyLayers?: StudyLayer[];
+    disallowedStudyLayers?: StudyLayer[];
     mustFillEndOfDaySlot?: boolean;
     strongFocusDemand?: boolean;
   }) {
@@ -1828,6 +1906,8 @@ function allocateTasksToSlots(options: {
       allowWeeklyTargetOverride = false,
       restrictedSubjectIds,
       restrictedTopicIds,
+      requiredStudyLayers,
+      disallowedStudyLayers,
       mustFillEndOfDaySlot = false,
       strongFocusDemand = false,
     } = config;
@@ -1836,6 +1916,9 @@ function allocateTasksToSlots(options: {
       .filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES)
       .filter((task) => !restrictedSubjectIds || (!!task.subjectId && restrictedSubjectIds.includes(task.subjectId)))
       .filter((task) => !restrictedTopicIds || (!!task.topicId && restrictedTopicIds.includes(task.topicId)))
+      .filter((task) => !requiredStudyLayers || (!!task.studyLayer && requiredStudyLayers.includes(task.studyLayer)))
+      .filter((task) => !disallowedStudyLayers || !task.studyLayer || !disallowedStudyLayers.includes(task.studyLayer))
+      .filter((task) => !isWeekendPaperCycleTask(task, slot.dateKey))
       .filter((task) => !task.availableAt || new Date(task.availableAt) <= slot.start)
       .filter((task) => !task.latestAt || new Date(task.latestAt) >= slot.start)
       .filter((task) => isTaskDependencySatisfied(task, slot.start))
@@ -1957,12 +2040,31 @@ function allocateTasksToSlots(options: {
       (consumedStudyMinutes < effectiveCapacityMinutes || mustFillEndOfDaySlot)
     ) {
       syncWorkingTasks();
-      const dailyBudget = slot.dayStudyCapMinutes + (options.dailyCapBoostMinutes ?? 0);
       const usedToday = dailyMinutes[slot.dateKey] ?? 0;
+      const unmetTemplateRequirements = getUnmetTemplateRequirements(slot.dateKey);
+      const activeTemplateRequirement = unmetTemplateRequirements[0] ?? null;
+      const templateAllowsOverflowDayCap = activeTemplateRequirement?.allowOverflowDayCap ?? false;
+      const hasHardDayCap = options.dayStudyCapOverrideMinutesByDate?.[slot.dateKey] != null;
+      const dayStudyCapMinutes =
+        options.dayStudyCapOverrideMinutesByDate?.[slot.dateKey] ?? slot.dayStudyCapMinutes;
+      const dailyBudget = hasHardDayCap
+        ? dayStudyCapMinutes
+        : dayStudyCapMinutes + (options.dailyCapBoostMinutes ?? 0);
       const availableToday =
-        mustFillEndOfDaySlot || options.fillAvailableStudyDays
+        templateAllowsOverflowDayCap
           ? remainingSlotMinutes
+          : hasHardDayCap
+            ? dailyBudget - usedToday
+          : mustFillEndOfDaySlot || options.fillAvailableStudyDays
+            ? remainingSlotMinutes
           : dailyBudget - usedToday;
+      const templateRemainingMinutes = activeTemplateRequirement
+        ? Math.max(
+            MIN_ALLOCATABLE_MINUTES,
+            activeTemplateRequirement.minimumMinutes -
+              getTemplateAssignedMinutes(activeTemplateRequirement),
+          )
+        : null;
 
       if (availableToday < MIN_ALLOCATABLE_MINUTES) {
         if (
@@ -1987,9 +2089,35 @@ function allocateTasksToSlots(options: {
       const slotSlice: CalendarSlot = {
         ...slot,
         start: cursor,
-        end: addMinutes(cursor, Math.min(remainingSlotMinutes, availableToday)),
-        durationMinutes: Math.min(remainingSlotMinutes, availableToday),
+        end: addMinutes(
+          cursor,
+          Math.min(
+            remainingSlotMinutes,
+            availableToday,
+            templateRemainingMinutes ?? Number.POSITIVE_INFINITY,
+          ),
+        ),
+        durationMinutes: Math.min(
+          remainingSlotMinutes,
+          availableToday,
+          templateRemainingMinutes ?? Number.POSITIVE_INFINITY,
+        ),
       };
+      const lightReviewOnlyDay =
+        schoolTermTemplate?.lightReviewOnlyDateKeys.includes(slot.dateKey) ?? false;
+      let templateOnlyOptions = activeTemplateRequirement
+        ? buildScoredOptionsForSlot({
+            slot: slotSlice,
+            allowWeeklyTargetOverride: true,
+            restrictedSubjectIds: [activeTemplateRequirement.subjectId],
+            restrictedTopicIds: activeTemplateRequirement.exactTopicId
+              ? [activeTemplateRequirement.exactTopicId]
+              : undefined,
+            requiredStudyLayers: activeTemplateRequirement.studyLayers,
+            mustFillEndOfDaySlot,
+            strongFocusDemand: true,
+          })
+        : [];
       const unmetFocusedSubjectIds = getUnmetFocusedSubjectIds(slot.dateKey);
       let focusedOnlyOptions = unmetFocusedSubjectIds.length > 0
         ? buildScoredOptionsForSlot({
@@ -2012,6 +2140,19 @@ function allocateTasksToSlots(options: {
         });
       }
 
+      if (templateOnlyOptions.length === 0 && activeTemplateRequirement?.exactTopicId) {
+        syncWorkingTasks([activeTemplateRequirement.subjectId]);
+        templateOnlyOptions = buildScoredOptionsForSlot({
+          slot: slotSlice,
+          allowWeeklyTargetOverride: true,
+          restrictedSubjectIds: [activeTemplateRequirement.subjectId],
+          restrictedTopicIds: [activeTemplateRequirement.exactTopicId],
+          requiredStudyLayers: activeTemplateRequirement.studyLayers,
+          mustFillEndOfDaySlot,
+          strongFocusDemand: true,
+        });
+      }
+
       const focusedDemandStillOpen =
         unmetFocusedSubjectIds.length > 0 &&
         shouldForceFocusedOnlyForSlot(slot.dateKey, focusedOnlyOptions);
@@ -2028,6 +2169,7 @@ function allocateTasksToSlots(options: {
       if (
         focusedOverflowSubjectId &&
         options.fillAvailableStudyDays &&
+        !lightReviewOnlyDay &&
         remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES &&
         (options.isFinalPass ?? true)
       ) {
@@ -2065,10 +2207,17 @@ function allocateTasksToSlots(options: {
       }
 
       const scoredOptions =
-        focusedOnlyOptions.length > 0
+        templateOnlyOptions.length > 0
+          ? templateOnlyOptions
+          : focusedOnlyOptions.length > 0
           ? focusedOnlyOptions
           : buildScoredOptionsForSlot({
               slot: slotSlice,
+              disallowedStudyLayers:
+                schoolTermTemplate?.lightReviewOnlyDateKeys.includes(slot.dateKey) &&
+                !activeTemplateRequirement
+                  ? ["learning", "exam_sim"]
+                  : undefined,
               mustFillEndOfDaySlot,
               strongFocusDemand: focusedDemandStillOpen,
             });
@@ -2084,6 +2233,7 @@ function allocateTasksToSlots(options: {
       if (!winner) {
         if (
           options.fillAvailableStudyDays &&
+          !lightReviewOnlyDay &&
           remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES &&
           (options.isFinalPass ?? true)
         ) {
@@ -2403,6 +2553,12 @@ export function generateStudyPlanForWeek(options: {
   ) as Subject["id"][];
   const weekStartKey = toDateKey(weekStart);
   const existingPlannedBlocks = options.existingPlannedBlocks ?? lockedBlocks;
+  const schoolTermTemplate = buildSchoolTermWeekTemplate({
+    weekStart,
+    topics: options.topics,
+    preferences: options.preferences,
+    existingPlannedBlocks,
+  });
   const deadlineTracks = computeSubjectDeadlineTracks({
     subjects: options.subjects,
     goals: options.goals,
@@ -2593,6 +2749,8 @@ export function generateStudyPlanForWeek(options: {
       olympiadLoadMultiplier: olympiadWeekLoadProfile.multiplier,
       olympiadWeaknessStrand: olympiadWeaknessProfile.activeStrand,
       isFinalPass: passPolicy === passPolicies[passPolicies.length - 1],
+      dayStudyCapOverrideMinutesByDate: schoolTermTemplate.dayStudyCapOverrideMinutesByDate,
+      schoolTermTemplate,
     });
 
     if (!result.scheduledBlocks.length) {

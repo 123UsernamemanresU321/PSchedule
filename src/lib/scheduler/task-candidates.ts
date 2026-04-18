@@ -10,7 +10,8 @@ import {
   getOlympiadRewriteObligations,
   getOlympiadStrandForTopic,
 } from "@/lib/scheduler/olympiad-performance";
-import type { CompletionLog, StudyBlock, TaskCandidate, Topic } from "@/lib/types/planner";
+import { IB_ANCHOR_SUBJECT_IDS } from "@/lib/scheduler/school-term-template";
+import type { CompletionLog, StudyBlock, StudyLayer, TaskCandidate, Topic } from "@/lib/types/planner";
 
 const MIN_ALLOCATABLE_MINUTES = 30;
 
@@ -85,6 +86,119 @@ function isDedicatedReviewTopic(topic: Topic) {
   return topic.id.endsWith("-review");
 }
 
+function isIbAnchorSubject(subjectId: Topic["subjectId"]) {
+  return IB_ANCHOR_SUBJECT_IDS.includes(subjectId as (typeof IB_ANCHOR_SUBJECT_IDS)[number]);
+}
+
+function getTaskStudyLayer(options: {
+  topic: Topic;
+  kind: TaskCandidate["kind"];
+  variant?: StudyLayer | null;
+}) {
+  if (options.variant) {
+    return options.variant;
+  }
+
+  if ((options.topic.sessionMode ?? "flexible") === "exam") {
+    return "exam_sim" as const;
+  }
+
+  if (options.kind === "review" || isDedicatedReviewTopic(options.topic)) {
+    return "correction" as const;
+  }
+
+  return "learning" as const;
+}
+
+function buildIbTopicVariantCandidates(options: {
+  topic: Topic;
+  rawRemainingMinutes: number;
+  timingWindow: {
+    availableAt: Date | null;
+    latestAt: string | null;
+    reviewDue: string | null;
+  };
+  blockedByEarlierTopics: number;
+  subjectDeadlinesById: Record<string, string>;
+  referenceDate: Date;
+}) {
+  const baseDeadline =
+    options.timingWindow.reviewDue ??
+    options.subjectDeadlinesById[options.topic.subjectId] ??
+    new Date(options.referenceDate).toISOString().slice(0, 10);
+  const availableAt = options.timingWindow.availableAt
+    ? options.timingWindow.availableAt.toISOString()
+    : null;
+  const paperCode = options.topic.paperCode ?? derivePaperCode(options.topic);
+  const baseCandidate = {
+    subjectId: options.topic.subjectId,
+    topicId: options.topic.id,
+    paperCode,
+    unitTitle: options.topic.unitTitle,
+    sourceMaterials: options.topic.sourceMaterials,
+    remainingMinutes: Math.max(options.rawRemainingMinutes, MIN_ALLOCATABLE_MINUTES),
+    sessionMode: options.topic.sessionMode ?? "flexible",
+    exactSessionMinutes: options.topic.exactSessionMinutes ?? null,
+    availableAt,
+    latestAt: options.timingWindow.latestAt,
+    difficulty: options.topic.difficulty,
+    mastery: options.topic.mastery,
+    order: options.topic.order,
+    blockedByEarlierTopics: options.blockedByEarlierTopics,
+    reviewDue: options.timingWindow.reviewDue,
+    deadline: baseDeadline,
+    lastStudiedAt: options.topic.lastStudiedAt,
+    olympiadStrand: getOlympiadStrandForTopic(options.topic),
+    followUpKind: null,
+    followUpSourceStudyBlockId: null,
+    followUpDueAt: null,
+  } satisfies Omit<
+    TaskCandidate,
+    "id" | "title" | "sessionSummary" | "preferredBlockTypes" | "intensity" | "kind" | "studyLayer"
+  >;
+
+  return [
+    {
+      ...baseCandidate,
+      id: options.topic.id,
+      title: options.topic.title,
+      sessionSummary:
+        buildSessionSummary(options.topic) ??
+        "Learn the concept, then finish with medium-hard questions in the same sitting.",
+      preferredBlockTypes: options.topic.preferredBlockTypes,
+      intensity: inferIntensity(options.topic),
+      kind: "topic" as const,
+      studyLayer: getTaskStudyLayer({
+        topic: options.topic,
+        kind: "topic",
+        variant: "learning",
+      }),
+    },
+    {
+      ...baseCandidate,
+      id: `${options.topic.id}::application`,
+      title: `${options.topic.title} applied questions`,
+      sessionSummary:
+        "Run a topic-based questionbank or past-paper set on this idea, emphasizing medium-hard questions and pattern recognition.",
+      preferredBlockTypes: ["drill", "standard_focus", "review"],
+      intensity: "moderate" as const,
+      kind: "topic" as const,
+      studyLayer: "application" as const,
+    },
+    {
+      ...baseCandidate,
+      id: `${options.topic.id}::correction`,
+      title: `Correction and error log: ${options.topic.title}`,
+      sessionSummary:
+        "Redo mistakes, write the clean method, and update the error log with the underlying pattern.",
+      preferredBlockTypes: ["review", "drill"],
+      intensity: "light" as const,
+      kind: "review" as const,
+      studyLayer: "correction" as const,
+    },
+  ] satisfies TaskCandidate[];
+}
+
 function createReviewCandidate(
   topic: Topic,
   timingWindow: {
@@ -124,6 +238,7 @@ function createReviewCandidate(
     preferredBlockTypes: ["review", "recovery"],
     intensity: "light",
     kind: "review",
+    studyLayer: getTaskStudyLayer({ topic, kind: "review" }),
     olympiadStrand: getOlympiadStrandForTopic(topic),
     followUpKind: null,
     followUpSourceStudyBlockId: null,
@@ -409,43 +524,57 @@ export function buildTaskCandidates(options: {
     const candidates: TaskCandidate[] = [];
 
     if (rawRemainingMinutes > 0) {
-      const sessionMode = topic.sessionMode ?? "flexible";
-      const exactSessionMinutes = topic.exactSessionMinutes ?? null;
-      candidates.push({
-        id: topic.id,
-        subjectId: topic.subjectId,
-        topicId: topic.id,
-        title: topic.title,
-        sessionSummary: buildSessionSummary(topic),
-        paperCode: topic.paperCode ?? derivePaperCode(topic),
-        unitTitle: topic.unitTitle,
-        sourceMaterials: topic.sourceMaterials,
-        remainingMinutes:
-          sessionMode === "exam"
-            ? exactSessionMinutes ?? rawRemainingMinutes
-            : Math.max(rawRemainingMinutes, MIN_ALLOCATABLE_MINUTES),
-        sessionMode,
-        exactSessionMinutes,
-        availableAt: timingWindow.availableAt ? timingWindow.availableAt.toISOString() : null,
-        latestAt: timingWindow.latestAt,
-        difficulty: topic.difficulty,
-        mastery: topic.mastery,
-        order: topic.order,
-        blockedByEarlierTopics: blockedByEarlierTopicsById[topic.id] ?? 0,
-        reviewDue: timingWindow.reviewDue,
-        deadline:
-          timingWindow.reviewDue ??
-          subjectDeadlinesById[topic.subjectId] ??
-          new Date(referenceDate).toISOString().slice(0, 10),
-        lastStudiedAt: topic.lastStudiedAt,
-        preferredBlockTypes: topic.preferredBlockTypes,
-        intensity: inferIntensity(topic),
-        kind: "topic",
-        olympiadStrand: getOlympiadStrandForTopic(topic),
-        followUpKind: null,
-        followUpSourceStudyBlockId: null,
-        followUpDueAt: null,
-      });
+      if (isIbAnchorSubject(topic.subjectId) && (topic.sessionMode ?? "flexible") !== "exam" && !isDedicatedReviewTopic(topic)) {
+        candidates.push(
+          ...buildIbTopicVariantCandidates({
+            topic,
+            rawRemainingMinutes,
+            timingWindow,
+            blockedByEarlierTopics: blockedByEarlierTopicsById[topic.id] ?? 0,
+            subjectDeadlinesById,
+            referenceDate,
+          }),
+        );
+      } else {
+        const sessionMode = topic.sessionMode ?? "flexible";
+        const exactSessionMinutes = topic.exactSessionMinutes ?? null;
+        candidates.push({
+          id: topic.id,
+          subjectId: topic.subjectId,
+          topicId: topic.id,
+          title: topic.title,
+          sessionSummary: buildSessionSummary(topic),
+          paperCode: topic.paperCode ?? derivePaperCode(topic),
+          unitTitle: topic.unitTitle,
+          sourceMaterials: topic.sourceMaterials,
+          remainingMinutes:
+            sessionMode === "exam"
+              ? exactSessionMinutes ?? rawRemainingMinutes
+              : Math.max(rawRemainingMinutes, MIN_ALLOCATABLE_MINUTES),
+          sessionMode,
+          exactSessionMinutes,
+          availableAt: timingWindow.availableAt ? timingWindow.availableAt.toISOString() : null,
+          latestAt: timingWindow.latestAt,
+          difficulty: topic.difficulty,
+          mastery: topic.mastery,
+          order: topic.order,
+          blockedByEarlierTopics: blockedByEarlierTopicsById[topic.id] ?? 0,
+          reviewDue: timingWindow.reviewDue,
+          deadline:
+            timingWindow.reviewDue ??
+            subjectDeadlinesById[topic.subjectId] ??
+            new Date(referenceDate).toISOString().slice(0, 10),
+          lastStudiedAt: topic.lastStudiedAt,
+          preferredBlockTypes: topic.preferredBlockTypes,
+          intensity: inferIntensity(topic),
+          kind: "topic",
+          studyLayer: getTaskStudyLayer({ topic, kind: "topic" }),
+          olympiadStrand: getOlympiadStrandForTopic(topic),
+          followUpKind: null,
+          followUpSourceStudyBlockId: null,
+          followUpDueAt: null,
+        });
+      }
     }
 
     if (shouldSpawnReview) {
@@ -490,6 +619,7 @@ export function buildTaskCandidates(options: {
         obligation.durationMinutes > 45 ? ["drill", "review"] : ["review", "drill"],
       intensity: obligation.durationMinutes > 45 ? "moderate" : "light",
       kind: "review",
+      studyLayer: "correction",
       olympiadStrand: obligation.strand,
       followUpKind: "olympiad-rewrite",
       followUpSourceStudyBlockId: obligation.sourceStudyBlockId,

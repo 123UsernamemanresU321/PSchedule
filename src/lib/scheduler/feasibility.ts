@@ -181,16 +181,19 @@ function getSeasonalSubjectMinimumHours(options: {
             preferences: options.preferences,
             sickDays: options.sickDays ?? [],
           })
-        : { multiplier: 1 };
-    const baseMinimum = schoolTermWeek
-      ? isLatePhase
-        ? 12
-        : 10
-      : isLatePhase
-        ? 18
-        : 16;
+        : { state: "normal" as const, multiplier: 1 };
+    if (schoolTermWeek) {
+      switch (loadProfile.state) {
+        case "heavy":
+          return 7;
+        case "light":
+          return 9;
+        default:
+          return 8;
+      }
+    }
 
-    return roundToTenth(baseMinimum * loadProfile.multiplier);
+    return isLatePhase ? 18 : 16;
   }
 
   if (options.subject.id === "cpp-book") {

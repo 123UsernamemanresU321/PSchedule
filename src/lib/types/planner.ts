@@ -23,6 +23,7 @@ export type BlockIntensity = (typeof blockIntensityValues)[number];
 export type EnergyLevel = (typeof energyLevelValues)[number];
 export type RiskFlag = (typeof riskFlagValues)[number];
 export type ResourceType = (typeof resourceTypeValues)[number];
+export type StudyLayer = "learning" | "application" | "exam_sim" | "correction";
 export type SickDaySeverity = "light" | "moderate" | "severe";
 export type StudyBlockCreationSource = "planner" | "manual";
 export type SubjectCategory =
@@ -172,6 +173,7 @@ export interface StudyBlock {
   rescheduleCount: number;
   assignmentLocked: boolean;
   assignmentEditedAt: string | null;
+  studyLayer?: StudyLayer | null;
   followUpKind?: "olympiad-rewrite" | null;
   followUpSourceStudyBlockId?: string | null;
   followUpDueAt?: string | null;
@@ -366,6 +368,7 @@ export interface TaskCandidate {
   preferredBlockTypes: BlockType[];
   intensity: BlockIntensity;
   kind: "topic" | "review" | "carry_over" | "recovery";
+  studyLayer?: StudyLayer | null;
   olympiadStrand?: "geometry" | "algebra" | "number-theory" | "combinatorics" | null;
   followUpKind?: "olympiad-rewrite" | null;
   followUpSourceStudyBlockId?: string | null;

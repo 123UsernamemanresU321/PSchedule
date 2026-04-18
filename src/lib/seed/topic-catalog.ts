@@ -34,9 +34,9 @@ const pastPaper = (label: string, details: string) => resource("past_paper", lab
 const video = (label: string, details: string) => resource("video", label, details);
 const pppChapter = (details: string) =>
   textbook("Programming: Principles and Practice Using C++ (3e)", details);
-function buildPostSyllabusPaperWeeks() {
+function buildRotatingPaperCycleWeeks() {
   const weeks: Array<{ label: string; availableFrom: string }> = [];
-  let cursor = new Date("2026-08-03T00:00:00");
+  let cursor = new Date("2026-04-13T00:00:00");
   const end = new Date("2027-06-28T00:00:00");
   let index = 1;
 
@@ -52,7 +52,7 @@ function buildPostSyllabusPaperWeeks() {
   return weeks;
 }
 
-const postSyllabusPaperWeeks = buildPostSyllabusPaperWeeks();
+const rotatingPaperCycleWeeks = buildRotatingPaperCycleWeeks();
 
 function buildFrenchMaintenanceBlueprints(): SeedTopicBlueprint[] {
   const sessions: SeedTopicBlueprint[] = [];
@@ -127,84 +127,114 @@ function chainTopicSequence(
   });
 }
 
-function buildPastPaperSessions(options: {
-  subjectId: SubjectId;
-  unitIdPrefix: string;
-  unitTitle: string;
-  titlePrefix: string;
-  papers: Array<{
-    idSuffix: string;
-    label: string;
-    durationMinutes: number;
-  }>;
-  sourceLabel: string;
-}): SeedTopicBlueprint[] {
-  return postSyllabusPaperWeeks.flatMap((cycle, index) =>
-    options.papers.map((paper) => ({
-      id: `${options.unitIdPrefix}-week-${index + 1}-${paper.idSuffix}`,
-      subjectId: options.subjectId,
-      unitId: `${options.unitIdPrefix}-week-${index + 1}`,
-      unitTitle: `${options.unitTitle} - ${cycle.label}`,
-      title: `${options.titlePrefix} ${cycle.label} - ${paper.label}`,
-      subtopics: [
-        "Run this paper in one continuous exam-condition sitting.",
-        "Mark it immediately after completion.",
-        "Log all recurring errors before the next paper session.",
-      ],
-      availableFrom: cycle.availableFrom,
-      sessionMode: "exam" as const,
-      exactSessionMinutes: paper.durationMinutes,
-      estHours: paper.durationMinutes / 60,
-      difficulty: 4 as const,
-      preferredBlockTypes: ["deep_work"] as BlockType[],
-      sourceMaterials: [
-        pastPaper(options.sourceLabel, `${cycle.label} ${paper.label} under full timed conditions.`),
-        notes(
-          "Paper-review protocol",
-          "Complete the paper in one sitting, then mark it and summarize the three highest-value corrections.",
-        ),
-      ],
-    })),
-  );
-}
+function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
+  const cycle = [
+    {
+      subjectId: "maths-aa-hl" as const,
+      unitIdPrefix: "maths-aa-past-papers",
+      unitTitle: "Maths AA HL - Saturday Paper Cycle",
+      titlePrefix: "Maths AA HL",
+      paperIdSuffix: "paper-1",
+      paperLabel: "Paper 1",
+      durationMinutes: 120,
+      reviewDurationMinutes: 90,
+      reviewBlockTypes: ["standard_focus", "review"] as BlockType[],
+      sourceLabel: "Maths AA HL past paper set",
+      reviewSourceLabel: "Maths AA HL past paper review",
+    },
+    {
+      subjectId: "physics-hl" as const,
+      unitIdPrefix: "physics-past-papers",
+      unitTitle: "Physics HL - Saturday Paper Cycle",
+      titlePrefix: "Physics HL",
+      paperIdSuffix: "paper-2",
+      paperLabel: "Paper 2",
+      durationMinutes: 150,
+      reviewDurationMinutes: 120,
+      reviewBlockTypes: ["deep_work", "standard_focus"] as BlockType[],
+      sourceLabel: "Physics HL past paper set",
+      reviewSourceLabel: "Physics HL past paper review",
+    },
+    {
+      subjectId: "chemistry-hl" as const,
+      unitIdPrefix: "chemistry-past-papers",
+      unitTitle: "Chemistry HL - Saturday Paper Cycle",
+      titlePrefix: "Chemistry HL",
+      paperIdSuffix: "paper-2",
+      paperLabel: "Paper 2",
+      durationMinutes: 150,
+      reviewDurationMinutes: 120,
+      reviewBlockTypes: ["deep_work", "standard_focus"] as BlockType[],
+      sourceLabel: "Chemistry HL past paper set",
+      reviewSourceLabel: "Chemistry HL past paper review",
+    },
+  ] as const;
 
-function buildPastPaperReviewSessions(options: {
-  subjectId: SubjectId;
-  unitIdPrefix: string;
-  unitTitle: string;
-  titlePrefix: string;
-  papers: Array<{
-    idSuffix: string;
-    label: string;
-    reviewDurationMinutes: number;
-  }>;
-  sourceLabel: string;
-}): SeedTopicBlueprint[] {
-  return postSyllabusPaperWeeks.flatMap((cycle, index) =>
-    options.papers.map((paper) => ({
-      id: `${options.unitIdPrefix}-week-${index + 1}-${paper.idSuffix}-review`,
-      subjectId: options.subjectId,
-      unitId: `${options.unitIdPrefix}-week-${index + 1}`,
-      unitTitle: `${options.unitTitle} - ${cycle.label}`,
-      title: `${options.titlePrefix} ${cycle.label} - ${paper.label} review`,
-      subtopics: [
-        `Review the ${paper.label} attempt carefully.`,
-        "Classify mistakes by concept, speed, and execution.",
-        "Rewrite one or two high-value corrections from scratch.",
-      ],
-      availableFrom: cycle.availableFrom,
-      dependsOnTopicId: `${options.unitIdPrefix}-week-${index + 1}-${paper.idSuffix}`,
-      minDaysAfterDependency: 1,
-      maxDaysAfterDependency: 7,
-      estHours: paper.reviewDurationMinutes / 60,
-      difficulty: 3 as const,
-      preferredBlockTypes: ["review", "standard_focus"] as BlockType[],
-      sourceMaterials: [
-        notes("Paper-review protocol", "Re-mark the paper, annotate the error log, and write a short correction summary."),
-        pastPaper(options.sourceLabel, `${cycle.label} ${paper.label} review and correction session.`),
-      ],
-    })),
-  );
+  return rotatingPaperCycleWeeks.flatMap((week, index) => {
+    const cycleEntry = cycle[index % cycle.length];
+    const weekNumber = index + 1;
+    const practiceTopicId = `${cycleEntry.unitIdPrefix}-week-${weekNumber}-${cycleEntry.paperIdSuffix}`;
+
+    return [
+      {
+        id: practiceTopicId,
+        subjectId: cycleEntry.subjectId,
+        unitId: `${cycleEntry.unitIdPrefix}-week-${weekNumber}`,
+        unitTitle: `${cycleEntry.unitTitle} - ${week.label}`,
+        title: `${cycleEntry.titlePrefix} ${week.label} - ${cycleEntry.paperLabel}`,
+        subtopics: [
+          "Run this paper in one uninterrupted exam-condition sitting.",
+          "Mark it immediately after completion.",
+          "Log the recurring mistakes before the paired correction block.",
+        ],
+        availableFrom: week.availableFrom,
+        sessionMode: "exam",
+        exactSessionMinutes: cycleEntry.durationMinutes,
+        estHours: cycleEntry.durationMinutes / 60,
+        difficulty: 4,
+        preferredBlockTypes: ["deep_work"],
+        sourceMaterials: [
+          pastPaper(
+            cycleEntry.sourceLabel,
+            `${week.label} ${cycleEntry.paperLabel} under full timed conditions.`,
+          ),
+          notes(
+            "Paper protocol",
+            "Keep full timing, full working, and immediate marking. This is the weekly anchor exam simulation.",
+          ),
+        ],
+      },
+      {
+        id: `${practiceTopicId}-review`,
+        subjectId: cycleEntry.subjectId,
+        unitId: `${cycleEntry.unitIdPrefix}-week-${weekNumber}`,
+        unitTitle: `${cycleEntry.unitTitle} - ${week.label}`,
+        title: `${cycleEntry.titlePrefix} ${week.label} - ${cycleEntry.paperLabel} review`,
+        subtopics: [
+          `Deep-correct the ${cycleEntry.paperLabel} attempt the same weekend.`,
+          "Classify each miss by concept, algebra, timing, or misread.",
+          "Rewrite the highest-value corrections cleanly and update the error log.",
+        ],
+        availableFrom: week.availableFrom,
+        dependsOnTopicId: practiceTopicId,
+        minDaysAfterDependency: 0,
+        maxDaysAfterDependency: 7,
+        estHours: cycleEntry.reviewDurationMinutes / 60,
+        difficulty: 3,
+        preferredBlockTypes: cycleEntry.reviewBlockTypes,
+        sourceMaterials: [
+          notes(
+            "Paper-review protocol",
+            "Use this block for deep correction, not a superficial re-mark. Rewrite the decisive fixes the same weekend.",
+          ),
+          pastPaper(
+            cycleEntry.reviewSourceLabel,
+            `${week.label} ${cycleEntry.paperLabel} review and correction session.`,
+          ),
+        ],
+      },
+    ];
+  });
 }
 
 export const legacySeedTopicIds = [
@@ -1423,76 +1453,7 @@ const chemistryTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
   },
 ], "Follow the seeded Chemistry HL syllabus order strictly before moving to the next topic.");
 
-const physicsPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperSessions({
-  subjectId: "physics-hl",
-  unitIdPrefix: "physics-past-papers",
-  unitTitle: "Physics HL - Past Paper Cycles",
-  titlePrefix: "Physics HL",
-  papers: [
-    { idSuffix: "paper-1ab", label: "Paper 1A + 1B", durationMinutes: 120 },
-    { idSuffix: "paper-2", label: "Paper 2", durationMinutes: 150 },
-  ],
-  sourceLabel: "Physics HL past paper set",
-});
-const physicsPaperReviewBlueprints: SeedTopicBlueprint[] = buildPastPaperReviewSessions({
-  subjectId: "physics-hl",
-  unitIdPrefix: "physics-past-papers",
-  unitTitle: "Physics HL - Past Paper Cycles",
-  titlePrefix: "Physics HL",
-  papers: [
-    { idSuffix: "paper-1ab", label: "Paper 1A + 1B", reviewDurationMinutes: 60 },
-    { idSuffix: "paper-2", label: "Paper 2", reviewDurationMinutes: 75 },
-  ],
-  sourceLabel: "Physics HL past paper review",
-});
-
-const mathsPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperSessions({
-  subjectId: "maths-aa-hl",
-  unitIdPrefix: "maths-aa-past-papers",
-  unitTitle: "Maths AA HL - Past Paper Cycles",
-  titlePrefix: "Maths AA HL",
-  papers: [
-    { idSuffix: "paper-1", label: "Paper 1", durationMinutes: 120 },
-    { idSuffix: "paper-2", label: "Paper 2", durationMinutes: 120 },
-    { idSuffix: "paper-3", label: "Paper 3", durationMinutes: 75 },
-  ],
-  sourceLabel: "Maths AA HL past paper set",
-});
-const mathsPaperReviewBlueprints: SeedTopicBlueprint[] = buildPastPaperReviewSessions({
-  subjectId: "maths-aa-hl",
-  unitIdPrefix: "maths-aa-past-papers",
-  unitTitle: "Maths AA HL - Past Paper Cycles",
-  titlePrefix: "Maths AA HL",
-  papers: [
-    { idSuffix: "paper-1", label: "Paper 1", reviewDurationMinutes: 60 },
-    { idSuffix: "paper-2", label: "Paper 2", reviewDurationMinutes: 60 },
-    { idSuffix: "paper-3", label: "Paper 3", reviewDurationMinutes: 45 },
-  ],
-  sourceLabel: "Maths AA HL past paper review",
-});
-
-const chemistryPaperPracticeBlueprints: SeedTopicBlueprint[] = buildPastPaperSessions({
-  subjectId: "chemistry-hl",
-  unitIdPrefix: "chemistry-past-papers",
-  unitTitle: "Chemistry HL - Past Paper Cycles",
-  titlePrefix: "Chemistry HL",
-  papers: [
-    { idSuffix: "paper-1ab", label: "Paper 1A + 1B", durationMinutes: 120 },
-    { idSuffix: "paper-2", label: "Paper 2", durationMinutes: 150 },
-  ],
-  sourceLabel: "Chemistry HL past paper set",
-});
-const chemistryPaperReviewBlueprints: SeedTopicBlueprint[] = buildPastPaperReviewSessions({
-  subjectId: "chemistry-hl",
-  unitIdPrefix: "chemistry-past-papers",
-  unitTitle: "Chemistry HL - Past Paper Cycles",
-  titlePrefix: "Chemistry HL",
-  papers: [
-    { idSuffix: "paper-1ab", label: "Paper 1A + 1B", reviewDurationMinutes: 60 },
-    { idSuffix: "paper-2", label: "Paper 2", reviewDurationMinutes: 75 },
-  ],
-  sourceLabel: "Chemistry HL past paper review",
-});
+const ibSaturdayPaperCycleBlueprints: SeedTopicBlueprint[] = buildRotatingPaperCycleBlueprints();
 
 const olympiadTopicBlueprints: SeedTopicBlueprint[] = buildOlympiadBPlusBlueprints();
 
@@ -1773,14 +1734,9 @@ const programmingTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
 
 export const seedTopicBlueprints: SeedTopicBlueprint[] = [
   ...physicsTopicBlueprints,
-  ...physicsPaperPracticeBlueprints,
-  ...physicsPaperReviewBlueprints,
   ...mathsTopicBlueprints,
-  ...mathsPaperPracticeBlueprints,
-  ...mathsPaperReviewBlueprints,
   ...chemistryTopicBlueprints,
-  ...chemistryPaperPracticeBlueprints,
-  ...chemistryPaperReviewBlueprints,
+  ...ibSaturdayPaperCycleBlueprints,
   ...olympiadTopicBlueprints,
   ...olympiadGoldPhaseBlueprints,
   ...englishTopicBlueprints,

@@ -150,6 +150,7 @@ export const studyBlockSchema = z.object({
   rescheduleCount: z.number(),
   assignmentLocked: z.boolean().optional().default(false),
   assignmentEditedAt: z.string().nullable().optional().default(null),
+  studyLayer: z.enum(["learning", "application", "exam_sim", "correction"]).nullable().optional().default(null),
   followUpKind: z.enum(["olympiad-rewrite"]).nullable().optional().default(null),
   followUpSourceStudyBlockId: z.string().nullable().optional().default(null),
   followUpDueAt: z.string().nullable().optional().default(null),

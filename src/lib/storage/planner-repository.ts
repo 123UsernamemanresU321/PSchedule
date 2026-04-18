@@ -32,7 +32,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-04-18-horizon-dashboard-v48";
+const PLANNING_MODEL_VERSION = "2026-04-18-school-term-template-v49";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-08-olympiad-bplus-roadmap-v11";
@@ -257,6 +257,7 @@ export function normalizeStudyBlock(block: StudyBlock) {
   const followUpKind = block.followUpKind ?? null;
   const followUpSourceStudyBlockId = block.followUpSourceStudyBlockId ?? null;
   const followUpDueAt = block.followUpDueAt ?? null;
+  const studyLayer = block.studyLayer ?? null;
   const isFlexiblePlanningBlock =
     !followUpKind &&
     !assignmentLocked &&
@@ -270,6 +271,7 @@ export function normalizeStudyBlock(block: StudyBlock) {
     generatedReason: normalizedGeneratedReason,
     assignmentLocked,
     assignmentEditedAt: block.assignmentEditedAt ?? null,
+    studyLayer,
     followUpKind,
     followUpSourceStudyBlockId,
     followUpDueAt,
@@ -679,12 +681,17 @@ export function getCollapsedCoverageRepairState(
   const collapsedSubjectIds = states
     .filter((state) => state.isCollapsed)
     .map((state) => state.subjectId);
+  const hardConstraintSubjectIds = states
+    .filter((state) => state.hasStrictIncompleteCoverage)
+    .map((state) => state.subjectId);
 
   return {
     states,
     collapsedSubjectIds,
+    hardConstraintSubjectIds,
     invalidOverlapIssues,
     invalidOverlapBlockIds,
+    hasHardConstraintCoverageFailure: hardConstraintSubjectIds.length > 0,
     hasCollapsedCoverage: collapsedSubjectIds.length > 0 || invalidOverlapIssues.length > 0,
   };
 }
@@ -768,12 +775,18 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
   }
 
   const existingStudyBlocks = repairState.hasCollapsedCoverage
-    ? buildCollapsedCoverageRepairBaselineStudyBlocks(
-        workingSnapshot.studyBlocks,
-        referenceDate,
-        preservedStudyBlockIds,
-        repairState.invalidOverlapBlockIds,
-      )
+    ? repairState.hasHardConstraintCoverageFailure
+      ? buildHardConstraintFutureResetBaselineStudyBlocks(
+          workingSnapshot.studyBlocks,
+          referenceDate,
+          preservedStudyBlockIds,
+        )
+      : buildCollapsedCoverageRepairBaselineStudyBlocks(
+          workingSnapshot.studyBlocks,
+          referenceDate,
+          preservedStudyBlockIds,
+          repairState.invalidOverlapBlockIds,
+        )
     : workingSnapshot.studyBlocks;
 
   const replanned = generateStudyPlanHorizon({
@@ -814,12 +827,19 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
     focusedDays: nextSnapshot.focusedDays,
     focusedWeeks: nextSnapshot.focusedWeeks,
     preferences: nextSnapshot.preferences,
-    existingStudyBlocks: buildCollapsedCoverageRepairBaselineStudyBlocks(
-      nextSnapshot.studyBlocks,
-      referenceDate,
-      preservedStudyBlockIds,
-      getCollapsedCoverageRepairState(nextSnapshot, referenceDate).invalidOverlapBlockIds,
-    ),
+    existingStudyBlocks: getCollapsedCoverageRepairState(nextSnapshot, referenceDate)
+      .hasHardConstraintCoverageFailure
+      ? buildHardConstraintFutureResetBaselineStudyBlocks(
+          nextSnapshot.studyBlocks,
+          referenceDate,
+          preservedStudyBlockIds,
+        )
+      : buildCollapsedCoverageRepairBaselineStudyBlocks(
+          nextSnapshot.studyBlocks,
+          referenceDate,
+          preservedStudyBlockIds,
+          getCollapsedCoverageRepairState(nextSnapshot, referenceDate).invalidOverlapBlockIds,
+        ),
     preservedStudyBlockIds,
     preserveFlexibleFutureBlocks: false,
   });
@@ -850,12 +870,18 @@ async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Da
     focusedWeeks: syncedSnapshot.focusedWeeks,
     preferences: syncedSnapshot.preferences,
     existingStudyBlocks: repairState.hasCollapsedCoverage
-      ? buildCollapsedCoverageRepairBaselineStudyBlocks(
-          syncedSnapshot.studyBlocks,
-          referenceDate,
-          preservedStudyBlockIds,
-          repairState.invalidOverlapBlockIds,
-        )
+      ? repairState.hasHardConstraintCoverageFailure
+        ? buildHardConstraintFutureResetBaselineStudyBlocks(
+            syncedSnapshot.studyBlocks,
+            referenceDate,
+            preservedStudyBlockIds,
+          )
+        : buildCollapsedCoverageRepairBaselineStudyBlocks(
+            syncedSnapshot.studyBlocks,
+            referenceDate,
+            preservedStudyBlockIds,
+            repairState.invalidOverlapBlockIds,
+          )
       : syncedSnapshot.studyBlocks,
     preservedStudyBlockIds,
     preserveFlexibleFutureBlocks: false,
