@@ -766,6 +766,109 @@ function chooseBestSoftCommitmentReduction(options: {
   return bestCandidate;
 }
 
+function getTaskConstraintDeadlineTime(task: TaskCandidate) {
+  return [
+    task.followUpDueAt,
+    task.latestAt,
+    task.reviewDue,
+  ]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .map((value) => new Date(value).getTime())
+    .filter((value) => !Number.isNaN(value))
+    .sort((left, right) => left - right)[0] ?? null;
+}
+
+function calculateHardInWeekDemandMinutes(options: {
+  remainingTasks: TaskCandidate[];
+  weekEnd: Date;
+}) {
+  const weekEndTime = options.weekEnd.getTime();
+
+  return roundUpToAllocatableMinutes(
+    sum(
+      options.remainingTasks
+        .filter((task) => {
+          const availableAtTime = task.availableAt ? new Date(task.availableAt).getTime() : null;
+          if (availableAtTime != null && availableAtTime > weekEndTime) {
+            return false;
+          }
+
+          const constraintDeadlineTime = getTaskConstraintDeadlineTime(task);
+          if (constraintDeadlineTime == null || constraintDeadlineTime > weekEndTime) {
+            return false;
+          }
+
+          return task.followUpKind === "olympiad-rewrite" || task.sessionMode === "exam";
+        })
+        .map((task) => task.remainingMinutes),
+    ),
+  );
+}
+
+function calculateSoftCommitmentTargetCapacityMinutes(options: {
+  currentWeek: Date;
+  referenceDate: Date;
+  fixedEvents: import("@/lib/types/planner").FixedEvent[];
+  sickDays?: SickDay[];
+  preferences: Preferences;
+  blockedStudyBlocks: StudyBlock[];
+  remainingTasks: TaskCandidate[];
+  remainingTaskMinutes: number;
+  weeklyRequiredMinutes: number;
+  baseDurations: EffectiveReservedCommitmentDuration[];
+}) {
+  const weekEnd = addDays(options.currentWeek, 6);
+  const hardInWeekDemandMinutes = calculateHardInWeekDemandMinutes({
+    remainingTasks: options.remainingTasks,
+    weekEnd,
+  });
+  const isPartialCurrentWeek = toDateKey(options.referenceDate) !== toDateKey(options.currentWeek);
+
+  if (!isPartialCurrentWeek) {
+    return Math.min(
+      options.remainingTaskMinutes,
+      Math.max(options.weeklyRequiredMinutes, hardInWeekDemandMinutes),
+    );
+  }
+
+  const fullWeekBaseDurations = buildBaseReservedCommitmentDurationsForWeek({
+    weekStart: options.currentWeek,
+    fixedEvents: options.fixedEvents,
+    sickDays: options.sickDays,
+    preferences: options.preferences,
+    planningStart: options.currentWeek,
+  });
+  const fullWeekCapacityMinutes = calculateFreeSlotCapacityForWeek({
+    weekStart: options.currentWeek,
+    fixedEvents: options.fixedEvents,
+    sickDays: options.sickDays,
+    preferences: options.preferences,
+    blockedStudyBlocks: options.blockedStudyBlocks,
+    planningStart: options.currentWeek,
+    effectiveReservedCommitmentDurations: fullWeekBaseDurations,
+  });
+  const remainingWeekCapacityMinutes = calculateFreeSlotCapacityForWeek({
+    weekStart: options.currentWeek,
+    fixedEvents: options.fixedEvents,
+    sickDays: options.sickDays,
+    preferences: options.preferences,
+    blockedStudyBlocks: options.blockedStudyBlocks,
+    planningStart: options.referenceDate,
+    effectiveReservedCommitmentDurations: options.baseDurations,
+  });
+  const remainingWeekDemandMinutes =
+    fullWeekCapacityMinutes > 0
+      ? roundUpToAllocatableMinutes(
+          (options.weeklyRequiredMinutes * remainingWeekCapacityMinutes) / fullWeekCapacityMinutes,
+        )
+      : 0;
+
+  return Math.min(
+    options.remainingTaskMinutes,
+    Math.max(remainingWeekDemandMinutes, hardInWeekDemandMinutes),
+  );
+}
+
 function buildWeeklyMixTargetMinutesBySubject(options: {
   requiredMinutesBySubject: Record<string, number>;
   effectiveCapacityMinutes: number;
@@ -875,8 +978,19 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
       ),
     ),
   );
-  const targetCapacityMinutes = weeklyRequiredMinutes;
   const blockedStudyBlocks = options.lockedBlocks ?? [];
+  const targetCapacityMinutes = calculateSoftCommitmentTargetCapacityMinutes({
+    currentWeek: options.currentWeek,
+    referenceDate,
+    fixedEvents: options.fixedEvents,
+    sickDays: options.sickDays,
+    preferences: options.preferences,
+    blockedStudyBlocks,
+    remainingTasks,
+    remainingTaskMinutes,
+    weeklyRequiredMinutes,
+    baseDurations,
+  });
   let currentDurations = baseDurations;
   let capacityMinutes = calculateFreeSlotCapacityForWeek({
     weekStart: options.currentWeek,

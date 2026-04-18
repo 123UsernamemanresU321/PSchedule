@@ -127,6 +127,54 @@ function createWeeklyPlan(overrides: Partial<WeeklyPlan> = {}): WeeklyPlan {
   };
 }
 
+function withFakeNow<T>(nowIso: string, callback: () => T): T {
+  const RealDate = globalThis.Date;
+  class FakeDate extends RealDate {
+    constructor(
+      value?: string | number | Date,
+      month?: number,
+      date?: number,
+      hours?: number,
+      minutes?: number,
+      seconds?: number,
+      ms?: number,
+    ) {
+      if (value == null) {
+        super(nowIso);
+      } else if (month == null) {
+        super(value);
+      } else if (date == null) {
+        super(value as number, month);
+      } else if (hours == null) {
+        super(value as number, month, date);
+      } else if (minutes == null) {
+        super(value as number, month, date, hours);
+      } else if (seconds == null) {
+        super(value as number, month, date, hours, minutes);
+      } else if (ms == null) {
+        super(value as number, month, date, hours, minutes, seconds);
+      } else {
+        super(value as number, month, date, hours, minutes, seconds, ms);
+      }
+    }
+
+    static now() {
+      return new RealDate(nowIso).getTime();
+    }
+
+    static parse = RealDate.parse;
+    static UTC = RealDate.UTC;
+  }
+
+  globalThis.Date = FakeDate as DateConstructor;
+
+  try {
+    return callback();
+  } finally {
+    globalThis.Date = RealDate;
+  }
+}
+
 test("paired paper reviews retain their dependency scheduling window", () => {
   const dataset = buildSeedDataset(new Date("2026-03-13T08:00:00"));
   const reviewTopic = dataset.topics.find(
@@ -4123,6 +4171,112 @@ test("late overloaded school-term weeks drop piano before homework without strip
     !overloadedWeekPlan.excludedReservedCommitmentRuleIds.includes("term-homework"),
     "expected homework to remain while piano is dropped first",
   );
+});
+
+test("current school-term weeks keep homework and piano later in the week when remaining demand still fits", () => {
+  const weekStart = new Date("2026-04-13T00:00:00.000Z");
+  const referenceDate = new Date("2026-04-14T08:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const preferences = {
+    ...dataset.preferences,
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: true,
+      weekdays: [1, 2, 3, 4, 5],
+      start: "08:00",
+      end: "15:00",
+      terms: [
+        {
+          id: "term-2",
+          label: "Term 2",
+          startDate: "2026-04-01",
+          endDate: "2026-06-30",
+        },
+      ],
+    },
+  };
+  const subjectDeadlinesById = Object.fromEntries(
+    dataset.subjects.map((subject) => [subject.id, subject.deadline]),
+  );
+
+  const mondayPlan = withFakeNow("2026-04-13T09:00:00+02:00", () =>
+    selectEffectiveReservedCommitmentPlanForWeek({
+      currentWeek: weekStart,
+      endWeek: addDays(weekStart, 21),
+      goals: dataset.goals,
+      subjects: dataset.subjects,
+      topics: dataset.topics,
+      completionLogs: [],
+      fixedEvents: dataset.fixedEvents,
+      sickDays: [],
+      focusedDays: [],
+      focusedWeeks: [],
+      preferences,
+      existingPlannedBlocks: [],
+      lockedBlocks: [],
+      horizonStartDate: weekStart,
+      subjectDeadlinesById,
+    }),
+  );
+  const mondayBaseCommitments = withFakeNow("2026-04-13T09:00:00+02:00", () =>
+    expandReservedCommitmentWindowsForWeek(weekStart, preferences, [], [], [], [], new Date()),
+  );
+  const saturdayPlan = withFakeNow("2026-04-18T10:00:00+02:00", () =>
+    selectEffectiveReservedCommitmentPlanForWeek({
+      currentWeek: weekStart,
+      endWeek: addDays(weekStart, 21),
+      goals: dataset.goals,
+      subjects: dataset.subjects,
+      topics: dataset.topics,
+      completionLogs: [],
+      fixedEvents: dataset.fixedEvents,
+      sickDays: [],
+      focusedDays: [],
+      focusedWeeks: [],
+      preferences,
+      existingPlannedBlocks: [],
+      lockedBlocks: [],
+      horizonStartDate: weekStart,
+      subjectDeadlinesById,
+    }),
+  );
+  const saturdayBaseCommitments = withFakeNow("2026-04-18T10:00:00+02:00", () =>
+    expandReservedCommitmentWindowsForWeek(weekStart, preferences, [], [], [], [], new Date()),
+  );
+
+  const mondayTotals = mondayPlan.effectiveReservedCommitmentDurations.reduce<Record<string, number>>(
+    (accumulator, entry) => {
+      accumulator[entry.ruleId] = (accumulator[entry.ruleId] ?? 0) + entry.durationMinutes;
+      return accumulator;
+    },
+    {},
+  );
+  const saturdayTotals = saturdayPlan.effectiveReservedCommitmentDurations.reduce<Record<string, number>>(
+    (accumulator, entry) => {
+      accumulator[entry.ruleId] = (accumulator[entry.ruleId] ?? 0) + entry.durationMinutes;
+      return accumulator;
+    },
+    {},
+  );
+  const mondayBaseTotals = mondayBaseCommitments.reduce<Record<string, number>>((accumulator, entry) => {
+    const durationMinutes =
+      (new Date(entry.end).getTime() - new Date(entry.start).getTime()) / 60000;
+    accumulator[entry.ruleId] = (accumulator[entry.ruleId] ?? 0) + durationMinutes;
+    return accumulator;
+  }, {});
+  const saturdayBaseTotals = saturdayBaseCommitments.reduce<Record<string, number>>(
+    (accumulator, entry) => {
+      const durationMinutes =
+        (new Date(entry.end).getTime() - new Date(entry.start).getTime()) / 60000;
+      accumulator[entry.ruleId] = (accumulator[entry.ruleId] ?? 0) + durationMinutes;
+      return accumulator;
+    },
+    {},
+  );
+
+  assert.deepEqual(mondayTotals, mondayBaseTotals);
+  assert.deepEqual(saturdayTotals, saturdayBaseTotals);
+  assert.deepEqual(saturdayPlan.excludedReservedCommitmentRuleIds, []);
 });
 
 test("horizon extends beyond the configured end week until the remaining workload is fully planned", () => {
