@@ -4,15 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "NEXT_OUTPUT_MODE=dev next dev --webpack",
-    "build": "NEXT_OUTPUT_MODE=build next build --webpack",
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
     "build:pages": "NEXT_OUTPUT_MODE=pages next build --webpack",
-    "start": "NEXT_OUTPUT_MODE=build next start",
-    "lint": "eslint .",
-    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
-    "test": "node --experimental-strip-types --import ./scripts/register-ts-loader.mjs --test tests/*.test.ts",
-    "test:e2e": "playwright test",
-    "benchmark:replan": "node --experimental-strip-types --import ./scripts/register-ts-loader.mjs scripts/benchmark-replan.ts"
+    "start": "next start"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.20",
