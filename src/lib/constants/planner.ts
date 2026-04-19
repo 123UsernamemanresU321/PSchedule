@@ -17,6 +17,8 @@ export const mainSubjectIds = [
   "cpp-book",
 ] as const;
 
+export const hardScopeSubjectIds = mainSubjectIds;
+
 export const topicStatusValues = [
   "not_started",
   "learning",

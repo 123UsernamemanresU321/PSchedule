@@ -86,7 +86,6 @@ export function getSubjectProgress(
   studyBlocks: StudyBlock[] = [],
   referenceDate = new Date(),
 ) {
-  const minAllocatableHours = 0.5;
   const subjectTopics = topics.filter((topic) => topic.subjectId === subject.id);
   const topicById = new Map(subjectTopics.map((topic) => [topic.id, topic]));
   const plannedFutureMinutesByTopic = studyBlocks.reduce<Record<string, number>>((accumulator, block) => {
@@ -128,18 +127,13 @@ export function getSubjectProgress(
   const scheduledFutureHours = subjectTopics.reduce((total, topic) => {
     const remainingHoursForTopic = Math.max(topic.estHours - topic.completedHours, 0);
     const plannedFutureHours = (plannedFutureMinutesByTopic[topic.id] ?? 0) / 60;
-    const rawUnscheduledHours = Math.max(remainingHoursForTopic - plannedFutureHours, 0);
-    const normalizedUnscheduledHours =
-      rawUnscheduledHours > 0 && rawUnscheduledHours < minAllocatableHours
-        ? 0
-        : rawUnscheduledHours;
-    return total + Math.max(remainingHoursForTopic - normalizedUnscheduledHours, 0);
+    const unscheduledHours = Math.max(remainingHoursForTopic - plannedFutureHours, 0);
+    return total + Math.max(remainingHoursForTopic - unscheduledHours, 0);
   }, 0);
   const unscheduledHours = subjectTopics.reduce((total, topic) => {
     const remainingHoursForTopic = Math.max(topic.estHours - topic.completedHours, 0);
     const plannedFutureHours = (plannedFutureMinutesByTopic[topic.id] ?? 0) / 60;
-    const rawUnscheduledHours = Math.max(remainingHoursForTopic - plannedFutureHours, 0);
-    return total + (rawUnscheduledHours > 0 && rawUnscheduledHours < minAllocatableHours ? 0 : rawUnscheduledHours);
+    return total + Math.max(remainingHoursForTopic - plannedFutureHours, 0);
   }, 0);
   const atRiskTopics = subjectTopics.filter(
     (topic) => topic.mastery <= 2 || topic.status === "not_started",
@@ -155,16 +149,7 @@ export function getSubjectProgress(
     plannedFutureHoursByTopic: Object.fromEntries(
       subjectTopics.map((topic) => {
         const plannedFutureHours = (plannedFutureMinutesByTopic[topic.id] ?? 0) / 60;
-        const remainingHoursForTopic = Math.max(topic.estHours - topic.completedHours, 0);
-        const rawUnscheduledHours = Math.max(remainingHoursForTopic - plannedFutureHours, 0);
-        const normalizedUnscheduledHours =
-          rawUnscheduledHours > 0 && rawUnscheduledHours < minAllocatableHours
-            ? 0
-            : rawUnscheduledHours;
-        return [
-          topic.id,
-          Number(Math.max(remainingHoursForTopic - normalizedUnscheduledHours, 0).toFixed(1)),
-        ];
+        return [topic.id, Number(Math.min(plannedFutureHours, Math.max(topic.estHours - topic.completedHours, 0)).toFixed(1))];
       }),
     ),
     totalHours: Number(totalHours.toFixed(1)),
@@ -535,10 +520,6 @@ function taskFitsSlot(
   task: ReturnType<typeof buildTaskCandidates>[number],
   preferences: Preferences,
 ) {
-  if (task.subjectId === "cpp-book") {
-    return false;
-  }
-
   if (task.availableAt && new Date(task.availableAt).getTime() > slot.start.getTime()) {
     return false;
   }
@@ -565,8 +546,10 @@ export function detectFutureFillableGap(options: {
   completionLogs?: CompletionLog[];
   preferences: Preferences;
   referenceDate?: Date;
+  subjectIds?: string[];
 }) {
   const referenceDate = options.referenceDate ?? new Date();
+  const scopedSubjectIds = options.subjectIds?.length ? new Set(options.subjectIds) : null;
   const futurePlans = [...options.weeklyPlans]
     .filter((plan) => plan.weekStart >= toDateKey(startOfPlannerWeek(referenceDate)))
     .sort((left, right) => left.weekStart.localeCompare(right.weekStart));
@@ -602,7 +585,11 @@ export function detectFutureFillableGap(options: {
       completionLogs: options.completionLogs,
       referenceDate: planningStart,
       subjectDeadlinesById,
-    }).filter((task) => task.remainingMinutes >= 30 && task.subjectId !== "cpp-book");
+    }).filter(
+      (task) =>
+        task.remainingMinutes >= 30 &&
+        (!scopedSubjectIds || (!!task.subjectId && scopedSubjectIds.has(task.subjectId))),
+    );
 
     if (!remainingTasks.length) {
       continue;
@@ -686,7 +673,7 @@ export function getWeekFillDiagnostics(options: {
       completionLogs: options.completionLogs,
       referenceDate: planningStart,
       subjectDeadlinesById,
-    }).filter((task) => task.remainingMinutes >= 30 && task.subjectId !== "cpp-book");
+    }).filter((task) => task.remainingMinutes >= 30);
     const fillableGapDetected = openSlots.some((slot) =>
       remainingTasks.some((task) => taskFitsSlot(slot, task, options.preferences)),
     );

@@ -23,6 +23,7 @@ import {
   expandReservedCommitmentWindowsForWeek,
 } from "@/lib/scheduler/free-slots";
 import {
+  absorbStudyMicroGaps,
   generateStudyPlanForWeek,
   generateStudyPlanHorizon,
   getInlineBreakMinutes,
@@ -119,16 +120,20 @@ function createWeeklyPlan(overrides: Partial<WeeklyPlan> = {}): WeeklyPlan {
     remainingHoursBySubject: { "physics-hl": 6 },
     coverageGapHoursBySubject: { "physics-hl": 2 },
     scheduledToGoalHoursBySubject: { "physics-hl": 4 },
+    hardCoverageSatisfiedBySubject: { "physics-hl": false },
     underplannedSubjectIds: ["physics-hl"],
     slackMinutes: 120,
     carryOverBlockIds: [],
     feasibilityScore: 60,
     riskFlag: "medium",
     feasibilityWarnings: [],
+    fallbackTierUsed: 0,
     forcedCoverageMinutes: 0,
     usedSundayMinutes: 0,
     overloadMinutes: 0,
+    overscheduledMinutes: 0,
     coverageComplete: false,
+    fillableGapDateKeys: [],
     effectiveReservedCommitmentDurations: [],
     excludedReservedCommitmentRuleIds: [],
     weeksRemainingToDeadline: 10,
@@ -701,7 +706,7 @@ test("horizon generation fully places remaining topic hours when future capacity
   assert.equal(progress.unscheduledHours, 0);
 });
 
-test("clean full-horizon seed keeps every non-C++ subject fully scheduled", () => {
+test("clean full-horizon seed keeps every hard-scope subject fully scheduled", () => {
   const referenceDate = new Date("2026-04-18T08:00:00");
   const dataset = buildSeedDataset(referenceDate);
   const result = generateStudyPlanHorizon({
@@ -719,7 +724,7 @@ test("clean full-horizon seed keeps every non-C++ subject fully scheduled", () =
   });
 
   dataset.subjects
-    .filter((subject) => subject.id !== "cpp-book")
+    .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
     .forEach((subject) => {
       const progress = getSubjectProgress(subject, dataset.topics, result.studyBlocks, referenceDate);
       if (progress.remainingHours > 0.25) {
@@ -730,6 +735,79 @@ test("clean full-horizon seed keeps every non-C++ subject fully scheduled", () =
         );
       }
     });
+});
+
+test("subject progress reports real sub-30-minute unscheduled work instead of masking it", () => {
+  const subject = buildSeedDataset(new Date("2026-04-18T08:00:00"))
+    .subjects.find((candidate) => candidate.id === "physics-hl");
+
+  assert.ok(subject, "expected physics subject");
+
+  const topic: Topic = {
+    id: "physics-sub30-gap",
+    subjectId: "physics-hl",
+    unitId: "physics-unit-sub30",
+    unitTitle: "Physics sub-30",
+    title: "Short residual",
+    subtopics: ["Residual"],
+    estHours: 1,
+    completedHours: 0.8,
+    difficulty: 2,
+    status: "learning",
+    mastery: 2,
+    reviewDue: null,
+    lastStudiedAt: null,
+    sourceMaterials: [],
+    preferredBlockTypes: ["review"],
+    order: 1,
+  };
+
+  const progress = getSubjectProgress(subject, [topic], [], new Date("2026-04-18T08:00:00"));
+
+  assert.equal(progress.scheduledFutureHours, 0);
+  assert.equal(progress.unscheduledHours, 0.2);
+});
+
+test("micro gaps before hard boundaries are absorbed into adjacent flexible study blocks", () => {
+  const seedPreferences = buildSeedPreferences();
+  const preferences = normalizePreferences({
+    ...seedPreferences,
+    schoolSchedule: {
+      ...seedPreferences.schoolSchedule,
+      enabled: false,
+      terms: [],
+    },
+    holidaySchedule: {
+      ...seedPreferences.holidaySchedule,
+      enabled: true,
+      dailyStudyWindow: {
+        start: "17:30",
+        end: "22:30",
+      },
+    },
+  });
+  const studyBlock = createStudyBlock({
+    id: "micro-gap-block",
+    date: "2026-04-27",
+    weekStart: "2026-04-27",
+    start: "2026-04-27T17:30:00",
+    end: "2026-04-27T19:00:00",
+    estimatedMinutes: 90,
+    subjectId: "physics-hl",
+    title: "Physics micro-gap block",
+    studyLayer: "learning",
+  });
+  const compacted = absorbStudyMicroGaps({
+    weekStart: new Date("2026-04-27T00:00:00"),
+    studyBlocks: [studyBlock],
+    fixedEvents: [],
+    preferences,
+    planningStart: new Date("2026-04-27T00:00:00"),
+  });
+  const adjustedBlock = compacted.studyBlocks.find((block) => block.id === "micro-gap-block");
+
+  assert.deepEqual(compacted.absorbedGapDateKeys, ["2026-04-27"]);
+  assert.equal(adjustedBlock?.estimatedMinutes, 105);
 });
 
 test("weekly allocation keeps filling after sequential topics unlock midweek", () => {
@@ -4296,6 +4374,49 @@ test("strict non-C++ future gaps trigger the hard future-reset baseline and full
   assert.equal(
     getSubjectProgress(mathsSubject!, dataset.topics, repaired.studyBlocks, referenceDate).unscheduledHours,
     0,
+  );
+});
+
+test("hard-constraint repair now also treats C++ coverage loss as a real failure", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const base = generateStudyPlanHorizon({
+    startWeek: referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+  });
+  const brokenStudyBlocks = base.studyBlocks.filter((block) => block.subjectId !== "cpp-book");
+  const repairState = getCollapsedCoverageRepairState(
+    {
+      goals: dataset.goals,
+      subjects: dataset.subjects,
+      topics: dataset.topics,
+      fixedEvents: dataset.fixedEvents,
+      sickDays: dataset.sickDays,
+      focusedDays: dataset.focusedDays,
+      focusedWeeks: dataset.focusedWeeks,
+      studyBlocks: brokenStudyBlocks,
+      completionLogs: [],
+      weeklyPlans: base.weeklyPlans,
+      preferences: dataset.preferences,
+    },
+    referenceDate,
+  );
+  const cppSubject = dataset.subjects.find((subject) => subject.id === "cpp-book");
+
+  assert.ok(cppSubject, "expected cpp subject");
+  assert.equal(repairState.hasHardConstraintCoverageFailure, true);
+  assert.ok(repairState.hardConstraintSubjectIds.includes("cpp-book"));
+  assert.equal(
+    getSubjectProgress(cppSubject, dataset.topics, brokenStudyBlocks, referenceDate).unscheduledHours >
+      0,
+    true,
   );
 });
 

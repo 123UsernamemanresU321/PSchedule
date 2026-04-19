@@ -1,6 +1,6 @@
 import { addDays, addMinutes, getISOWeek, isAfter } from "date-fns";
 
-import { subjectIds } from "@/lib/constants/planner";
+import { hardScopeSubjectIds, subjectIds } from "@/lib/constants/planner";
 import {
   buildUnconfiguredWeeklyPlan,
   buildWeeklyPlan,
@@ -64,8 +64,8 @@ const DAILY_FILL_SUBJECT_ORDER: Subject["id"][] = [
   "physics-hl",
   "chemistry-hl",
   "olympiad",
-  "french-b-sl",
   "cpp-book",
+  "french-b-sl",
   "english-a-sl",
   "geography-transition",
 ];
@@ -74,6 +74,125 @@ const CORE_IB_FILL_SUBJECT_ORDER: Subject["id"][] = [
   "physics-hl",
   "chemistry-hl",
 ];
+
+const HARD_SCOPE_PRIORITY_BY_SUBJECT = Object.fromEntries(
+  hardScopeSubjectIds.map((subjectId, index) => [subjectId, hardScopeSubjectIds.length - index]),
+) as Record<string, number>;
+
+function getSoftCommitmentFallbackTier(ruleId: string) {
+  switch (ruleId) {
+    case "piano-practice":
+      return 2;
+    case "term-homework":
+      return 3;
+    default:
+      return 0;
+  }
+}
+
+function isMicroGapExtendableBlock(block: StudyBlock | undefined) {
+  if (!block?.subjectId) {
+    return false;
+  }
+
+  if (block.assignmentLocked || block.creationSource === "manual") {
+    return false;
+  }
+
+  return block.studyLayer !== "exam_sim";
+}
+
+function getMicroGapAbsorptionPriority(block: StudyBlock | undefined) {
+  if (!block?.subjectId) {
+    return -1;
+  }
+
+  return HARD_SCOPE_PRIORITY_BY_SUBJECT[block.subjectId] ?? 0;
+}
+
+export function absorbStudyMicroGaps(options: {
+  weekStart: Date;
+  studyBlocks: StudyBlock[];
+  fixedEvents: import("@/lib/types/planner").FixedEvent[];
+  preferences: Preferences;
+  sickDays?: SickDay[];
+  planningStart?: Date;
+}) {
+  const weekStart = startOfPlannerWeek(options.weekStart);
+  const clonedBlocks = options.studyBlocks.map((block) => ({ ...block }));
+  const absorbedGapDateKeys = new Set<string>();
+
+  for (let pass = 0; pass < 4; pass += 1) {
+    const microGaps = calculateFreeSlots({
+      weekStart,
+      fixedEvents: options.fixedEvents,
+      sickDays: options.sickDays ?? [],
+      preferences: options.preferences,
+      blockedStudyBlocks: clonedBlocks,
+      planningStart: options.planningStart,
+      minimumDurationMinutes: 1,
+    }).filter(
+      (slot) => slot.durationMinutes > 0 && slot.durationMinutes < MIN_ALLOCATABLE_MINUTES,
+    );
+    let absorbedOnPass = false;
+
+    microGaps.forEach((slot) => {
+      const sameDayBlocks = clonedBlocks
+        .filter((block) => block.date === slot.dateKey)
+        .sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime());
+      const previousBlock = [...sameDayBlocks]
+        .reverse()
+        .find((block) => new Date(block.end).getTime() === slot.start.getTime());
+      const nextBlock = sameDayBlocks.find(
+        (block) => new Date(block.start).getTime() === slot.end.getTime(),
+      );
+      const previousEligible = isMicroGapExtendableBlock(previousBlock);
+      const nextEligible = isMicroGapExtendableBlock(nextBlock);
+
+      if (!previousEligible && !nextEligible) {
+        return;
+      }
+
+      const gapMinutes = slot.durationMinutes;
+      if (previousEligible && !nextEligible) {
+        previousBlock!.end = addMinutes(new Date(previousBlock!.end), gapMinutes).toISOString();
+      } else if (!previousEligible && nextEligible) {
+        nextBlock!.start = addMinutes(new Date(nextBlock!.start), -gapMinutes).toISOString();
+      } else {
+        const previousPriority = getMicroGapAbsorptionPriority(previousBlock);
+        const nextPriority = getMicroGapAbsorptionPriority(nextBlock);
+        if (previousPriority >= nextPriority) {
+          previousBlock!.end = addMinutes(new Date(previousBlock!.end), gapMinutes).toISOString();
+        } else {
+          nextBlock!.start = addMinutes(new Date(nextBlock!.start), -gapMinutes).toISOString();
+        }
+      }
+
+      const adjustedBlock =
+        previousEligible && (!nextEligible || getMicroGapAbsorptionPriority(previousBlock) >= getMicroGapAbsorptionPriority(nextBlock))
+          ? previousBlock
+          : nextBlock;
+      if (adjustedBlock) {
+        adjustedBlock.estimatedMinutes += gapMinutes;
+      }
+      absorbedGapDateKeys.add(slot.dateKey);
+      absorbedOnPass = true;
+    });
+
+    if (!absorbedOnPass) {
+      break;
+    }
+  }
+
+  return {
+    studyBlocks: clonedBlocks.sort(
+      (left, right) => new Date(left.start).getTime() - new Date(right.start).getTime(),
+    ),
+    absorbedGapDateKeys: Array.from(absorbedGapDateKeys).sort((left, right) =>
+      left.localeCompare(right),
+    ),
+  };
+}
 
 function getAllowedBlockTypesForSlot(slot: CalendarSlot) {
   switch (slot.sickDaySeverity) {
@@ -512,17 +631,6 @@ function buildFocusedSubjectTargetMinutesByDate(options: {
   );
 }
 
-function sumAssignedMinutesBySubject(blocks: StudyBlock[]) {
-  return blocks.reduce<Record<string, number>>((accumulator, block) => {
-    if (!block.subjectId) {
-      return accumulator;
-    }
-
-    accumulator[block.subjectId] = (accumulator[block.subjectId] ?? 0) + block.estimatedMinutes;
-    return accumulator;
-  }, {});
-}
-
 function buildRequiredHoursFromTracks(subjects: Subject[], tracks: Record<string, { recommendedWeeklyHours: number }>) {
   return Object.fromEntries(
     subjects.map((subject) => {
@@ -540,18 +648,6 @@ function buildRequiredHoursFromTracks(subjects: Subject[], tracks: Record<string
 function buildDeadlinePaceHoursFromTracks(subjects: Subject[], tracks: Record<string, { baselineWeeklyHours: number }>) {
   return Object.fromEntries(
     subjects.map((subject) => [subject.id, tracks[subject.id]?.baselineWeeklyHours ?? 0]),
-  );
-}
-
-function getRemainingRequiredHoursBySubject(
-  requiredHoursBySubject: Record<string, number>,
-  assignedMinutesBySubject: Record<string, number>,
-) {
-  return Object.fromEntries(
-    Object.entries(requiredHoursBySubject).map(([subjectId, requiredHours]) => [
-      subjectId,
-      Math.max(requiredHours - (assignedMinutesBySubject[subjectId] ?? 0) / 60, 0),
-    ]),
   );
 }
 
@@ -980,6 +1076,8 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
         baseDurations,
         effectiveDurations: baseDurations,
       }),
+      fallbackTierUsed: 0,
+      reducedRuleIds: [] as string[],
     };
   }
 
@@ -1018,6 +1116,8 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
     baseDurations,
   });
   let currentDurations = baseDurations;
+  const reducedRuleIds = new Set<string>();
+  let fallbackTierUsed = 0;
   let capacityMinutes = calculateFreeSlotCapacityForWeek({
     weekStart: options.currentWeek,
     fixedEvents: options.fixedEvents,
@@ -1049,6 +1149,8 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
 
       currentDurations = candidate.reducedDurations;
       capacityMinutes = candidate.capacityMinutes;
+      reducedRuleIds.add(ruleId);
+      fallbackTierUsed = Math.max(fallbackTierUsed, getSoftCommitmentFallbackTier(ruleId));
       reduced = true;
       break;
     }
@@ -1064,6 +1166,8 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
       baseDurations,
       effectiveDurations: currentDurations,
     }),
+    fallbackTierUsed,
+    reducedRuleIds: Array.from(reducedRuleIds).sort((left, right) => left.localeCompare(right)),
   };
 }
 
@@ -1259,6 +1363,8 @@ function allocateTasksToSlots(options: {
   goals: Goal[];
   topics: Topic[];
   completionLogs?: CompletionLog[];
+  fixedEvents: import("@/lib/types/planner").FixedEvent[];
+  sickDays?: SickDay[];
   preferences: Preferences;
   lockedBlocks: StudyBlock[];
   priorPlannedBlocks?: StudyBlock[];
@@ -1670,15 +1776,11 @@ function allocateTasksToSlots(options: {
 
     adjustment += backlogHours * 1.5;
 
-    if (task.subjectId === "cpp-book") {
-      adjustment -= 8;
-    }
-
     if (task.subjectId === "french-b-sl") {
-      adjustment -= 1.5;
+      adjustment -= 4;
     }
 
-    if (task.subjectId !== "cpp-book" && task.subjectId !== "french-b-sl" && dailyAssignedMinutes < 60) {
+    if (task.subjectId !== "french-b-sl" && dailyAssignedMinutes < 60) {
       adjustment += 3;
     }
 
@@ -1868,12 +1970,116 @@ function allocateTasksToSlots(options: {
     }
   }
 
+  function extendScheduledStudyBlockBackward(block: StudyBlock, extraMinutes: number) {
+    if (!block.subjectId || extraMinutes <= 0) {
+      return;
+    }
+
+    block.start = addMinutes(new Date(block.start), -extraMinutes).toISOString();
+    block.estimatedMinutes += extraMinutes;
+    dailyMinutes[block.date] = (dailyMinutes[block.date] ?? 0) + extraMinutes;
+    assignedMinutesBySubject[block.subjectId] += extraMinutes;
+    subjectMinutesByDate[block.date] = {
+      ...(subjectMinutesByDate[block.date] ?? {}),
+      [block.subjectId]:
+        (subjectMinutesByDate[block.date]?.[block.subjectId] ?? 0) + extraMinutes,
+    };
+    const weekKey = getWeekKeyForDate(block.date);
+    subjectMinutesByWeekStart[weekKey] = {
+      ...(subjectMinutesByWeekStart[weekKey] ?? {}),
+      [block.subjectId]:
+        (subjectMinutesByWeekStart[weekKey]?.[block.subjectId] ?? 0) + extraMinutes,
+    };
+    consumedStudyMinutes += extraMinutes;
+
+    if (new Date(block.start).getDay() === 0) {
+      usedSundayMinutes += extraMinutes;
+    }
+  }
+
+  function isExtendableFlexibleStudyBlock(block: StudyBlock | undefined) {
+    if (!block?.subjectId) {
+      return false;
+    }
+
+    if (block.assignmentLocked || block.creationSource === "manual") {
+      return false;
+    }
+
+    if (block.topicId && examTopicIds.has(block.topicId)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function getGapAbsorptionPriority(block: StudyBlock | undefined) {
+    if (!block?.subjectId) {
+      return -1;
+    }
+
+    return HARD_SCOPE_PRIORITY_BY_SUBJECT[block.subjectId] ?? 0;
+  }
+
+  function absorbMicroGapIntoAdjacentFlexibleBlock(
+    dateKey: string,
+    gapStart: Date,
+    gapEnd: Date,
+  ) {
+    const gapMinutes = Math.round((gapEnd.getTime() - gapStart.getTime()) / 60000);
+
+    if (gapMinutes <= 0 || gapMinutes >= MIN_ALLOCATABLE_MINUTES) {
+      return false;
+    }
+
+    if (options.dayStudyCapOverrideMinutesByDate?.[dateKey] != null) {
+      return false;
+    }
+
+    const sameDayBlocks = [...options.lockedBlocks, ...scheduledBlocks]
+      .filter((block) => block.date === dateKey)
+      .sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime());
+    const previousBlock = [...sameDayBlocks]
+      .reverse()
+      .find((block) => new Date(block.end).getTime() === gapStart.getTime());
+    const nextBlock = sameDayBlocks.find(
+      (block) => new Date(block.start).getTime() === gapEnd.getTime(),
+    );
+    const previousEligible = isExtendableFlexibleStudyBlock(previousBlock);
+    const nextEligible = isExtendableFlexibleStudyBlock(nextBlock);
+
+    if (!previousEligible && !nextEligible) {
+      return false;
+    }
+
+    if (previousEligible && !nextEligible) {
+      extendScheduledStudyBlock(previousBlock!, gapMinutes);
+      return true;
+    }
+
+    if (!previousEligible && nextEligible) {
+      extendScheduledStudyBlockBackward(nextBlock!, gapMinutes);
+      return true;
+    }
+
+    const previousPriority = getGapAbsorptionPriority(previousBlock);
+    const nextPriority = getGapAbsorptionPriority(nextBlock);
+
+    if (previousPriority >= nextPriority) {
+      extendScheduledStudyBlock(previousBlock!, gapMinutes);
+      return true;
+    }
+
+    extendScheduledStudyBlockBackward(nextBlock!, gapMinutes);
+    return true;
+  }
+
   function absorbTrailingGapIntoPreviousBlock(
     dateKey: string,
     extensionStart: Date,
     remainingMinutes: number,
   ) {
-    if (remainingMinutes <= 0) {
+    if (remainingMinutes <= 0 || remainingMinutes >= MIN_ALLOCATABLE_MINUTES) {
       return false;
     }
 
@@ -1882,7 +2088,7 @@ function allocateTasksToSlots(options: {
     }
 
     const previousBlock = scheduledBlocks[scheduledBlocks.length - 1];
-    if (!previousBlock || previousBlock.date !== dateKey || !previousBlock.subjectId) {
+    if (!previousBlock || previousBlock.date !== dateKey || !isExtendableFlexibleStudyBlock(previousBlock)) {
       return false;
     }
 
@@ -1897,6 +2103,42 @@ function allocateTasksToSlots(options: {
     extendScheduledStudyBlock(previousBlock, remainingMinutes);
 
     return true;
+  }
+
+  function compactDailyMicroGaps() {
+    const absorbedDateKeys = new Set<string>();
+
+    for (let pass = 0; pass < 4; pass += 1) {
+      const microGaps = calculateFreeSlots({
+        weekStart: options.weekStart,
+        fixedEvents: options.fixedEvents,
+        sickDays: options.sickDays ?? [],
+        preferences: options.preferences,
+        blockedStudyBlocks: [...options.lockedBlocks, ...scheduledBlocks],
+        planningStart: options.referenceDate,
+        skipMovableRecovery: false,
+        minimumDurationMinutes: 1,
+      }).filter(
+        (slot) =>
+          slot.durationMinutes > 0 &&
+          slot.durationMinutes < MIN_ALLOCATABLE_MINUTES,
+      );
+
+      let absorbedOnPass = false;
+
+      microGaps.forEach((slot) => {
+        if (absorbMicroGapIntoAdjacentFlexibleBlock(slot.dateKey, slot.start, slot.end)) {
+          absorbedOnPass = true;
+          absorbedDateKeys.add(slot.dateKey);
+        }
+      });
+
+      if (!absorbedOnPass) {
+        break;
+      }
+    }
+
+    return Array.from(absorbedDateKeys).sort((left, right) => left.localeCompare(right));
   }
 
   function shouldHoldCapacityForLaterDays(dateKey: string) {
@@ -2491,11 +2733,15 @@ function allocateTasksToSlots(options: {
     }
   });
 
+  const absorbedMicroGapDateKeys =
+    options.allowLargeGapAbsorption !== false ? compactDailyMicroGaps() : [];
+
   return {
     scheduledBlocks,
     unscheduledTasks: workingTasks.filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES),
     usedSundayMinutes,
     scheduledStudyMinutes: consumedStudyMinutes,
+    absorbedMicroGapDateKeys,
   };
 }
 
@@ -2518,7 +2764,7 @@ function buildAutomaticDailyCapBoost(options: {
     : 0;
 }
 
-function buildAllocationPasses(baseDailyCapBoostMinutes: number, options?: { partialCurrentWeek?: boolean }): AllocationPassPolicy[] {
+function buildAllocationPasses(baseDailyCapBoostMinutes: number) {
   const passes: AllocationPassPolicy[] = [
     {
       protectRecovery: true,
@@ -2529,7 +2775,14 @@ function buildAllocationPasses(baseDailyCapBoostMinutes: number, options?: { par
     },
     {
       protectRecovery: false,
-      skipMovableRecovery: false,
+      skipMovableRecovery: true,
+      dailyCapBoostMinutes: baseDailyCapBoostMinutes,
+      minBreakMinutes: undefined,
+      countAsForcedCoverage: true,
+    },
+    {
+      protectRecovery: false,
+      skipMovableRecovery: true,
       dailyCapBoostMinutes: baseDailyCapBoostMinutes + 240,
       heavySessionBoost: 1,
       minBreakMinutes: 10,
@@ -2540,7 +2793,7 @@ function buildAllocationPasses(baseDailyCapBoostMinutes: number, options?: { par
     },
     {
       protectRecovery: false,
-      skipMovableRecovery: false,
+      skipMovableRecovery: true,
       dailyCapBoostMinutes: baseDailyCapBoostMinutes + 600,
       heavySessionBoost: 2,
       minBreakMinutes: 5,
@@ -2552,11 +2805,6 @@ function buildAllocationPasses(baseDailyCapBoostMinutes: number, options?: { par
       countAsForcedCoverage: true,
     },
   ];
-
-  if (options?.partialCurrentWeek) {
-    return passes.slice(0, 1);
-  }
-
   return passes;
 }
 
@@ -2579,11 +2827,11 @@ export function generateStudyPlanForWeek(options: {
   availabilityOverrideSubjectIds?: Subject["id"][];
   effectiveReservedCommitmentDurations?: EffectiveReservedCommitmentDuration[];
   excludedReservedCommitmentRuleIds?: string[];
+  reservedCommitmentFallbackTierUsed?: number;
 }): SchedulerResult {
   const weekStart = startOfPlannerWeek(options.weekStart ?? new Date());
   const referenceDate = getPlannerReferenceDate(weekStart);
   const horizonStartDate = options.horizonStartDate ?? getPlannerReferenceDate(startOfPlannerWeek(new Date()));
-  const isPartialCurrentWeek = toDateKey(referenceDate) !== toDateKey(weekStart);
   const lockedBlocks = options.lockedBlocks ?? [];
   const sickDays = options.sickDays ?? [];
   const focusedDays = options.focusedDays ?? [];
@@ -2720,11 +2968,12 @@ export function generateStudyPlanForWeek(options: {
   });
   const passPolicies = buildAllocationPasses(
     Math.max(options.dailyCapBoostMinutes ?? 0, automaticDailyCapBoostMinutes),
-    { partialCurrentWeek: isPartialCurrentWeek },
   );
   const scheduledBlocks: StudyBlock[] = [];
   let usedSundayMinutes = 0;
   let forcedCoverageMinutes = 0;
+  let fallbackTierUsed = options.reservedCommitmentFallbackTierUsed ?? 0;
+  const absorbedMicroGapDateKeys = new Set<string>();
 
   for (const passPolicy of passPolicies) {
     if (passPolicy.countAsForcedCoverage && scheduledBlocks.some((block) => !block.subjectId)) {
@@ -2781,6 +3030,8 @@ export function generateStudyPlanForWeek(options: {
       goals: options.goals,
       topics: options.topics,
       completionLogs: options.completionLogs,
+      fixedEvents: options.fixedEvents,
+      sickDays,
       preferences: options.preferences,
       lockedBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
       priorPlannedBlocks: existingPlannedBlocks,
@@ -2807,6 +3058,22 @@ export function generateStudyPlanForWeek(options: {
 
     scheduledBlocks.push(...result.scheduledBlocks);
     usedSundayMinutes += result.usedSundayMinutes;
+    result.absorbedMicroGapDateKeys.forEach((dateKey) => absorbedMicroGapDateKeys.add(dateKey));
+    if (result.absorbedMicroGapDateKeys.length > 0) {
+      fallbackTierUsed = Math.max(fallbackTierUsed, 1);
+    }
+    if (passPolicy.skipMovableRecovery) {
+      fallbackTierUsed = Math.max(fallbackTierUsed, 4);
+    }
+    if (
+      passPolicy.heavySessionBoost ||
+      passPolicy.blockSelectionPolicy?.allowLowEnergyHeavy ||
+      passPolicy.blockSelectionPolicy?.allowLateNightDeepWork ||
+      (passPolicy.dailyCapBoostMinutes ?? 0) >
+        Math.max(options.dailyCapBoostMinutes ?? 0, automaticDailyCapBoostMinutes)
+    ) {
+      fallbackTierUsed = Math.max(fallbackTierUsed, 5);
+    }
     if (passPolicy.countAsForcedCoverage) {
       forcedCoverageMinutes += result.scheduledStudyMinutes;
     }
@@ -2852,6 +3119,8 @@ export function generateStudyPlanForWeek(options: {
         goals: options.goals,
         topics: options.topics,
         completionLogs: options.completionLogs,
+        fixedEvents: options.fixedEvents,
+        sickDays,
         preferences: options.preferences,
         lockedBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
         priorPlannedBlocks: existingPlannedBlocks,
@@ -2883,6 +3152,13 @@ export function generateStudyPlanForWeek(options: {
 
       scheduledBlocks.push(...cleanupResult.scheduledBlocks);
       usedSundayMinutes += cleanupResult.usedSundayMinutes;
+      cleanupResult.absorbedMicroGapDateKeys.forEach((dateKey) =>
+        absorbedMicroGapDateKeys.add(dateKey),
+      );
+      if (cleanupResult.absorbedMicroGapDateKeys.length > 0) {
+        fallbackTierUsed = Math.max(fallbackTierUsed, 1);
+      }
+      fallbackTierUsed = Math.max(fallbackTierUsed, 5);
 
       finalFreeSlots = calculateFreeSlots({
         weekStart,
@@ -2905,11 +3181,17 @@ export function generateStudyPlanForWeek(options: {
     }
   }
 
-  const finalAssignedMinutesBySubject = sumAssignedMinutesBySubject([...lockedBlocks, ...scheduledBlocks]);
-  const remainingRequiredHoursBySubject = getRemainingRequiredHoursBySubject(
-    allocationRequiredHoursBySubject,
-    finalAssignedMinutesBySubject,
-  );
+  const fillableGapDateKeys =
+    finalTasks.some(
+      (task) =>
+        !!task.subjectId &&
+        hardScopeSubjectIds.includes(task.subjectId as (typeof hardScopeSubjectIds)[number]) &&
+        task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
+    )
+      ? Array.from(new Set(finalFreeSlots.map((slot) => slot.dateKey))).sort((left, right) =>
+          left.localeCompare(right),
+        )
+      : [];
   const studyBlocks = [...lockedBlocks, ...scheduledBlocks].sort(
     (left, right) => new Date(left.start).getTime() - new Date(right.start).getTime(),
   );
@@ -2929,13 +3211,9 @@ export function generateStudyPlanForWeek(options: {
     deadlinePaceHoursBySubject,
     forcedCoverageMinutes,
     usedSundayMinutes,
-    unscheduledTasks: finalTasks.filter((task) => {
-      if (!task.subjectId) {
-        return false;
-      }
-
-      return (remainingRequiredHoursBySubject[task.subjectId] ?? 0) > 0;
-    }),
+    fallbackTierUsed,
+    fillableGapDateKeys,
+    unscheduledTasks: finalTasks,
     priorPlannedBlocks: existingPlannedBlocks,
     cumulativePlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
     effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
@@ -3131,6 +3409,8 @@ export function generateStudyPlanHorizon(options: {
         effectiveReservedCommitmentPlan.effectiveReservedCommitmentDurations,
       excludedReservedCommitmentRuleIds:
         effectiveReservedCommitmentPlan.excludedReservedCommitmentRuleIds,
+      reservedCommitmentFallbackTierUsed:
+        effectiveReservedCommitmentPlan.fallbackTierUsed,
     });
 
     horizonStudyBlocks.push(...result.studyBlocks);

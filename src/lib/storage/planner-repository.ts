@@ -16,7 +16,7 @@ import { hasLegacySeedTopics } from "@/lib/seed/topic-catalog";
 import { db } from "@/lib/storage/db";
 import { parsePlannerJson } from "@/lib/storage/json-transfer";
 import { normalizeTopicProgress } from "@/lib/topics/status";
-import { subjectIds } from "@/lib/constants/planner";
+import { hardScopeSubjectIds, subjectIds } from "@/lib/constants/planner";
 import { detectFutureFillableGap, getSubjectProgress } from "@/lib/analytics/metrics";
 import { createId } from "@/lib/utils";
 import type {
@@ -32,7 +32,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-04-19-daily-fill-hierarchy-v50";
+const PLANNING_MODEL_VERSION = "2026-04-19-hard-coverage-v51";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-08-olympiad-bplus-roadmap-v11";
@@ -568,11 +568,20 @@ function normalizeWeeklyPlan(
       ...emptyBySubject,
       ...weeklyPlan.scheduledToGoalHoursBySubject,
     },
+    hardCoverageSatisfiedBySubject: {
+      ...Object.fromEntries(subjectIds.map((subjectId) => [subjectId, false])),
+      ...weeklyPlan.hardCoverageSatisfiedBySubject,
+    },
     underplannedSubjectIds: weeklyPlan.underplannedSubjectIds ?? [],
+    fallbackTierUsed: weeklyPlan.fallbackTierUsed ?? 0,
     forcedCoverageMinutes: weeklyPlan.forcedCoverageMinutes ?? 0,
     usedSundayMinutes: weeklyPlan.usedSundayMinutes ?? 0,
     overloadMinutes: weeklyPlan.overloadMinutes ?? 0,
+    overscheduledMinutes: weeklyPlan.overscheduledMinutes ?? 0,
     coverageComplete: weeklyPlan.coverageComplete ?? false,
+    fillableGapDateKeys: Array.from(new Set(weeklyPlan.fillableGapDateKeys ?? [])).sort((left, right) =>
+      left.localeCompare(right),
+    ),
     effectiveReservedCommitmentDurations: Array.from(
       new Map(
         (weeklyPlan.effectiveReservedCommitmentDurations ?? []).map((entry) => [
@@ -649,7 +658,7 @@ export function getCollapsedCoverageRepairState(
       const hasMeaningfulUnscheduledWork =
         progress.remainingHours > 0.25 && progress.unscheduledHours > 0.25;
       const hasStrictIncompleteCoverage =
-        subject.id !== CPP_BOOK_SUBJECT_ID &&
+        hardScopeSubjectIds.includes(subject.id as (typeof hardScopeSubjectIds)[number]) &&
         progress.remainingHours > 0.25 &&
         progress.unscheduledHours > 0.25;
       const hasNearZeroCoverage =
@@ -694,6 +703,7 @@ export function getCollapsedCoverageRepairState(
     completionLogs: snapshot.completionLogs,
     preferences: snapshot.preferences,
     referenceDate,
+    subjectIds: [...hardScopeSubjectIds],
   });
 
   return {

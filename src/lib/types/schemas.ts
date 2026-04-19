@@ -175,16 +175,20 @@ export const weeklyPlanSchema = z.object({
   remainingHoursBySubject: z.record(z.string(), z.number()).optional().default({}),
   coverageGapHoursBySubject: z.record(z.string(), z.number()).optional().default({}),
   scheduledToGoalHoursBySubject: z.record(z.string(), z.number()).optional().default({}),
+  hardCoverageSatisfiedBySubject: z.record(z.string(), z.boolean()).optional().default({}),
   underplannedSubjectIds: z.array(z.string()).optional().default([]),
   slackMinutes: z.number(),
   carryOverBlockIds: z.array(z.string()),
   feasibilityScore: z.number(),
   riskFlag: z.enum(riskFlagValues),
   feasibilityWarnings: z.array(z.string()),
+  fallbackTierUsed: z.number().optional().default(0),
   forcedCoverageMinutes: z.number().optional().default(0),
   usedSundayMinutes: z.number().optional().default(0),
   overloadMinutes: z.number().optional().default(0),
+  overscheduledMinutes: z.number().optional().default(0),
   coverageComplete: z.boolean().optional().default(false),
+  fillableGapDateKeys: z.array(z.string()).optional().default([]),
   effectiveReservedCommitmentDurations: z
     .array(
       z.object({

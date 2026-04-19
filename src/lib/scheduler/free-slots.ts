@@ -687,9 +687,11 @@ export function calculateFreeSlots(options: {
   skipMovableRecovery?: boolean;
   excludedReservedCommitmentRuleIds?: string[];
   effectiveReservedCommitmentDurations?: EffectiveReservedCommitmentDuration[];
+  minimumDurationMinutes?: number;
 }) {
   const { weekStart, preferences, planningStart } = options;
   const sickDays = options.sickDays ?? [];
+  const minimumDurationMinutes = options.minimumDurationMinutes ?? MIN_ALLOCATABLE_MINUTES;
   const fixedEvents = expandPlannerFixedEventsForWeek(weekStart, options.fixedEvents, preferences);
   const reservedCommitments = expandReservedCommitmentWindowsForWeek(
     weekStart,
@@ -743,7 +745,7 @@ export function calculateFreeSlots(options: {
     ]);
 
     subtractIntervals(plannerWindow, busyIntervals)
-      .filter((interval) => minutesBetween(interval.start, interval.end) >= MIN_ALLOCATABLE_MINUTES)
+      .filter((interval) => minutesBetween(interval.start, interval.end) >= minimumDurationMinutes)
       .forEach((interval, slotIndex) => {
         const slot: CalendarSlot = {
           id: `${toDateKey(day)}-slot-${slotIndex + 1}`,
