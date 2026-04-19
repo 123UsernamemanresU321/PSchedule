@@ -6039,7 +6039,7 @@ test("school-term deadline pacing keeps C++ at zero while Olympiad remains heavi
   assert.equal(normalTracks["cpp-book"]?.recommendedWeeklyHours ?? 0, 0);
 });
 
-test("configured school-term template encodes the weekday rotation and weekend paper pair", () => {
+test("configured school-term template encodes the weekday rotation and keeps Sunday as the only hard light cap before paper season", () => {
   const dataset = buildSeedDataset(new Date("2026-04-18T08:00:00.000Z"));
   const template = buildSchoolTermWeekTemplate({
     weekStart: new Date("2026-04-20T00:00:00.000Z"),
@@ -6057,18 +6057,36 @@ test("configured school-term template encodes the weekday rotation and weekend p
   assert.equal(requirementById["2026-04-22-learning"]?.subjectId, "chemistry-hl");
   assert.equal(requirementById["2026-04-23-learning"]?.subjectId, "maths-aa-hl");
   assert.equal(requirementById["2026-04-24-learning"]?.subjectId, "physics-hl");
-  assert.equal(requirementById["2026-04-25-paper-cycle-exam"]?.exactTopicId, "maths-aa-past-papers-week-1-paper-1");
-  assert.equal(
-    requirementById["2026-04-25-paper-cycle-correction"]?.exactTopicId,
-    "maths-aa-past-papers-week-1-paper-1-review",
-  );
+  assert.equal(requirementById["2026-04-25-paper-cycle-exam"], undefined);
+  assert.equal(requirementById["2026-04-25-paper-cycle-correction"], undefined);
   assert.deepEqual(template.lightReviewOnlyDateKeys, ["2026-04-26"]);
-  assert.equal(template.dayStudyCapOverrideMinutesByDate["2026-04-20"], 210);
-  assert.equal(template.dayStudyCapOverrideMinutesByDate["2026-04-25"], 300);
   assert.equal(template.dayStudyCapOverrideMinutesByDate["2026-04-26"], 120);
 });
 
-test("generated configured school-term weeks follow the hard weekday template and keep Sunday light", () => {
+test("configured school-term template adds the weekly full-paper cycle only after the syllabus phase", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-18T08:00:00.000Z"));
+  const preferences = withConfiguredSchoolTerm(dataset.preferences);
+  const augustTemplate = buildSchoolTermWeekTemplate({
+    weekStart: new Date("2026-08-17T00:00:00.000Z"),
+    topics: dataset.topics,
+    preferences,
+    existingPlannedBlocks: [],
+  });
+  const requirementById = Object.fromEntries(
+    augustTemplate.requirements.map((requirement) => [requirement.id, requirement]),
+  );
+
+  assert.equal(
+    requirementById["2026-08-22-paper-cycle-exam"]?.exactTopicId,
+    "maths-aa-past-papers-week-1-paper-1",
+  );
+  assert.equal(
+    requirementById["2026-08-22-paper-cycle-correction"]?.exactTopicId,
+    "maths-aa-past-papers-week-1-paper-1-review",
+  );
+});
+
+test("generated configured school-term weeks follow the weekday template, keep Sunday light, and avoid early full papers", () => {
   const referenceDate = new Date("2026-04-18T08:00:00.000Z");
   const dataset = buildSeedDataset(referenceDate);
   const preferences = withConfiguredSchoolTerm(dataset.preferences);
@@ -6136,25 +6154,59 @@ test("generated configured school-term weeks follow the hard weekday template an
         block.studyLayer === "learning",
     ),
   );
-  assert.ok(
-    saturdayBlocks.some(
-      (block) => block.topicId === "maths-aa-past-papers-week-1-paper-1" && block.studyLayer === "exam_sim",
-    ),
-  );
-  assert.ok(
-    saturdayBlocks.some(
-      (block) =>
-        block.topicId === "maths-aa-past-papers-week-1-paper-1-review" &&
-        block.studyLayer === "correction",
-    ),
+  assert.equal(
+    saturdayBlocks.some((block) => block.studyLayer === "exam_sim"),
+    false,
   );
   assert.ok(
     sundayBlocks.every(
       (block) => block.studyLayer !== "learning" && block.studyLayer !== "exam_sim",
     ),
   );
+});
+
+test("generated configured school-term weeks start the full-paper weekend cycle after the syllabus phase", () => {
+  const referenceDate = new Date("2026-08-18T08:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const preferences = withConfiguredSchoolTerm(dataset.preferences, {
+    terms: [
+      {
+        id: "term-3",
+        label: "Term 3",
+        startDate: "2026-07-20",
+        endDate: "2026-09-30",
+      },
+    ],
+  });
+  const result = generateStudyPlanForWeek({
+    weekStart: new Date("2026-08-17T00:00:00.000Z"),
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences,
+  });
+  const saturdayBlocks = result.studyBlocks.filter(
+    (block) => block.date === "2026-08-22" && !!block.subjectId,
+  );
+
   assert.ok(
-    sundayBlocks.reduce((total, block) => total + block.estimatedMinutes, 0) <= 120,
+    saturdayBlocks.some(
+      (block) =>
+        block.topicId === "maths-aa-past-papers-week-1-paper-1" &&
+        block.studyLayer === "exam_sim",
+    ),
+  );
+  assert.ok(
+    result.studyBlocks.some(
+      (block) =>
+        ["2026-08-22", "2026-08-23"].includes(block.date) &&
+        block.topicId === "maths-aa-past-papers-week-1-paper-1-review" &&
+        block.studyLayer === "correction",
+    ),
   );
 });
 

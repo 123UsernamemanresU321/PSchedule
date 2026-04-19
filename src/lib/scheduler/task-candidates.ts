@@ -177,7 +177,7 @@ function buildIbTopicVariantCandidates(options: {
     {
       ...baseCandidate,
       id: `${options.topic.id}::application`,
-      title: `${options.topic.title} applied questions`,
+      title: `${options.topic.title} topic-specific past paper questions`,
       sessionSummary:
         "Run a topic-based questionbank or past-paper set on this idea, emphasizing medium-hard questions and pattern recognition.",
       preferredBlockTypes: ["drill", "standard_focus", "review"],

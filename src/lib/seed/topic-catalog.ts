@@ -36,7 +36,7 @@ const pppChapter = (details: string) =>
   textbook("Programming: Principles and Practice Using C++ (3e)", details);
 function buildRotatingPaperCycleWeeks() {
   const weeks: Array<{ label: string; availableFrom: string }> = [];
-  let cursor = new Date("2026-04-13T00:00:00");
+  let cursor = new Date("2026-08-17T00:00:00");
   const end = new Date("2027-06-28T00:00:00");
   let index = 1;
 

@@ -4,8 +4,6 @@ import { startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import { isDateInActiveSchoolTerm } from "@/lib/scheduler/schedule-regime";
 import type { Preferences, StudyBlock, StudyLayer, SubjectId, Topic } from "@/lib/types/planner";
 
-const SCHOOL_WEEKDAY_TEMPLATE_MINUTES = 210;
-const SATURDAY_TEMPLATE_MINUTES = 300;
 const SUNDAY_LIGHT_TEMPLATE_MINUTES = 120;
 
 export const IB_ANCHOR_SUBJECT_IDS = [
@@ -119,7 +117,6 @@ export function buildSchoolTermWeekTemplate(options: {
     const dayIndex = day.getDay();
 
     if (options.preferences.schoolSchedule.weekdays.includes(dayIndex)) {
-      dayStudyCapOverrideMinutesByDate[dateKey] = SCHOOL_WEEKDAY_TEMPLATE_MINUTES;
       const anchorSubject = getWeekdayAnchorSubject(day);
 
       if (!anchorSubject) {
@@ -160,7 +157,6 @@ export function buildSchoolTermWeekTemplate(options: {
     }
 
     if (dayIndex === 6) {
-      dayStudyCapOverrideMinutesByDate[dateKey] = SATURDAY_TEMPLATE_MINUTES;
       return;
     }
 
