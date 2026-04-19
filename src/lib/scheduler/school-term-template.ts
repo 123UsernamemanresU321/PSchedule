@@ -4,8 +4,6 @@ import { startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import { isDateInActiveSchoolTerm } from "@/lib/scheduler/schedule-regime";
 import type { Preferences, StudyBlock, StudyLayer, SubjectId, Topic } from "@/lib/types/planner";
 
-const SUNDAY_LIGHT_TEMPLATE_MINUTES = 120;
-
 export const IB_ANCHOR_SUBJECT_IDS = [
   "maths-aa-hl",
   "physics-hl",
@@ -33,7 +31,7 @@ function isIbAnchorSubject(subjectId: SubjectId | null | undefined): subjectId i
   return !!subjectId && IB_ANCHOR_SUBJECT_IDS.includes(subjectId as (typeof IB_ANCHOR_SUBJECT_IDS)[number]);
 }
 
-function getWeekdayAnchorSubject(day: Date) {
+export function getWeekdayAnchorSubject(day: Date) {
   switch (day.getDay()) {
     case 1:
       return "maths-aa-hl" as const;
@@ -104,9 +102,7 @@ export function buildSchoolTermWeekTemplate(options: {
     };
   }
 
-  const dayStudyCapOverrideMinutesByDate: Record<string, number> = {};
   const requirements: SchoolTermTemplateRequirement[] = [];
-  const lightReviewOnlyDateKeys: string[] = [];
 
   days.forEach((day) => {
     if (!isDateInActiveSchoolTerm(day, options.preferences)) {
@@ -160,10 +156,6 @@ export function buildSchoolTermWeekTemplate(options: {
       return;
     }
 
-    if (dayIndex === 0) {
-      dayStudyCapOverrideMinutesByDate[dateKey] = SUNDAY_LIGHT_TEMPLATE_MINUTES;
-      lightReviewOnlyDateKeys.push(dateKey);
-    }
   });
 
   const saturday = days.find((day) => day.getDay() === 6);
@@ -209,7 +201,7 @@ export function buildSchoolTermWeekTemplate(options: {
   return {
     active: true,
     requirements,
-    dayStudyCapOverrideMinutesByDate,
-    lightReviewOnlyDateKeys,
+    dayStudyCapOverrideMinutesByDate: {},
+    lightReviewOnlyDateKeys: [],
   };
 }

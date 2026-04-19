@@ -20,10 +20,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   getCalendarCompletionForecast,
-  countHorizonTrackStatus,
-  getDashboardCoverageState,
-  getDashboardHorizonMetrics,
   getHorizonRoadmapSummary,
+  getPlanningHierarchyMetrics,
   getSubjectProgress,
   getTodayBlocks,
   getUrgentTopics,
@@ -64,15 +62,14 @@ export function DashboardPage() {
         referenceDate,
       }),
     );
-  const metrics = getDashboardHorizonMetrics({
+  const hierarchyMetrics = getPlanningHierarchyMetrics({
     subjects,
     topics,
+    goals,
     studyBlocks,
+    weeklyPlans,
     referenceDate,
   });
-  const trackStatus = countHorizonTrackStatus(completionForecasts);
-  const dashboardCoverageState = getDashboardCoverageState(completionForecasts);
-
   const chartData = subjectProgress.map((progress) => ({
     name: progress.subject.shortName.replace(" HL", ""),
     required: weeklyPlan?.requiredHoursBySubject[progress.subject.id] ?? 0,
@@ -89,30 +86,30 @@ export function DashboardPage() {
 
       <div className="grid gap-4 xl:grid-cols-4 md:grid-cols-2">
         <MetricCard
-          eyebrow="Hours planned today"
-          value={`${metrics.plannedTodayHours.toFixed(1)}`}
-          detail={`${metrics.completedTodayHours.toFixed(1)} hrs completed`}
+          eyebrow="Year target progress"
+          value={`${hierarchyMetrics.year.progressPercent}%`}
+          detail={`${hierarchyMetrics.year.completedHours.toFixed(1)} of ${hierarchyMetrics.year.targetHours.toFixed(1)} hrs completed across tracked goals`}
           accent={<Clock3 className="h-5 w-5 text-primary" />}
         />
         <MetricCard
-          eyebrow="Horizon progress"
-          value={`${metrics.horizonProgressPercent}%`}
-          detail={`${metrics.totalCompletedHours.toFixed(1)} of ${metrics.totalTrackedHours.toFixed(1)} hrs completed across tracked subjects`}
-          tone={metrics.horizonProgressPercent >= 70 ? "success" : "default"}
+          eyebrow="Month target"
+          value={`${hierarchyMetrics.month.plannedHours.toFixed(1)} / ${hierarchyMetrics.month.targetHours.toFixed(1)}h`}
+          detail={`${hierarchyMetrics.month.completedHours.toFixed(1)} hrs completed in the current month window`}
+          tone={hierarchyMetrics.month.coveragePercent >= 100 ? "success" : "default"}
           accent={<ArrowUpRight className="h-5 w-5 text-success" />}
         />
         <MetricCard
-          eyebrow="On-track subjects"
-          value={`${trackStatus.onTrack}/${subjectProgress.length}`}
-          detail={`${trackStatus.atRisk} at risk • ${trackStatus.behind} behind`}
-          tone={trackStatus.behind > 0 ? "warning" : "success"}
+          eyebrow="Week slice"
+          value={`${hierarchyMetrics.week.plannedHours.toFixed(1)} / ${hierarchyMetrics.week.targetHours.toFixed(1)}h`}
+          detail={`${hierarchyMetrics.week.completedHours.toFixed(1)} hrs completed from today through week-end`}
+          tone={hierarchyMetrics.week.coveragePercent >= 100 ? "success" : "default"}
           accent={<CheckCircle2 className="h-5 w-5 text-success" />}
         />
         <MetricCard
-          eyebrow="Coverage state"
-          value={dashboardCoverageState.label}
-          detail={dashboardCoverageState.detail}
-          tone={dashboardCoverageState.tone}
+          eyebrow="Today fill"
+          value={`${hierarchyMetrics.today.plannedHours.toFixed(1)} / ${hierarchyMetrics.today.targetHours.toFixed(1)}h`}
+          detail={`${hierarchyMetrics.today.completedHours.toFixed(1)} hrs completed today`}
+          tone={hierarchyMetrics.today.fillPercent >= 100 ? "success" : "default"}
           accent={<Flame className="h-5 w-5 text-warning" />}
         />
       </div>
@@ -314,7 +311,7 @@ export function DashboardPage() {
           <CardHeader className="flex-row items-end justify-between">
             <div>
               <CardTitle>Selected week&apos;s required hours by subject</CardTitle>
-              <p className="text-sm text-muted-foreground">Required versus already assigned hours for the selected calendar week.</p>
+              <p className="text-sm text-muted-foreground">Selected-week allocation only. The top dashboard cards above are computed from the full year → month → week → day hierarchy.</p>
             </div>
           </CardHeader>
           <CardContent className="h-[320px] pt-2">

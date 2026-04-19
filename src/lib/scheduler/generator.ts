@@ -1,6 +1,6 @@
-import { addDays, addMinutes, isAfter } from "date-fns";
+import { addDays, addMinutes, getISOWeek, isAfter } from "date-fns";
 
-import { mainSubjectIds, subjectIds } from "@/lib/constants/planner";
+import { subjectIds } from "@/lib/constants/planner";
 import {
   buildUnconfiguredWeeklyPlan,
   buildWeeklyPlan,
@@ -56,13 +56,24 @@ const MIN_ALLOCATABLE_MINUTES = 30;
 const FOCUSED_DAY_RESERVED_SHARE = 0.7;
 const FOCUS_STRICT_TOLERANCE_MINUTES = 10;
 const MAX_HORIZON_EXTENSION_WEEKS = 104;
-const WEEKLY_DIVERSITY_EQUAL_SHARE_WEIGHT = 0.55;
-const WEEKLY_DIVERSITY_PROPORTIONAL_SHARE_WEIGHT = 0.45;
-const WEEKLY_BALANCE_BONUS_PER_HOUR = 6.5;
-const WEEKLY_BALANCE_PENALTY_PER_HOUR = 3.5;
 const CONTINUITY_BONUS = 5.5;
 const SOFT_COMMITMENT_REDUCTION_STEP_MINUTES = 30;
 const SOFT_COMMITMENT_REDUCTION_RULE_ORDER = ["piano-practice", "term-homework"] as const;
+const DAILY_FILL_SUBJECT_ORDER: Subject["id"][] = [
+  "maths-aa-hl",
+  "physics-hl",
+  "chemistry-hl",
+  "olympiad",
+  "french-b-sl",
+  "cpp-book",
+  "english-a-sl",
+  "geography-transition",
+];
+const CORE_IB_FILL_SUBJECT_ORDER: Subject["id"][] = [
+  "maths-aa-hl",
+  "physics-hl",
+  "chemistry-hl",
+];
 
 function getAllowedBlockTypesForSlot(slot: CalendarSlot) {
   switch (slot.sickDaySeverity) {
@@ -874,44 +885,54 @@ function calculateSoftCommitmentTargetCapacityMinutes(options: {
   );
 }
 
-function buildWeeklyMixTargetMinutesBySubject(options: {
-  requiredMinutesBySubject: Record<string, number>;
-  effectiveCapacityMinutes: number;
-}) {
-  const targets = recordFromKeys(subjectIds, () => 0);
-  const activeEntries = Object.entries(options.requiredMinutesBySubject).filter(
-    ([subjectId, requiredMinutes]) =>
-      requiredMinutes >= MIN_ALLOCATABLE_MINUTES &&
-      subjectIds.includes(subjectId as Subject["id"]),
-  ) as Array<[Subject["id"], number]>;
+function getDailyAnchorSubjectId(dateKey: string) {
+  const day = new Date(`${dateKey}T12:00:00`);
+  const dayIndex = day.getDay();
 
-  if (!activeEntries.length || options.effectiveCapacityMinutes <= 0) {
-    return targets;
+  switch (dayIndex) {
+    case 1:
+      return "maths-aa-hl" as const;
+    case 2:
+      return "physics-hl" as const;
+    case 3:
+      return "chemistry-hl" as const;
+    case 4:
+      return "maths-aa-hl" as const;
+    case 5:
+      return getISOWeek(day) % 2 === 1 ? ("physics-hl" as const) : ("chemistry-hl" as const);
+    default:
+      return null;
   }
+}
 
-  const equalShareWeight = 1 / activeEntries.length;
-  const totalRequiredMinutes = sum(activeEntries.map(([, requiredMinutes]) => requiredMinutes));
-  const minimumPresenceMinutes =
-    activeEntries.length > 1
-      ? Math.min(60, Math.floor(options.effectiveCapacityMinutes / activeEntries.length))
-      : 0;
+function buildDailyFillSubjectOrder(options: {
+  dateKey: string;
+  requiredMinutesBySubject: Record<string, number>;
+}) {
+  const anchorSubjectId = getDailyAnchorSubjectId(options.dateKey);
+  const anchorCandidates = anchorSubjectId ? [anchorSubjectId] : [];
+  const otherCoreSubjects = CORE_IB_FILL_SUBJECT_ORDER.filter(
+    (subjectId) => subjectId !== anchorSubjectId,
+  ).sort((left, right) => {
+    const rightRequiredMinutes = options.requiredMinutesBySubject[right] ?? 0;
+    const leftRequiredMinutes = options.requiredMinutesBySubject[left] ?? 0;
 
-  activeEntries.forEach(([subjectId, requiredMinutes]) => {
-    const proportionalWeight =
-      totalRequiredMinutes > 0 ? requiredMinutes / totalRequiredMinutes : equalShareWeight;
-    const blendedWeight =
-      equalShareWeight * WEEKLY_DIVERSITY_EQUAL_SHARE_WEIGHT +
-      proportionalWeight * WEEKLY_DIVERSITY_PROPORTIONAL_SHARE_WEIGHT;
-    const blendedTargetMinutes = options.effectiveCapacityMinutes * blendedWeight;
-    const targetMinutes = Math.min(
-      requiredMinutes,
-      Math.max(minimumPresenceMinutes, blendedTargetMinutes),
-    );
+    if (rightRequiredMinutes !== leftRequiredMinutes) {
+      return rightRequiredMinutes - leftRequiredMinutes;
+    }
 
-    targets[subjectId] = roundUpToAllocatableMinutes(targetMinutes);
+    return DAILY_FILL_SUBJECT_ORDER.indexOf(left) - DAILY_FILL_SUBJECT_ORDER.indexOf(right);
   });
 
-  return targets;
+  return [
+    ...anchorCandidates,
+    ...otherCoreSubjects,
+    "olympiad",
+    "french-b-sl",
+    "cpp-book",
+    "english-a-sl",
+    "geography-transition",
+  ] satisfies Subject["id"][];
 }
 
 export function selectEffectiveReservedCommitmentPlanForWeek(options: {
@@ -1520,10 +1541,6 @@ function allocateTasksToSlots(options: {
     : 0;
   const focusedSubjectsByDate = options.focusedSubjectsByDate ?? {};
   const schoolTermTemplate = options.schoolTermTemplate;
-  const weeklyMixTargetMinutesBySubject = buildWeeklyMixTargetMinutesBySubject({
-    requiredMinutesBySubject,
-    effectiveCapacityMinutes,
-  });
   const dailyTargetMinutes = buildDailyTargetMinutes({
     dayCapacityByDate,
     effectiveCapacityMinutes,
@@ -1630,43 +1647,54 @@ function allocateTasksToSlots(options: {
     return subjectMinutesByDate[dateKey]?.[subjectId] ?? 0;
   }
 
-  function getWeeklyBalanceAdjustment(subjectId: Subject["id"], dateKey: string) {
-    const targetMinutes = weeklyMixTargetMinutesBySubject[subjectId] ?? 0;
-
-    if (targetMinutes <= 0) {
+  function getDailyFillHierarchyAdjustment(task: TaskCandidate, dateKey: string) {
+    if (!task.subjectId) {
       return 0;
     }
 
-    const weekKey = getWeekKeyForDate(dateKey);
-    const assignedMinutes = subjectMinutesByWeekStart[weekKey]?.[subjectId] ?? 0;
-    const underTargetMinutes = targetMinutes - assignedMinutes;
-    const otherSubjectsStillUnderTarget = Object.entries(weeklyMixTargetMinutesBySubject).some(
-      ([candidateSubjectId, candidateTargetMinutes]) => {
-        if (candidateSubjectId === subjectId || candidateTargetMinutes <= 0) {
-          return false;
-        }
+    const fillOrder = buildDailyFillSubjectOrder({
+      dateKey,
+      requiredMinutesBySubject,
+    });
+    const rank = fillOrder.indexOf(task.subjectId);
+    const requiredMinutes = requiredMinutesBySubject[task.subjectId] ?? 0;
+    const assignedMinutesForSubject = assignedMinutesBySubject[task.subjectId] ?? 0;
+    const dailyAssignedMinutes = subjectMinutesByDate[dateKey]?.[task.subjectId] ?? 0;
+    const backlogHours = clamp((requiredMinutes - assignedMinutesForSubject) / 60, 0, 6);
+    const day = new Date(`${dateKey}T12:00:00`);
 
-        const candidateAssignedMinutes =
-          subjectMinutesByWeekStart[weekKey]?.[candidateSubjectId] ?? 0;
-        return candidateTargetMinutes > candidateAssignedMinutes + MIN_ALLOCATABLE_MINUTES / 2;
-      },
-    );
+    let adjustment =
+      rank >= 0
+        ? Math.max(0, 18 - rank * 3.5)
+        : -8;
 
-    if (underTargetMinutes > MIN_ALLOCATABLE_MINUTES / 2) {
-      return clamp(underTargetMinutes / 60, 0, 5) * WEEKLY_BALANCE_BONUS_PER_HOUR;
+    adjustment += backlogHours * 1.5;
+
+    if (task.subjectId === "cpp-book") {
+      adjustment -= 8;
     }
 
-    if (!otherSubjectsStillUnderTarget) {
-      return 0;
+    if (task.subjectId === "french-b-sl") {
+      adjustment -= 1.5;
     }
 
-    const overTargetMinutes = assignedMinutes - targetMinutes;
-
-    if (overTargetMinutes <= 60) {
-      return 0;
+    if (task.subjectId !== "cpp-book" && task.subjectId !== "french-b-sl" && dailyAssignedMinutes < 60) {
+      adjustment += 3;
     }
 
-    return -clamp(overTargetMinutes / 60, 0, 4) * WEEKLY_BALANCE_PENALTY_PER_HOUR;
+    if (day.getDay() === 0) {
+      if (task.studyLayer === "correction") {
+        adjustment += 8;
+      } else if (task.studyLayer === "application") {
+        adjustment += 5;
+      } else if (task.studyLayer === "exam_sim") {
+        adjustment += 3;
+      } else if (task.studyLayer === "learning") {
+        adjustment -= 4;
+      }
+    }
+
+    return adjustment;
   }
 
   function getContinuationAdjustment(subjectId: Subject["id"], slotStart: Date, dateKey: string) {
@@ -1746,13 +1774,32 @@ function allocateTasksToSlots(options: {
   }
 
   function getOverflowPracticeSubjectId(dateKey: string) {
-    return [...mainSubjectIds]
+    const fillOrder = buildDailyFillSubjectOrder({
+      dateKey,
+      requiredMinutesBySubject,
+    });
+
+    return [...fillOrder]
       .sort((left, right) => {
+        const leftRank = fillOrder.indexOf(left);
+        const rightRank = fillOrder.indexOf(right);
+
+        if (leftRank !== rightRank) {
+          return leftRank - rightRank;
+        }
+
         const leftMinutes = subjectMinutesByDate[dateKey]?.[left] ?? 0;
         const rightMinutes = subjectMinutesByDate[dateKey]?.[right] ?? 0;
 
         if (leftMinutes !== rightMinutes) {
           return leftMinutes - rightMinutes;
+        }
+
+        const leftBacklog = requiredMinutesBySubject[left] ?? 0;
+        const rightBacklog = requiredMinutesBySubject[right] ?? 0;
+
+        if (leftBacklog !== rightBacklog) {
+          return rightBacklog - leftBacklog;
         }
 
         return (
@@ -1985,15 +2032,16 @@ function allocateTasksToSlots(options: {
           olympiadWeaknessStrand: options.olympiadWeaknessStrand,
           referenceDate: options.referenceDate,
         });
-        const weeklyBalanceAdjustment = task.subjectId
-          ? getWeeklyBalanceAdjustment(task.subjectId, slot.dateKey)
-          : 0;
+        const dailyFillHierarchyAdjustment = getDailyFillHierarchyAdjustment(
+          task,
+          slot.dateKey,
+        );
         const continuityAdjustment = task.subjectId
           ? getContinuationAdjustment(task.subjectId, slot.start, slot.dateKey)
           : 0;
         const adjustedScoreBreakdown = {
           ...scoreBreakdown,
-          total: Math.round((scoreBreakdown.total + weeklyBalanceAdjustment + continuityAdjustment) * 10) / 10,
+          total: Math.round((scoreBreakdown.total + dailyFillHierarchyAdjustment + continuityAdjustment) * 10) / 10,
         };
 
         return {
@@ -2764,7 +2812,7 @@ export function generateStudyPlanForWeek(options: {
     }
   }
 
-  const finalFreeSlots = calculateFreeSlots({
+  let finalFreeSlots = calculateFreeSlots({
     weekStart,
     fixedEvents: options.fixedEvents,
     sickDays,
@@ -2774,7 +2822,7 @@ export function generateStudyPlanForWeek(options: {
     effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
     excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
   });
-  const finalTasks = buildTaskCandidates({
+  let finalTasks = buildTaskCandidates({
     topics: options.topics,
     existingPlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
     completionLogs: options.completionLogs,
@@ -2782,6 +2830,81 @@ export function generateStudyPlanForWeek(options: {
     subjectDeadlinesById,
     availabilityOverrideSubjectIds,
   });
+
+  if (shouldFillAvailableStudyDays) {
+    for (let cleanupPass = 0; cleanupPass < 2; cleanupPass += 1) {
+      const hasFillableGap = finalFreeSlots.some((slot) => slot.durationMinutes >= MIN_ALLOCATABLE_MINUTES);
+
+      if (!hasFillableGap) {
+        break;
+      }
+
+      const cleanupRequiredHoursBySubject = {
+        ...recordFromKeys(subjectIds, () => 0),
+        ...buildFullCoverageHoursBySubject(options.subjects, finalTasks),
+      };
+      const cleanupResult = allocateTasksToSlots({
+        weekStart,
+        referenceDate,
+        freeSlots: finalFreeSlots,
+        tasks: finalTasks,
+        subjects: options.subjects,
+        goals: options.goals,
+        topics: options.topics,
+        completionLogs: options.completionLogs,
+        preferences: options.preferences,
+        lockedBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
+        priorPlannedBlocks: existingPlannedBlocks,
+        requiredHoursBySubject: cleanupRequiredHoursBySubject,
+        dailyCapBoostMinutes: Math.max(options.dailyCapBoostMinutes ?? 0, automaticDailyCapBoostMinutes),
+        heavySessionBoost: 1,
+        minBreakMinutes: 0,
+        protectRecovery: false,
+        blockSelectionPolicy: {
+          preferLongerBlocks: true,
+          allowLowEnergyHeavy: true,
+          allowLateNightDeepWork: true,
+        },
+        fillAvailableStudyDays: true,
+        focusedSubjectsByDate,
+        futureFocusedReserveMinutesBySubject: options.futureFocusedReserveMinutesBySubject,
+        availabilityOverrideSubjectIds,
+        olympiadLoadMultiplier: olympiadWeekLoadProfile.multiplier,
+        olympiadWeaknessStrand: olympiadWeaknessProfile.activeStrand,
+        isFinalPass: true,
+        dayStudyCapOverrideMinutesByDate: schoolTermTemplate.dayStudyCapOverrideMinutesByDate,
+        schoolTermTemplate,
+        allowLargeGapAbsorption: true,
+      });
+
+      if (!cleanupResult.scheduledBlocks.length) {
+        break;
+      }
+
+      scheduledBlocks.push(...cleanupResult.scheduledBlocks);
+      usedSundayMinutes += cleanupResult.usedSundayMinutes;
+
+      finalFreeSlots = calculateFreeSlots({
+        weekStart,
+        fixedEvents: options.fixedEvents,
+        sickDays,
+        preferences: options.preferences,
+        blockedStudyBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
+        planningStart: referenceDate,
+        effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
+        excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
+      });
+      finalTasks = buildTaskCandidates({
+        topics: options.topics,
+        existingPlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
+        completionLogs: options.completionLogs,
+        referenceDate,
+        subjectDeadlinesById,
+        availabilityOverrideSubjectIds,
+      });
+    }
+  }
+
   const finalAssignedMinutesBySubject = sumAssignedMinutesBySubject([...lockedBlocks, ...scheduledBlocks]);
   const remainingRequiredHoursBySubject = getRemainingRequiredHoursBySubject(
     allocationRequiredHoursBySubject,

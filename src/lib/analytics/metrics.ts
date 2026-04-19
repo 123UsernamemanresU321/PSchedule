@@ -1,4 +1,12 @@
-import { differenceInCalendarDays, endOfDay, isSameDay } from "date-fns";
+import {
+  addDays,
+  differenceInCalendarDays,
+  endOfDay,
+  endOfMonth,
+  isSameDay,
+  startOfDay,
+  startOfMonth,
+} from "date-fns";
 
 import { mainSubjectIds } from "@/lib/constants/planner";
 import {
@@ -8,9 +16,17 @@ import {
   startOfPlannerWeek,
   toDateKey,
 } from "@/lib/dates/helpers";
+import { calculateFreeSlots } from "@/lib/scheduler/free-slots";
+import { selectBlockOption } from "@/lib/scheduler/slot-classifier";
+import { buildTaskCandidates } from "@/lib/scheduler/task-candidates";
 import type {
+  CalendarSlot,
+  CompletionLog,
+  FixedEvent,
   Goal,
   HorizonRoadmapSummary,
+  Preferences,
+  SickDay,
   StudyBlock,
   Subject,
   Topic,
@@ -44,8 +60,8 @@ function getGoalProgressState(subjectTopics: Topic[], goal: Goal | null | undefi
   };
 }
 
-export function getWeeklyPlan(weeklyPlans: WeeklyPlan[], weekStart: string) {
-  return weeklyPlans.find((plan) => plan.weekStart === weekStart);
+export function getWeeklyPlan(weeklyPlans: WeeklyPlan[] | undefined, weekStart: string) {
+  return weeklyPlans?.find((plan) => plan.weekStart === weekStart);
 }
 
 export function getWeekBlocks(studyBlocks: StudyBlock[], weekStart: string) {
@@ -70,6 +86,7 @@ export function getSubjectProgress(
   studyBlocks: StudyBlock[] = [],
   referenceDate = new Date(),
 ) {
+  const minAllocatableHours = 0.5;
   const subjectTopics = topics.filter((topic) => topic.subjectId === subject.id);
   const topicById = new Map(subjectTopics.map((topic) => [topic.id, topic]));
   const plannedFutureMinutesByTopic = studyBlocks.reduce<Record<string, number>>((accumulator, block) => {
@@ -111,12 +128,18 @@ export function getSubjectProgress(
   const scheduledFutureHours = subjectTopics.reduce((total, topic) => {
     const remainingHoursForTopic = Math.max(topic.estHours - topic.completedHours, 0);
     const plannedFutureHours = (plannedFutureMinutesByTopic[topic.id] ?? 0) / 60;
-    return total + Math.min(remainingHoursForTopic, plannedFutureHours);
+    const rawUnscheduledHours = Math.max(remainingHoursForTopic - plannedFutureHours, 0);
+    const normalizedUnscheduledHours =
+      rawUnscheduledHours > 0 && rawUnscheduledHours < minAllocatableHours
+        ? 0
+        : rawUnscheduledHours;
+    return total + Math.max(remainingHoursForTopic - normalizedUnscheduledHours, 0);
   }, 0);
   const unscheduledHours = subjectTopics.reduce((total, topic) => {
     const remainingHoursForTopic = Math.max(topic.estHours - topic.completedHours, 0);
     const plannedFutureHours = (plannedFutureMinutesByTopic[topic.id] ?? 0) / 60;
-    return total + Math.max(remainingHoursForTopic - plannedFutureHours, 0);
+    const rawUnscheduledHours = Math.max(remainingHoursForTopic - plannedFutureHours, 0);
+    return total + (rawUnscheduledHours > 0 && rawUnscheduledHours < minAllocatableHours ? 0 : rawUnscheduledHours);
   }, 0);
   const atRiskTopics = subjectTopics.filter(
     (topic) => topic.mastery <= 2 || topic.status === "not_started",
@@ -133,9 +156,14 @@ export function getSubjectProgress(
       subjectTopics.map((topic) => {
         const plannedFutureHours = (plannedFutureMinutesByTopic[topic.id] ?? 0) / 60;
         const remainingHoursForTopic = Math.max(topic.estHours - topic.completedHours, 0);
+        const rawUnscheduledHours = Math.max(remainingHoursForTopic - plannedFutureHours, 0);
+        const normalizedUnscheduledHours =
+          rawUnscheduledHours > 0 && rawUnscheduledHours < minAllocatableHours
+            ? 0
+            : rawUnscheduledHours;
         return [
           topic.id,
-          Number(Math.min(remainingHoursForTopic, plannedFutureHours).toFixed(1)),
+          Number(Math.max(remainingHoursForTopic - normalizedUnscheduledHours, 0).toFixed(1)),
         ];
       }),
     ),
@@ -299,6 +327,382 @@ export function getDashboardHorizonMetrics(options: {
     totalScheduledFutureHours: Number(totalScheduledFutureHours.toFixed(1)),
     totalUnscheduledHours: Number(totalUnscheduledHours.toFixed(1)),
   };
+}
+
+function getTrackedDashboardSubjects(subjects: Subject[]) {
+  return subjects.filter((subject) =>
+    mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]),
+  );
+}
+
+function countInclusiveDays(start: Date, end: Date) {
+  if (end.getTime() < start.getTime()) {
+    return 0;
+  }
+
+  return differenceInCalendarDays(endOfDay(end), start) + 1;
+}
+
+function getTrackedSubjectIdSet(subjects: Subject[]) {
+  return new Set(getTrackedDashboardSubjects(subjects).map((subject) => subject.id));
+}
+
+function getPlannedHoursInRange(options: {
+  studyBlocks: StudyBlock[];
+  trackedSubjectIds: Set<string>;
+  start: Date;
+  end: Date;
+}) {
+  return options.studyBlocks
+    .filter((block) => !!block.subjectId && options.trackedSubjectIds.has(block.subjectId))
+    .filter((block) => !["missed"].includes(block.status))
+    .filter((block) => {
+      const blockStart = new Date(block.start).getTime();
+      return blockStart >= options.start.getTime() && blockStart <= options.end.getTime();
+    })
+    .reduce((total, block) => total + block.estimatedMinutes / 60, 0);
+}
+
+function getCompletedHoursInRange(options: {
+  studyBlocks: StudyBlock[];
+  trackedSubjectIds: Set<string>;
+  start: Date;
+  end: Date;
+}) {
+  return options.studyBlocks
+    .filter((block) => !!block.subjectId && options.trackedSubjectIds.has(block.subjectId))
+    .filter((block) => block.status === "done" || block.status === "partial")
+    .filter((block) => {
+      const blockStart = new Date(block.start).getTime();
+      return blockStart >= options.start.getTime() && blockStart <= options.end.getTime();
+    })
+    .reduce((total, block) => total + (block.actualMinutes ?? block.estimatedMinutes) / 60, 0);
+}
+
+function getPeriodTargetHours(options: {
+  forecasts: Array<ReturnType<typeof getCalendarCompletionForecast>>;
+  referenceDate: Date;
+  periodEnd: Date;
+}) {
+  return options.forecasts.reduce((total, forecast) => {
+    if (forecast.remainingTargetHours <= 0) {
+      return total;
+    }
+
+    const milestoneDeadline = fromDateKey(forecast.milestoneDeadline);
+    const totalDays = countInclusiveDays(options.referenceDate, milestoneDeadline);
+    const activePeriodEnd =
+      milestoneDeadline.getTime() < options.periodEnd.getTime()
+        ? milestoneDeadline
+        : options.periodEnd;
+    const activeDays = countInclusiveDays(options.referenceDate, activePeriodEnd);
+
+    if (totalDays <= 0 || activeDays <= 0) {
+      return total;
+    }
+
+    return total + forecast.remainingTargetHours * (activeDays / totalDays);
+  }, 0);
+}
+
+export function getPlanningHierarchyMetrics(options: {
+  subjects: Subject[];
+  topics: Topic[];
+  goals: Goal[];
+  studyBlocks: StudyBlock[];
+  weeklyPlans?: WeeklyPlan[];
+  referenceDate?: Date;
+}) {
+  const referenceDate = options.referenceDate ?? new Date();
+  const trackedSubjects = getTrackedDashboardSubjects(options.subjects);
+  const trackedSubjectIds = getTrackedSubjectIdSet(options.subjects);
+  const forecasts = trackedSubjects.map((subject) =>
+    getCalendarCompletionForecast({
+      subject,
+      topics: options.topics,
+      goals: options.goals,
+      studyBlocks: options.studyBlocks,
+      weeklyPlans: options.weeklyPlans,
+      referenceDate,
+    }),
+  );
+  const yearTargetHours = forecasts.reduce((total, forecast) => total + forecast.targetHours, 0);
+  const yearCompletedHours = forecasts.reduce((total, forecast) => total + forecast.completedHours, 0);
+  const monthStart = startOfMonth(referenceDate);
+  const monthEnd = endOfMonth(referenceDate);
+  const weekStart = startOfPlannerWeek(referenceDate);
+  const weekEnd = addDays(startOfPlannerWeek(referenceDate), 6);
+  const dayStart = startOfDay(referenceDate);
+  const dayEnd = endOfDay(referenceDate);
+  const monthForwardTargetHours = getPeriodTargetHours({
+    forecasts,
+    referenceDate,
+    periodEnd: monthEnd,
+  });
+  const weekForwardTargetHours = getPeriodTargetHours({
+    forecasts,
+    referenceDate,
+    periodEnd: weekEnd,
+  });
+  const todayForwardTargetHours = getPeriodTargetHours({
+    forecasts,
+    referenceDate,
+    periodEnd: dayEnd,
+  });
+  const monthPlannedHours = getPlannedHoursInRange({
+    studyBlocks: options.studyBlocks,
+    trackedSubjectIds,
+    start: monthStart,
+    end: monthEnd,
+  });
+  const monthCompletedHours = getCompletedHoursInRange({
+    studyBlocks: options.studyBlocks,
+    trackedSubjectIds,
+    start: monthStart,
+    end: monthEnd,
+  });
+  const weekPlannedHours = getPlannedHoursInRange({
+    studyBlocks: options.studyBlocks,
+    trackedSubjectIds,
+    start: weekStart,
+    end: weekEnd,
+  });
+  const weekCompletedHours = getCompletedHoursInRange({
+    studyBlocks: options.studyBlocks,
+    trackedSubjectIds,
+    start: weekStart,
+    end: weekEnd,
+  });
+  const todayPlannedHours = getPlannedHoursInRange({
+    studyBlocks: options.studyBlocks,
+    trackedSubjectIds,
+    start: dayStart,
+    end: dayEnd,
+  });
+  const todayCompletedHours = getCompletedHoursInRange({
+    studyBlocks: options.studyBlocks,
+    trackedSubjectIds,
+    start: dayStart,
+    end: dayEnd,
+  });
+  const monthTargetHours = monthCompletedHours + monthForwardTargetHours;
+  const weekTargetHours = weekCompletedHours + weekForwardTargetHours;
+  const todayTargetHours = todayCompletedHours + todayForwardTargetHours;
+
+  return {
+    forecasts,
+    trackedSubjectCount: trackedSubjects.length,
+    year: {
+      targetHours: Number(yearTargetHours.toFixed(1)),
+      completedHours: Number(yearCompletedHours.toFixed(1)),
+      remainingHours: Number(Math.max(yearTargetHours - yearCompletedHours, 0).toFixed(1)),
+      progressPercent: yearTargetHours > 0 ? Math.round((yearCompletedHours / yearTargetHours) * 100) : 0,
+    },
+    month: {
+      targetHours: Number(monthTargetHours.toFixed(1)),
+      plannedHours: Number(monthPlannedHours.toFixed(1)),
+      completedHours: Number(monthCompletedHours.toFixed(1)),
+      coveragePercent: monthTargetHours > 0 ? Math.round((monthPlannedHours / monthTargetHours) * 100) : 0,
+    },
+    week: {
+      targetHours: Number(weekTargetHours.toFixed(1)),
+      plannedHours: Number(weekPlannedHours.toFixed(1)),
+      completedHours: Number(weekCompletedHours.toFixed(1)),
+      coveragePercent: weekTargetHours > 0 ? Math.round((weekPlannedHours / weekTargetHours) * 100) : 0,
+    },
+    today: {
+      targetHours: Number(todayTargetHours.toFixed(1)),
+      plannedHours: Number(todayPlannedHours.toFixed(1)),
+      completedHours: Number(todayCompletedHours.toFixed(1)),
+      fillPercent: todayTargetHours > 0 ? Math.round((todayPlannedHours / todayTargetHours) * 100) : 0,
+    },
+  };
+}
+
+function getFuturePlanningBaselineBlocks(studyBlocks: StudyBlock[], planningStart: Date) {
+  return studyBlocks.filter((block) => {
+    const blockEnd = new Date(block.end).getTime();
+    return (
+      blockEnd <= planningStart.getTime() ||
+      block.status === "done" ||
+      block.status === "partial"
+    );
+  });
+}
+
+function taskFitsSlot(
+  slot: CalendarSlot,
+  task: ReturnType<typeof buildTaskCandidates>[number],
+  preferences: Preferences,
+) {
+  if (task.subjectId === "cpp-book") {
+    return false;
+  }
+
+  if (task.availableAt && new Date(task.availableAt).getTime() > slot.start.getTime()) {
+    return false;
+  }
+
+  if (task.latestAt && new Date(task.latestAt).getTime() < slot.start.getTime()) {
+    return false;
+  }
+
+  if (task.sessionMode === "exam") {
+    const requiredMinutes = task.exactSessionMinutes ?? task.remainingMinutes;
+    return requiredMinutes <= slot.durationMinutes;
+  }
+
+  return !!selectBlockOption(task, slot, preferences);
+}
+
+export function detectFutureFillableGap(options: {
+  subjects: Subject[];
+  topics: Topic[];
+  studyBlocks: StudyBlock[];
+  weeklyPlans: WeeklyPlan[];
+  fixedEvents: FixedEvent[];
+  sickDays?: SickDay[];
+  completionLogs?: CompletionLog[];
+  preferences: Preferences;
+  referenceDate?: Date;
+}) {
+  const referenceDate = options.referenceDate ?? new Date();
+  const futurePlans = [...options.weeklyPlans]
+    .filter((plan) => plan.weekStart >= toDateKey(startOfPlannerWeek(referenceDate)))
+    .sort((left, right) => left.weekStart.localeCompare(right.weekStart));
+  const activeBlocks = options.studyBlocks.filter((block) =>
+    ["planned", "rescheduled", "done", "partial"].includes(block.status),
+  );
+  const subjectDeadlinesById = Object.fromEntries(
+    options.subjects.map((subject) => [subject.id, subject.deadline]),
+  );
+
+  for (const weeklyPlan of futurePlans) {
+    const weekStart = fromDateKey(weeklyPlan.weekStart);
+    const planningStart =
+      weekStart.getTime() < referenceDate.getTime() ? referenceDate : weekStart;
+    const freeSlots = calculateFreeSlots({
+      weekStart,
+      fixedEvents: options.fixedEvents,
+      sickDays: options.sickDays ?? [],
+      preferences: options.preferences,
+      blockedStudyBlocks: activeBlocks,
+      planningStart,
+      effectiveReservedCommitmentDurations: weeklyPlan.effectiveReservedCommitmentDurations,
+      excludedReservedCommitmentRuleIds: weeklyPlan.excludedReservedCommitmentRuleIds,
+    }).filter((slot) => slot.durationMinutes >= 30);
+
+    if (!freeSlots.length) {
+      continue;
+    }
+
+    const remainingTasks = buildTaskCandidates({
+      topics: options.topics,
+      existingPlannedBlocks: getFuturePlanningBaselineBlocks(options.studyBlocks, planningStart),
+      completionLogs: options.completionLogs,
+      referenceDate: planningStart,
+      subjectDeadlinesById,
+    }).filter((task) => task.remainingMinutes >= 30 && task.subjectId !== "cpp-book");
+
+    if (!remainingTasks.length) {
+      continue;
+    }
+
+    const fillableSlot = freeSlots.find((slot) =>
+      remainingTasks.some((task) => taskFitsSlot(slot, task, options.preferences)),
+    );
+
+    if (fillableSlot) {
+      return {
+        hasGap: true,
+        weekStart: weeklyPlan.weekStart,
+        dateKey: fillableSlot.dateKey,
+        openMinutes: fillableSlot.durationMinutes,
+      };
+    }
+  }
+
+  return {
+    hasGap: false,
+    weekStart: null,
+    dateKey: null,
+    openMinutes: 0,
+  };
+}
+
+export function getWeekFillDiagnostics(options: {
+  weekStart: string;
+  subjects: Subject[];
+  topics: Topic[];
+  studyBlocks: StudyBlock[];
+  weeklyPlans: WeeklyPlan[];
+  fixedEvents: FixedEvent[];
+  sickDays?: SickDay[];
+  completionLogs?: CompletionLog[];
+  preferences: Preferences;
+  referenceDate?: Date;
+}) {
+  const referenceDate = options.referenceDate ?? new Date();
+  const weeklyPlan = getWeeklyPlan(options.weeklyPlans, options.weekStart);
+  const weekStartDate = fromDateKey(options.weekStart);
+  const weekBlocks = options.studyBlocks.filter(
+    (block) =>
+      ["planned", "rescheduled", "done", "partial"].includes(block.status) &&
+      block.weekStart === options.weekStart,
+  );
+  const activeBlocks = options.studyBlocks.filter((block) =>
+    ["planned", "rescheduled", "done", "partial"].includes(block.status),
+  );
+  const subjectDeadlinesById = Object.fromEntries(
+    options.subjects.map((subject) => [subject.id, subject.deadline]),
+  );
+  const freeSlots = calculateFreeSlots({
+    weekStart: weekStartDate,
+    fixedEvents: options.fixedEvents,
+    sickDays: options.sickDays ?? [],
+    preferences: options.preferences,
+    blockedStudyBlocks: activeBlocks,
+    planningStart:
+      weekStartDate.getTime() < referenceDate.getTime() ? referenceDate : weekStartDate,
+    effectiveReservedCommitmentDurations: weeklyPlan?.effectiveReservedCommitmentDurations ?? [],
+    excludedReservedCommitmentRuleIds: weeklyPlan?.excludedReservedCommitmentRuleIds ?? [],
+  });
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = addDays(weekStartDate, index);
+    const dateKey = toDateKey(day);
+    const plannedMinutes = weekBlocks
+      .filter((block) => block.date === dateKey && !!block.subjectId)
+      .reduce((total, block) => total + block.estimatedMinutes, 0);
+    const completedMinutes = weekBlocks
+      .filter((block) => block.date === dateKey && (block.status === "done" || block.status === "partial"))
+      .reduce((total, block) => total + (block.actualMinutes ?? block.estimatedMinutes), 0);
+    const openSlots = freeSlots.filter((slot) => slot.dateKey === dateKey && slot.durationMinutes >= 30);
+    const openMinutes = openSlots.reduce((total, slot) => total + slot.durationMinutes, 0);
+    const planningStart = day.getTime() < referenceDate.getTime() ? referenceDate : day;
+    const remainingTasks = buildTaskCandidates({
+      topics: options.topics,
+      existingPlannedBlocks: getFuturePlanningBaselineBlocks(options.studyBlocks, planningStart),
+      completionLogs: options.completionLogs,
+      referenceDate: planningStart,
+      subjectDeadlinesById,
+    }).filter((task) => task.remainingMinutes >= 30 && task.subjectId !== "cpp-book");
+    const fillableGapDetected = openSlots.some((slot) =>
+      remainingTasks.some((task) => taskFitsSlot(slot, task, options.preferences)),
+    );
+
+    return {
+      dateKey,
+      plannedHours: Number((plannedMinutes / 60).toFixed(1)),
+      completedHours: Number((completedMinutes / 60).toFixed(1)),
+      openHours: Number((openMinutes / 60).toFixed(1)),
+      blankReason:
+        openMinutes >= 30 && !fillableGapDetected
+          ? "No eligible tasks left"
+          : "Reserved / unavailable time",
+      fillableGapDetected,
+    };
+  });
 }
 
 function isForecastOnActiveMilestone(

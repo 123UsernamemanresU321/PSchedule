@@ -6039,7 +6039,7 @@ test("school-term deadline pacing keeps C++ at zero while Olympiad remains heavi
   assert.equal(normalTracks["cpp-book"]?.recommendedWeeklyHours ?? 0, 0);
 });
 
-test("configured school-term template encodes the weekday rotation and keeps Sunday as the only hard light cap before paper season", () => {
+test("configured school-term template encodes the weekday rotation without a hard Sunday light cap before paper season", () => {
   const dataset = buildSeedDataset(new Date("2026-04-18T08:00:00.000Z"));
   const template = buildSchoolTermWeekTemplate({
     weekStart: new Date("2026-04-20T00:00:00.000Z"),
@@ -6059,8 +6059,8 @@ test("configured school-term template encodes the weekday rotation and keeps Sun
   assert.equal(requirementById["2026-04-24-learning"]?.subjectId, "physics-hl");
   assert.equal(requirementById["2026-04-25-paper-cycle-exam"], undefined);
   assert.equal(requirementById["2026-04-25-paper-cycle-correction"], undefined);
-  assert.deepEqual(template.lightReviewOnlyDateKeys, ["2026-04-26"]);
-  assert.equal(template.dayStudyCapOverrideMinutesByDate["2026-04-26"], 120);
+  assert.deepEqual(template.lightReviewOnlyDateKeys, []);
+  assert.equal(template.dayStudyCapOverrideMinutesByDate["2026-04-26"], undefined);
 });
 
 test("configured school-term template adds the weekly full-paper cycle only after the syllabus phase", () => {
@@ -6086,7 +6086,7 @@ test("configured school-term template adds the weekly full-paper cycle only afte
   );
 });
 
-test("generated configured school-term weeks follow the weekday template, keep Sunday light, and avoid early full papers", () => {
+test("generated configured school-term weeks follow the weekday template, fill Sunday normally, and avoid early full papers", () => {
   const referenceDate = new Date("2026-04-18T08:00:00.000Z");
   const dataset = buildSeedDataset(referenceDate);
   const preferences = withConfiguredSchoolTerm(dataset.preferences);
@@ -6159,9 +6159,11 @@ test("generated configured school-term weeks follow the weekday template, keep S
     false,
   );
   assert.ok(
-    sundayBlocks.every(
-      (block) => block.studyLayer !== "learning" && block.studyLayer !== "exam_sim",
-    ),
+    sundayBlocks.reduce((total, block) => total + block.estimatedMinutes, 0) > 120,
+  );
+  assert.equal(
+    sundayBlocks.some((block) => block.studyLayer === "exam_sim"),
+    false,
   );
 });
 

@@ -17,7 +17,7 @@ import { db } from "@/lib/storage/db";
 import { parsePlannerJson } from "@/lib/storage/json-transfer";
 import { normalizeTopicProgress } from "@/lib/topics/status";
 import { subjectIds } from "@/lib/constants/planner";
-import { getSubjectProgress } from "@/lib/analytics/metrics";
+import { detectFutureFillableGap, getSubjectProgress } from "@/lib/analytics/metrics";
 import { createId } from "@/lib/utils";
 import type {
   CompletionLog,
@@ -32,7 +32,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-04-18-school-term-template-v49";
+const PLANNING_MODEL_VERSION = "2026-04-19-daily-fill-hierarchy-v50";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-08-olympiad-bplus-roadmap-v11";
@@ -684,15 +684,30 @@ export function getCollapsedCoverageRepairState(
   const hardConstraintSubjectIds = states
     .filter((state) => state.hasStrictIncompleteCoverage)
     .map((state) => state.subjectId);
+  const futureFillableGap = detectFutureFillableGap({
+    subjects: snapshot.subjects,
+    topics: snapshot.topics,
+    studyBlocks: snapshot.studyBlocks,
+    weeklyPlans: snapshot.weeklyPlans,
+    fixedEvents: snapshot.fixedEvents,
+    sickDays: snapshot.sickDays,
+    completionLogs: snapshot.completionLogs,
+    preferences: snapshot.preferences,
+    referenceDate,
+  });
 
   return {
     states,
     collapsedSubjectIds,
     hardConstraintSubjectIds,
+    futureFillableGap,
     invalidOverlapIssues,
     invalidOverlapBlockIds,
-    hasHardConstraintCoverageFailure: hardConstraintSubjectIds.length > 0,
-    hasCollapsedCoverage: collapsedSubjectIds.length > 0 || invalidOverlapIssues.length > 0,
+    hasHardConstraintCoverageFailure: hardConstraintSubjectIds.length > 0 || futureFillableGap.hasGap,
+    hasCollapsedCoverage:
+      collapsedSubjectIds.length > 0 ||
+      invalidOverlapIssues.length > 0 ||
+      futureFillableGap.hasGap,
   };
 }
 

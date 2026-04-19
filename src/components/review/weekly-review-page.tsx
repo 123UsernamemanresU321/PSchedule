@@ -21,7 +21,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   getCalendarCompletionForecast,
   getCarryOverBlocks,
+  getPlanningHierarchyMetrics,
   getWeekBlocks,
+  getWeekFillDiagnostics,
   getWeeklyCoverageState,
   getWeeklyPlan,
 } from "@/lib/analytics/metrics";
@@ -55,6 +57,29 @@ export function WeeklyReviewPage() {
   const weeklyCoverageState = getWeeklyCoverageState(weeklyPlan);
   const weekBlocks = getWeekBlocks(studyBlocks, currentWeekStart);
   const carryOverBlocks = getCarryOverBlocks(weekBlocks);
+  const hierarchyMetrics = getPlanningHierarchyMetrics({
+    subjects,
+    topics,
+    goals,
+    studyBlocks,
+    weeklyPlans,
+    referenceDate: new Date(),
+  });
+  const fillDiagnostics = preferences
+    ? getWeekFillDiagnostics({
+        weekStart: currentWeekStart,
+        subjects,
+        topics,
+        studyBlocks,
+        weeklyPlans,
+        fixedEvents,
+        sickDays,
+        completionLogs,
+        preferences,
+        referenceDate: isViewingCurrentWeek ? new Date() : visibleWeekStart,
+      })
+    : [];
+  const fillableGapCount = fillDiagnostics.filter((entry) => entry.fillableGapDetected).length;
   const chartData = subjects
     .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
     .map((subject) => ({
@@ -105,7 +130,7 @@ export function WeeklyReviewPage() {
     <div className="space-y-6">
       <PageHeader
         title="Weekly Review"
-        description="Compare plan versus execution, surface carry-over, and see whether the full goal horizon remains realistic."
+        description="Review this week as one slice of the month ladder, check day-level fill quality, and confirm the full goal horizon still remains realistic."
         actions={
           <>
             <div className="flex items-center gap-1 rounded-full border border-white/8 bg-white/4 p-1">
@@ -143,11 +168,38 @@ export function WeeklyReviewPage() {
       />
 
       <div className="grid gap-4 xl:grid-cols-4 md:grid-cols-2">
-        <MetricCard eyebrow="Planned hours" value={plannedHours.toFixed(1)} detail="hours scheduled this week" />
-        <MetricCard eyebrow="Completed hours" value={completedHours.toFixed(1)} detail="hours marked done or partial" tone={completedHours / Math.max(plannedHours, 1) >= 0.8 ? "success" : "warning"} />
+        <MetricCard eyebrow="Month target" value={`${hierarchyMetrics.month.plannedHours.toFixed(1)} / ${hierarchyMetrics.month.targetHours.toFixed(1)}h`} detail={`${hierarchyMetrics.month.completedHours.toFixed(1)} hrs completed this month`} tone={hierarchyMetrics.month.coveragePercent >= 100 ? "success" : "default"} />
+        <MetricCard eyebrow="Week slice" value={`${plannedHours.toFixed(1)}h`} detail={`${completedHours.toFixed(1)} hrs completed in the selected week`} tone={completedHours / Math.max(plannedHours, 1) >= 0.8 ? "success" : "warning"} />
         <MetricCard eyebrow="Carry-over hours" value={carryOverHours.toFixed(1)} detail="hours to reschedule" tone={carryOverHours > 4 ? "warning" : "default"} />
-        <MetricCard eyebrow="Coverage state" value={weeklyCoverageState.label} detail={weeklyPlan?.feasibilityWarnings[0] ?? "No major risk flags this week."} tone={weeklyCoverageState.tone} />
+        <MetricCard eyebrow="Fill diagnostics" value={fillableGapCount === 0 ? "Healthy" : `${fillableGapCount} gaps`} detail={fillableGapCount === 0 ? "Remaining blanks are either reserved time or there are no eligible tasks left." : "Planner left fillable future time and should rebuild the horizon."} tone={fillableGapCount === 0 ? "success" : "warning"} />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Daily fill status</CardTitle>
+          <p className="text-sm text-muted-foreground">Each day is measured after fixed events, homework, piano, recovery, and blocked time. Blank space should only remain when there is no eligible task left.</p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 xl:grid-cols-4 md:grid-cols-2">
+            {fillDiagnostics.map((entry) => (
+              <div key={entry.dateKey} className="rounded-sm border border-white/6 bg-white/4 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium text-foreground">{entry.dateKey}</p>
+                  <Badge variant={entry.fillableGapDetected ? "warning" : "muted"}>
+                    {entry.fillableGapDetected ? "Gap detected" : entry.blankReason}
+                  </Badge>
+                </div>
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Planned {entry.plannedHours.toFixed(1)}h • Completed {entry.completedHours.toFixed(1)}h
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Open {entry.openHours.toFixed(1)}h
+                </p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
         <Card>
