@@ -161,5 +161,5 @@ GitHub-side setup:
 
 ## Data portability
 
-- Export creates a versioned JSON payload from all IndexedDB tables.
-- Import validates the payload with Zod before replacing local data.
+- Export creates a versioned JSON payload from all IndexedDB tables!
+- Import validates the payload with Zod before replacing local data!
