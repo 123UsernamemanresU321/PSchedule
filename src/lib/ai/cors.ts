@@ -1,6 +1,8 @@
-import { assertAiRuntimeConfig } from "@/lib/ai/auth";
-
 const LOCAL_DEV_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"];
+
+function getConfiguredAllowedOrigin() {
+  return (process.env.AI_ALLOWED_ORIGIN ?? "").trim();
+}
 
 export function resolveAiCorsOrigin(origin: string | null | undefined) {
   if (!origin) {
@@ -8,12 +10,10 @@ export function resolveAiCorsOrigin(origin: string | null | undefined) {
   }
 
   const allowedOrigins = new Set(LOCAL_DEV_ORIGINS);
+  const configuredOrigin = getConfiguredAllowedOrigin();
 
-  try {
-    const config = assertAiRuntimeConfig();
-    allowedOrigins.add(config.allowedOrigin);
-  } catch {
-    // Ignore missing config here so status/session failures can still return a structured error.
+  if (configuredOrigin) {
+    allowedOrigins.add(configuredOrigin);
   }
 
   return allowedOrigins.has(origin) ? origin : null;
