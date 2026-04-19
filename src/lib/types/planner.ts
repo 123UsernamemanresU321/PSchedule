@@ -26,6 +26,7 @@ export type ResourceType = (typeof resourceTypeValues)[number];
 export type StudyLayer = "learning" | "application" | "exam_sim" | "correction";
 export type SickDaySeverity = "light" | "moderate" | "severe";
 export type StudyBlockCreationSource = "planner" | "manual";
+export type PlannerReplanScope = "week_local" | "tail_from_week" | "full_horizon";
 export type SubjectCategory =
   | "physics"
   | "maths"
@@ -214,9 +215,19 @@ export interface WeeklyPlan {
   fillableGapDateKeys: string[];
   effectiveReservedCommitmentDurations: EffectiveReservedCommitmentDuration[];
   excludedReservedCommitmentRuleIds: string[];
+  replanDiagnostics?: ReplanDiagnostics | null;
   weeksRemainingToDeadline: number;
   horizonEndDate: string;
   generatedAt: string;
+}
+
+export interface ReplanDiagnostics {
+  scope: PlannerReplanScope;
+  escalationPath: PlannerReplanScope[];
+  totalGenerationMs: number;
+  scopeTimingsMs: Partial<Record<PlannerReplanScope, number>>;
+  repairTriggered: boolean;
+  hardCoverageEscalationForced: boolean;
 }
 
 export interface EffectiveReservedCommitmentDuration {

@@ -200,6 +200,25 @@ export const weeklyPlanSchema = z.object({
     .optional()
     .default([]),
   excludedReservedCommitmentRuleIds: z.array(z.string()).optional().default([]),
+  replanDiagnostics: z
+    .object({
+      scope: z.enum(["week_local", "tail_from_week", "full_horizon"]),
+      escalationPath: z.array(z.enum(["week_local", "tail_from_week", "full_horizon"])),
+      totalGenerationMs: z.number(),
+      scopeTimingsMs: z
+        .object({
+          week_local: z.number().optional(),
+          tail_from_week: z.number().optional(),
+          full_horizon: z.number().optional(),
+        })
+        .optional()
+        .default({}),
+      repairTriggered: z.boolean().optional().default(false),
+      hardCoverageEscalationForced: z.boolean().optional().default(false),
+    })
+    .nullable()
+    .optional()
+    .default(null),
   weeksRemainingToDeadline: z.number().optional().default(1),
   horizonEndDate: z.string().optional().default(""),
   generatedAt: z.string(),

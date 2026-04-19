@@ -2,7 +2,10 @@ import { startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import { studyBlockOverlapsFixedEvent } from "@/lib/scheduler/free-slots";
 import { generateStudyPlanForWeek } from "@/lib/scheduler/generator";
 import type {
+  CompletionLog,
   FixedEvent,
+  FocusedDay,
+  FocusedWeek,
   Goal,
   Preferences,
   SchedulerResult,
@@ -39,16 +42,19 @@ export function replanStudyPlan(options: {
   goals: Goal[];
   subjects: Subject[];
   topics: Topic[];
+  completionLogs?: CompletionLog[];
   fixedEvents: FixedEvent[];
   sickDays?: SickDay[];
+  focusedDays?: FocusedDay[];
+  focusedWeeks?: FocusedWeek[];
   studyBlocks: StudyBlock[];
   preferences: Preferences;
 }): SchedulerResult {
   const weekStart = startOfPlannerWeek(options.weekStart ?? new Date());
   const now = new Date();
-  const preservedBlocks = options.studyBlocks.filter((block) => {
-    return block.status === "done";
-  });
+  const preservedBlocks = options.studyBlocks.filter(
+    (block) => block.status === "done" || block.status === "partial",
+  );
 
   const incompleteBlocks = options.studyBlocks.filter((block) => {
     if (preservedBlocks.some((candidate) => candidate.id === block.id)) {
@@ -57,8 +63,16 @@ export function replanStudyPlan(options: {
 
     return !studyBlockOverlapsFixedEvent(block, options.fixedEvents, weekStart, options.preferences);
   });
+  const activeInProgressBlocks = incompleteBlocks.filter(
+    (block) =>
+      ["planned", "rescheduled"].includes(block.status) &&
+      new Date(block.start).getTime() <= now.getTime() &&
+      new Date(block.end).getTime() > now.getTime(),
+  );
   const baselineLockedBlocks = incompleteBlocks.filter(
-    (block) => block.status === "planned" && new Date(block.start) > now,
+    (block) =>
+      ["planned", "rescheduled"].includes(block.status) &&
+      new Date(block.start).getTime() > now.getTime(),
   );
 
   const scenarios: Array<{
@@ -86,6 +100,7 @@ export function replanStudyPlan(options: {
   for (const scenario of scenarios) {
     const lockedBlocks = [
       ...preservedBlocks,
+      ...activeInProgressBlocks,
       ...baselineLockedBlocks.filter((block) => !scenario.releaseBlocks(block)),
     ].sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime());
 
@@ -94,10 +109,14 @@ export function replanStudyPlan(options: {
       goals: options.goals,
       subjects: options.subjects,
       topics: options.topics,
+      completionLogs: options.completionLogs,
       fixedEvents: options.fixedEvents,
       sickDays: options.sickDays,
+      focusedDays: options.focusedDays,
+      focusedWeeks: options.focusedWeeks,
       preferences: options.preferences,
       lockedBlocks,
+      existingPlannedBlocks: options.studyBlocks,
       dailyCapBoostMinutes: scenario.dailyCapBoostMinutes,
     });
 
@@ -111,10 +130,14 @@ export function replanStudyPlan(options: {
     goals: options.goals,
     subjects: options.subjects,
     topics: options.topics,
+    completionLogs: options.completionLogs,
     fixedEvents: options.fixedEvents,
     sickDays: options.sickDays,
+    focusedDays: options.focusedDays,
+    focusedWeeks: options.focusedWeeks,
     preferences: options.preferences,
-    lockedBlocks: preservedBlocks,
+    lockedBlocks: [...preservedBlocks, ...activeInProgressBlocks],
+    existingPlannedBlocks: options.studyBlocks,
     dailyCapBoostMinutes: 45,
   });
 }

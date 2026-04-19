@@ -32,7 +32,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-04-19-hard-coverage-v51";
+const PLANNING_MODEL_VERSION = "2026-04-19-replan-fast-path-v52";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-08-olympiad-bplus-roadmap-v11";
@@ -601,6 +601,21 @@ function normalizeWeeklyPlan(
     excludedReservedCommitmentRuleIds: Array.from(
       new Set(weeklyPlan.excludedReservedCommitmentRuleIds ?? []),
     ).sort((left, right) => left.localeCompare(right)),
+    replanDiagnostics: weeklyPlan.replanDiagnostics
+      ? {
+          scope: weeklyPlan.replanDiagnostics.scope,
+          escalationPath: Array.from(new Set(weeklyPlan.replanDiagnostics.escalationPath)),
+          totalGenerationMs: Math.max(0, weeklyPlan.replanDiagnostics.totalGenerationMs),
+          scopeTimingsMs: Object.fromEntries(
+            Object.entries(weeklyPlan.replanDiagnostics.scopeTimingsMs ?? {}).filter(
+              ([, value]) => typeof value === "number" && Number.isFinite(value) && value >= 0,
+            ),
+          ),
+          repairTriggered: weeklyPlan.replanDiagnostics.repairTriggered ?? false,
+          hardCoverageEscalationForced:
+            weeklyPlan.replanDiagnostics.hardCoverageEscalationForced ?? false,
+        }
+      : null,
     weeksRemainingToDeadline: weeklyPlan.weeksRemainingToDeadline ?? 1,
     horizonEndDate: weeklyPlan.horizonEndDate ?? horizonEndDate,
   };

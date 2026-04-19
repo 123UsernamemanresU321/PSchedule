@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "node --experimental-strip-types --import ./scripts/register-ts-loader.mjs --test tests/*.test.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "benchmark:replan": "node --experimental-strip-types --import ./scripts/register-ts-loader.mjs scripts/benchmark-replan.ts"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.20",

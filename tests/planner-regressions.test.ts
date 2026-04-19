@@ -31,6 +31,8 @@ import {
   shouldPreserveStudyBlockOnRegeneration,
 } from "@/lib/scheduler/generator";
 import {
+  getEscalatedPlannerReplanScope,
+  getPlannerReplanScopeForMutation,
   getStatusUpdatePreservedStudyBlockIds,
   shouldDoneStatusBypassReplan,
   shouldRunStatusUpdateReplan,
@@ -136,6 +138,7 @@ function createWeeklyPlan(overrides: Partial<WeeklyPlan> = {}): WeeklyPlan {
     fillableGapDateKeys: [],
     effectiveReservedCommitmentDurations: [],
     excludedReservedCommitmentRuleIds: [],
+    replanDiagnostics: null,
     weeksRemainingToDeadline: 10,
     horizonEndDate: "2026-07-31",
     generatedAt: "2026-03-13T00:00:00.000Z",
@@ -301,7 +304,7 @@ test("maths topics stay hard-gated in seeded order", () => {
   assert.equal(blockedCandidates.length, 0);
 
   const slBoundaryBlock = createStudyBlock({
-    id: "proof-boundary",
+    id: "sl-hl-bridge",
     subjectId: "maths-aa-hl",
     topicId: "maths-topic5-aa-integration",
     title: "AA integration applications",
@@ -319,6 +322,58 @@ test("maths topics stay hard-gated in seeded order", () => {
 
   assert.equal(unlockedCandidates.length, 1);
   assert.equal(unlockedCandidates[0]?.topicId, "maths-topic1-counting-binomial");
+});
+
+test("all AA HL-book maths topics stay transitively blocked until the SL book is complete", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
+  const hlBookTopics = dataset.topics.filter(
+    (topic) =>
+      topic.subjectId === "maths-aa-hl" &&
+      topic.sourceMaterials.some((material) => material.label === "Hodder AA HL 2019"),
+  );
+
+  assert.ok(hlBookTopics.length > 0, "expected seeded maths HL-book topics");
+
+  const blockedCandidates = buildTaskCandidates({
+    topics: hlBookTopics,
+    existingPlannedBlocks: [],
+    referenceDate: new Date("2026-03-14T08:00:00"),
+    subjectDeadlinesById: { "maths-aa-hl": "2027-06-30" },
+  });
+
+  assert.equal(blockedCandidates.length, 0);
+});
+
+test("manual reassignment cannot pull Maths AA HL-book topics ahead of the SL frontier", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
+  const manualBlock = createStudyBlock({
+    id: "manual-maths-block",
+    subjectId: "maths-aa-hl",
+    topicId: "maths-topic2-functions-core",
+    start: "2026-03-16T14:00:00.000Z",
+    end: "2026-03-16T15:00:00.000Z",
+    estimatedMinutes: 60,
+  });
+  const assignable = getAssignableTaskCandidatesForBlock({
+    block: manualBlock,
+    topics: dataset.topics,
+    existingPlannedBlocks: [],
+    subjectDeadlinesById: { "maths-aa-hl": "2027-06-30" },
+  });
+
+  assert.ok(
+    !assignable.some((candidate) => candidate.topicId === "maths-topic1-counting-binomial"),
+  );
+});
+
+test("planner replan scope selection prefers local scope before escalation", () => {
+  assert.equal(getPlannerReplanScopeForMutation("status_update"), "week_local");
+  assert.equal(getPlannerReplanScopeForMutation("request_more_practice"), "week_local");
+  assert.equal(getPlannerReplanScopeForMutation("topic_progress"), "tail_from_week");
+  assert.equal(getPlannerReplanScopeForMutation("fixed_event"), "full_horizon");
+  assert.equal(getEscalatedPlannerReplanScope("week_local"), "tail_from_week");
+  assert.equal(getEscalatedPlannerReplanScope("tail_from_week"), "full_horizon");
+  assert.equal(getEscalatedPlannerReplanScope("full_horizon"), null);
 });
 
 test("physics topics are hard-gated in seeded syllabus order", () => {
