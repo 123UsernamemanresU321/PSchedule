@@ -34,6 +34,55 @@ npm run build:pages
 
 This project’s Pages build exports into `.next-pages/`.
 
+## AI backend
+
+The DeepSeek assistant is split from the GitHub Pages frontend on purpose.
+
+- GitHub Pages serves the static frontend.
+- Vercel serves the private AI backend at `/api/ai/*`.
+- The frontend only receives `NEXT_PUBLIC_AI_BACKEND_URL`.
+- The DeepSeek key never belongs in the browser build.
+
+Put the environment variables here:
+
+- Vercel project environment variables:
+  - `DEEPSEEK_API_KEY`
+  - `AI_ACCESS_PASSWORD`
+  - `AI_SESSION_SECRET`
+  - `AI_ALLOWED_ORIGIN=https://<your-pages-domain>`
+  - `DEEPSEEK_MODEL_FAST=deepseek-chat`
+  - `DEEPSEEK_MODEL_REVIEW=deepseek-reasoner`
+- Local `.env.local` for backend development:
+  - the same variables as above
+- GitHub Pages build environment:
+  - `NEXT_PUBLIC_AI_BACKEND_URL=https://<your-vercel-backend>`
+
+Do not put `DEEPSEEK_API_KEY` into:
+
+- committed `.env` files
+- `NEXT_PUBLIC_*` variables
+- browser local storage
+- GitHub Pages source code
+
+GitHub Pages setup for the backend URL:
+
+1. Open repository `Settings` -> `Secrets and variables` -> `Actions`.
+2. Add a repository variable named `NEXT_PUBLIC_AI_BACKEND_URL`.
+3. Set it to your Vercel deployment origin, for example `https://your-backend.vercel.app`.
+
+Vercel setup for the private backend:
+
+1. Import this same repository into Vercel.
+2. Add the private environment variables listed above.
+3. Deploy it normally.
+4. Use the resulting Vercel URL as `NEXT_PUBLIC_AI_BACKEND_URL` in GitHub Actions.
+
+Local development note:
+
+- `npm run dev` starts the frontend.
+- For AI requests, either point `NEXT_PUBLIC_AI_BACKEND_URL` at your deployed Vercel backend, or run the repo through `vercel dev`.
+- AI is confirm-apply only: the assistant proposes actions, and the frontend only applies them through existing planner store mutations after confirmation.
+
 ## Deploy to GitHub Pages
 
 - The repo now includes a GitHub Actions workflow at `.github/workflows/deploy-pages.yml`.

@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowUpRight, CalendarClock, CheckCircle2, Clock3, Flame
 import { format } from "date-fns";
 import dynamic from "next/dynamic";
 
+import { AiCoachCard } from "@/components/ai/ai-coach-card";
 import { MetricCard } from "@/components/layout/metric-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { HorizonRoadmap } from "@/components/planner/horizon-roadmap";
@@ -18,6 +19,7 @@ const HoursBarChart = dynamic(
 import { SubjectBadge } from "@/components/planner/subject-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { buildWeeklyReviewAiContext } from "@/lib/ai/context";
 import {
   getCalendarCompletionForecast,
   getHorizonRoadmapSummary,
@@ -40,6 +42,8 @@ export function DashboardPage() {
   const studyBlocks = usePlannerStore((state) => state.studyBlocks);
   const weeklyPlans = usePlannerStore((state) => state.weeklyPlans);
   const fixedEvents = usePlannerStore((state) => state.fixedEvents);
+  const sickDays = usePlannerStore((state) => state.sickDays);
+  const completionLogs = usePlannerStore((state) => state.completionLogs);
   const selectStudyBlock = usePlannerStore((state) => state.selectStudyBlock);
   const preferences = usePlannerStore((state) => state.preferences);
 
@@ -76,6 +80,21 @@ export function DashboardPage() {
     assigned: weeklyPlan?.assignedHoursBySubject[progress.subject.id] ?? 0,
     completed: weeklyPlan?.completedHoursBySubject[progress.subject.id] ?? 0,
   }));
+  const aiContext = preferences
+    ? buildWeeklyReviewAiContext({
+        currentWeekStart,
+        goals,
+        subjects,
+        topics,
+        studyBlocks,
+        weeklyPlans,
+        fixedEvents,
+        sickDays,
+        completionLogs,
+        preferences,
+        referenceDate,
+      })
+    : null;
 
   return (
     <div className="space-y-6">
@@ -113,6 +132,8 @@ export function DashboardPage() {
           accent={<Flame className="h-5 w-5 text-warning" />}
         />
       </div>
+
+      {aiContext ? <AiCoachCard context={aiContext} /> : null}
 
       {!fixedEvents.length && !preferences?.schoolSchedule.enabled && !preferences?.holidaySchedule.enabled ? (
         <Card className="border-primary/20 bg-primary/8">

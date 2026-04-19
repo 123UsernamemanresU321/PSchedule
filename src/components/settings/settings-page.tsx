@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Plus, Trash2, Upload } from "lucide-react";
 
+import { AiSettingsCard } from "@/components/ai/ai-settings-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { SubjectBadge } from "@/components/planner/subject-badge";
 import { Badge } from "@/components/ui/badge";
@@ -171,6 +172,8 @@ export function SettingsPage() {
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="space-y-6">
+          <AiSettingsCard />
+
           <Card>
             <CardHeader>
               <CardTitle>School schedule</CardTitle>

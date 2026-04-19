@@ -7,6 +7,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  NEXT_PUBLIC_AI_BACKEND_URL: ${{ vars.NEXT_PUBLIC_AI_BACKEND_URL }}
 
 permissions:
   contents: read
@@ -22,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      NEXT_PUBLIC_AI_BACKEND_URL: ${{ vars.NEXT_PUBLIC_AI_BACKEND_URL }}
     environment:
       name: github-pages
     steps:
@@ -60,6 +62,7 @@ jobs:
         run: npm run build:pages
         env:
           PAGES_BASE_PATH: ${{ env.PAGES_BASE_PATH }}
+          NEXT_PUBLIC_AI_BACKEND_URL: ${{ vars.NEXT_PUBLIC_AI_BACKEND_URL }}
 
       - name: Disable Jekyll
         run: touch .next-pages/.nojekyll

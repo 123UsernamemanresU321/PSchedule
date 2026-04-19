@@ -2,6 +2,7 @@
 
 import { useEffect, type ReactNode } from "react";
 
+import { useAiStore } from "@/lib/store/ai-store";
 import { usePlannerStore } from "@/lib/store/planner-store";
 
 const STALE_CHUNK_RELOAD_KEY = "__planner_stale_chunk_reload__";
@@ -68,12 +69,17 @@ export function PlannerBootstrap({
 }) {
   const initialized = usePlannerStore((state) => state.initialized);
   const initialize = usePlannerStore((state) => state.initialize);
+  const hydrateAi = useAiStore((state) => state.hydrate);
 
   useEffect(() => {
     if (!initialized) {
       void initialize();
     }
   }, [initialize, initialized]);
+
+  useEffect(() => {
+    hydrateAi();
+  }, [hydrateAi]);
 
   useEffect(() => {
     if (typeof window === "undefined") {

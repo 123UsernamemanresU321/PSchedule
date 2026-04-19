@@ -6,6 +6,10 @@ node_modules
 out
 dist
 coverage
+.env.local
+.env.development.local
+.env.production.local
+.env.test.local
 playwright-report
 test-results
 .DS_Store

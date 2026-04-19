@@ -4,6 +4,8 @@ import { addDays, subDays } from "date-fns";
 import { ChevronLeft, ChevronRight, RefreshCw, ShieldAlert } from "lucide-react";
 import dynamic from "next/dynamic";
 
+import { AiDiagnosisCard } from "@/components/ai/ai-diagnosis-card";
+import { AiWhatIfCard } from "@/components/ai/ai-what-if-card";
 import { MetricCard } from "@/components/layout/metric-card";
 import { PageHeader } from "@/components/layout/page-header";
 const HoursBarChart = dynamic(
@@ -18,6 +20,7 @@ import { SubjectBadge } from "@/components/planner/subject-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { buildDiagnosisAiContext, buildPlannerSnapshot } from "@/lib/ai/context";
 import {
   getCalendarCompletionForecast,
   getCarryOverBlocks,
@@ -43,6 +46,8 @@ export function WeeklyReviewPage() {
   const topics = usePlannerStore((state) => state.topics);
   const fixedEvents = usePlannerStore((state) => state.fixedEvents);
   const sickDays = usePlannerStore((state) => state.sickDays);
+  const focusedDays = usePlannerStore((state) => state.focusedDays);
+  const focusedWeeks = usePlannerStore((state) => state.focusedWeeks);
   const studyBlocks = usePlannerStore((state) => state.studyBlocks);
   const completionLogs = usePlannerStore((state) => state.completionLogs);
   const weeklyPlans = usePlannerStore((state) => state.weeklyPlans);
@@ -125,6 +130,36 @@ export function WeeklyReviewPage() {
     completionLogs,
     referenceDate: isViewingCurrentWeek ? new Date() : visibleWeekStart,
   });
+  const aiDiagnosisContext = preferences
+    ? buildDiagnosisAiContext({
+        currentWeekStart,
+        goals,
+        subjects,
+        topics,
+        studyBlocks,
+        weeklyPlans,
+        fixedEvents,
+        sickDays,
+        completionLogs,
+        preferences,
+        referenceDate: isViewingCurrentWeek ? new Date() : visibleWeekStart,
+      })
+    : null;
+  const aiSnapshot = preferences
+    ? buildPlannerSnapshot({
+        goals,
+        subjects,
+        topics,
+        fixedEvents,
+        sickDays,
+        focusedDays,
+        focusedWeeks,
+        studyBlocks,
+        completionLogs,
+        weeklyPlans,
+        preferences,
+      })
+    : null;
 
   return (
     <div className="space-y-6">
@@ -220,6 +255,9 @@ export function WeeklyReviewPage() {
         </Card>
 
         <div className="space-y-6">
+          {aiDiagnosisContext ? <AiDiagnosisCard context={aiDiagnosisContext} /> : null}
+          {aiSnapshot ? <AiWhatIfCard snapshot={aiSnapshot} currentWeekStart={currentWeekStart} /> : null}
+
           <Card>
             <CardHeader>
               <CardTitle>Carry-over & adjustments</CardTitle>

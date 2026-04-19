@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Clock3, Layers3, RefreshCw, X } from "lucide-react";
 import { format } from "date-fns";
 
+import { AiBlockBriefCard } from "@/components/ai/ai-block-brief-card";
 import { StudyBlockEditorDialog } from "@/components/planner/study-block-editor-dialog";
 import { SubjectBadge } from "@/components/planner/subject-badge";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { buildBlockBriefContext } from "@/lib/ai/context";
 import { blockTypeLabels, studyBlockStatusLabels } from "@/lib/constants/planner";
 import { usePlannerStore } from "@/lib/store/planner-store";
 import type { StudyBlock, Subject, Topic } from "@/lib/types/planner";
@@ -113,6 +115,12 @@ function StudyBlockDrawerPanel({
     !!block.subjectId &&
     ["planned", "rescheduled"].includes(block.status) &&
     new Date(block.end).getTime() > drawerOpenedAt;
+  const aiBriefContext = buildBlockBriefContext({
+    block,
+    topic,
+    subject,
+    studyBlocks,
+  });
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end overflow-hidden bg-black/55 backdrop-blur-sm">
@@ -237,6 +245,8 @@ function StudyBlockDrawerPanel({
               )}
             </CardContent>
           </Card>
+
+          <AiBlockBriefCard context={aiBriefContext} />
 
           {canEditSchedule ? (
             <Card>

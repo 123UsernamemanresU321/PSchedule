@@ -11,9 +11,11 @@ import {
   Music4,
   Plus,
   RefreshCw,
+  Sparkles,
   UtensilsCrossed,
 } from "lucide-react";
 
+import { AiEventAssistantDialog } from "@/components/ai/ai-event-assistant-dialog";
 import {
   EventEditorDialog,
   type EventEditorDraft,
@@ -33,6 +35,7 @@ import { ActionMenu } from "@/components/ui/action-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { buildEventParseContext } from "@/lib/ai/context";
 import { getHorizonRoadmapSummary } from "@/lib/analytics/metrics";
 import { formatWeekRangeLabel, fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import { usePlannerStore } from "@/lib/store/planner-store";
@@ -73,6 +76,7 @@ export function CalendarPage() {
   } | null>(null);
   const [focusDayDraftDate, setFocusDayDraftDate] = useState<string | null>(null);
   const [focusWeekDraftWeekStart, setFocusWeekDraftWeekStart] = useState<string | null>(null);
+  const [aiEventAssistantOpen, setAiEventAssistantOpen] = useState(false);
   const hasConfiguredConstraints =
     !!fixedEvents.length || !!preferences?.schoolSchedule.enabled || !!preferences?.holidaySchedule.enabled;
   const roadmapSummary = getHorizonRoadmapSummary(weeklyPlans, topics, currentWeekStart);
@@ -91,6 +95,11 @@ export function CalendarPage() {
   defaultCreateStart.setHours(16, 0, 0, 0);
   const defaultCreateEnd = new Date(addDays(visibleWeekStart, 1));
   defaultCreateEnd.setHours(17, 30, 0, 0);
+  const aiEventParseContext = buildEventParseContext({
+    currentWeekStart,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    subjects,
+  });
 
   return (
     <div className="space-y-6">
@@ -135,6 +144,13 @@ export function CalendarPage() {
               icon={<Plus className="h-4 w-4" />}
               testId="calendar-add-menu"
               items={[
+                {
+                  id: "add-with-ai",
+                  label: "Add with AI",
+                  icon: <Sparkles className="h-4 w-4" />,
+                  testId: "calendar-add-with-ai",
+                  onSelect: () => setAiEventAssistantOpen(true),
+                },
                 {
                   id: "add-study-block",
                   label: "Add study block",
@@ -441,6 +457,14 @@ export function CalendarPage() {
           await saveManualStudyBlock(options);
           setStudyBlockEditorDraft(null);
         }}
+      />
+      <AiEventAssistantDialog
+        open={aiEventAssistantOpen}
+        context={aiEventParseContext}
+        onClose={() => setAiEventAssistantOpen(false)}
+        saveFixedEvent={savePlannerFixedEvent}
+        saveFocusedDay={saveFocusedDay}
+        saveFocusedWeek={saveFocusedWeek}
       />
     </div>
   );
