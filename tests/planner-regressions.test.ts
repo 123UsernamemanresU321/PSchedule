@@ -344,6 +344,68 @@ test("all AA HL-book maths topics stay transitively blocked until the SL book is
   assert.equal(blockedCandidates.length, 0);
 });
 
+test("all AA HL-book maths topics stay transitively chained behind the SL frontier topic", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
+  const topicById = new Map(dataset.topics.map((topic) => [topic.id, topic]));
+  const hlBookTopics = dataset.topics.filter(
+    (topic) =>
+      topic.subjectId === "maths-aa-hl" &&
+      topic.sourceMaterials.some((material) => material.label === "Hodder AA HL 2019"),
+  );
+
+  assert.ok(hlBookTopics.length > 0, "expected seeded maths HL-book topics");
+
+  for (const hlTopic of hlBookTopics) {
+    let cursor: Topic | undefined = hlTopic;
+    const visited = new Set<string>();
+
+    while (cursor?.dependsOnTopicId) {
+      assert.ok(!visited.has(cursor.id), `unexpected dependency cycle at ${cursor.id}`);
+      visited.add(cursor.id);
+      cursor = topicById.get(cursor.dependsOnTopicId);
+    }
+
+    assert.equal(
+      cursor?.id,
+      "maths-topic5-aa-integration",
+      `expected ${hlTopic.id} to stay transitively gated behind maths-topic5-aa-integration`,
+    );
+  }
+});
+
+test("manual HL progress cannot unlock later Maths AA HL-book topics before the SL frontier is complete", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
+  const progressedFirstHlTopic = dataset.topics.find(
+    (topic) => topic.id === "maths-topic1-counting-binomial",
+  );
+  const nextHlTopic = dataset.topics.find(
+    (topic) => topic.id === "maths-topic1-algebra-partial-fractions",
+  );
+
+  assert.ok(progressedFirstHlTopic, "expected first HL maths topic");
+  assert.ok(nextHlTopic, "expected later HL maths topic");
+
+  const topics = dataset.topics.map((topic) =>
+    topic.id === "maths-topic1-counting-binomial"
+      ? {
+          ...topic,
+          completedHours: topic.estHours,
+          status: "strong" as const,
+          mastery: 4 as const,
+        }
+      : topic,
+  );
+
+  const blockedCandidates = buildTaskCandidates({
+    topics,
+    existingPlannedBlocks: [],
+    referenceDate: new Date("2026-03-14T08:00:00"),
+    subjectDeadlinesById: { "maths-aa-hl": "2027-06-30" },
+  }).filter((candidate) => candidate.topicId === nextHlTopic?.id);
+
+  assert.equal(blockedCandidates.length, 0);
+});
+
 test("manual reassignment cannot pull Maths AA HL-book topics ahead of the SL frontier", () => {
   const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
   const manualBlock = createStudyBlock({

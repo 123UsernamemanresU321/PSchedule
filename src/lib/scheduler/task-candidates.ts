@@ -14,6 +14,7 @@ import { IB_ANCHOR_SUBJECT_IDS } from "@/lib/scheduler/school-term-template";
 import type { CompletionLog, StudyBlock, StudyLayer, TaskCandidate, Topic } from "@/lib/types/planner";
 
 const MIN_ALLOCATABLE_MINUTES = 30;
+const MATHS_AA_SL_HL_FRONTIER_TOPIC_ID = "maths-topic5-aa-integration";
 
 const PAPER_CODE_SUBJECT_PREFIXES: Record<string, string> = {
   "physics-hl": "PHY",
@@ -88,6 +89,13 @@ function isDedicatedReviewTopic(topic: Topic) {
 
 function isIbAnchorSubject(subjectId: Topic["subjectId"]) {
   return IB_ANCHOR_SUBJECT_IDS.includes(subjectId as (typeof IB_ANCHOR_SUBJECT_IDS)[number]);
+}
+
+function isStrictMathsAaHlTopic(topic: Topic) {
+  return (
+    topic.subjectId === "maths-aa-hl" &&
+    topic.sourceMaterials.some((material) => material.label === "Hodder AA HL 2019")
+  );
 }
 
 function getTaskStudyLayer(options: {
@@ -273,6 +281,48 @@ function resolveTopicTimingWindow(
   const roadmapAvailableAt = topic.availableFrom ? fromDateKey(topic.availableFrom) : null;
   let availableAt: Date | null = roadmapAvailableAt;
   let reviewDue = topic.reviewDue;
+
+  if (isStrictMathsAaHlTopic(topic)) {
+    const slFrontierTopic = topicById.get(MATHS_AA_SL_HL_FRONTIER_TOPIC_ID);
+    const slFrontierBlock = latestScheduledBlockByTopic[MATHS_AA_SL_HL_FRONTIER_TOPIC_ID];
+    const slFrontierRequiresCompletion = !!slFrontierTopic;
+    const slFrontierCoveredMinutes =
+      Math.round((slFrontierTopic?.completedHours ?? 0) * 60) +
+      (plannedMinutesByTopic[MATHS_AA_SL_HL_FRONTIER_TOPIC_ID] ?? 0);
+    const slFrontierCompleteFromProgress =
+      slFrontierRequiresCompletion &&
+      !!slFrontierTopic &&
+      slFrontierTopic.completedHours >= slFrontierTopic.estHours - 0.001;
+
+    if (!slFrontierBlock && !slFrontierCompleteFromProgress) {
+      return {
+        blocked: true,
+        availableAt: null,
+        latestAt: null,
+        reviewDue,
+      };
+    }
+
+    if (
+      slFrontierRequiresCompletion &&
+      slFrontierTopic &&
+      slFrontierCoveredMinutes < Math.round(slFrontierTopic.estHours * 60)
+    ) {
+      return {
+        blocked: true,
+        availableAt: null,
+        latestAt: null,
+        reviewDue,
+      };
+    }
+
+    if (slFrontierBlock) {
+      const slFrontierEnd = new Date(slFrontierBlock.end);
+      if (!availableAt || slFrontierEnd.getTime() > availableAt.getTime()) {
+        availableAt = slFrontierEnd;
+      }
+    }
+  }
 
   const stageGateStatus = getOlympiadStageGateStatus({
     topic,
