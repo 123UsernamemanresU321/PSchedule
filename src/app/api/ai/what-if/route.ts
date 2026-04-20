@@ -3,7 +3,7 @@ import { createAiRoute, buildCorsResponse } from "../_shared";
 
 import { aiWhatIfRequestSchema, aiWhatIfResponseSchema } from "../../../../lib/ai/contracts";
 
-export const dynamic = process.env.NEXT_OUTPUT_MODE === "pages" ? "force-static" : "force-dynamic";
+export const dynamic = "force-dynamic";
 
 const handler = createAiRoute({
   method: "POST",

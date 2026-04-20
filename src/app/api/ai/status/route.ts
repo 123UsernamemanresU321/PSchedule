@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { buildCorsResponse } from "../_shared";
 import { buildAiCorsHeaders, resolveAiCorsOrigin } from "../../../../lib/ai/cors";
 
-export const dynamic = process.env.NEXT_OUTPUT_MODE === "pages" ? "force-static" : "force-dynamic";
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const requestOrigin = req.headers.get("origin");

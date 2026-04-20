@@ -5,7 +5,7 @@ import { assertAiRuntimeConfig, issueAiSessionToken, passwordMatches } from "../
 import { aiSessionRequestSchema, aiSessionResponseSchema } from "../../../../lib/ai/contracts";
 import { AiHttpError } from "../_shared";
 
-export const dynamic = process.env.NEXT_OUTPUT_MODE === "pages" ? "force-static" : "force-dynamic";
+export const dynamic = "force-dynamic";
 
 const handler = createAiRoute({
   method: "POST",

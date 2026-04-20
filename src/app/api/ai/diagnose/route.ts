@@ -6,7 +6,7 @@ import { aiDiagnosisRequestSchema, aiDiagnosisResponseSchema } from "../../../..
 import { callDeepSeekJson } from "../../../../lib/ai/deepseek";
 import { buildDiagnosisPrompt } from "../../../../lib/ai/prompts";
 
-export const dynamic = process.env.NEXT_OUTPUT_MODE === "pages" ? "force-static" : "force-dynamic";
+export const dynamic = "force-dynamic";
 
 const handler = createAiRoute({
   method: "POST",

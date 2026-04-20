@@ -6,7 +6,7 @@
   "scripts": {
   "dev": "NEXT_OUTPUT_MODE=dev next dev --webpack",
   "build": "NEXT_OUTPUT_MODE=build next build --webpack",
-  "build:pages": "NEXT_OUTPUT_MODE=pages next build --webpack",
+  "build:pages": "mv src/app/api src/app/_api; NEXT_OUTPUT_MODE=pages next build --webpack; status=$?; mv src/app/_api src/app/api; exit $status",
   "start": "NEXT_OUTPUT_MODE=build next start",
   "lint": "eslint .",
   "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
