@@ -22,6 +22,10 @@ export function AiSettingsCard() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const backendUrl = getAiBackendBaseUrl();
+  const backendLikelyMisrouted =
+    typeof statusError === "string" &&
+    (statusError.includes("returned HTML instead of JSON") ||
+      statusError.includes("non-JSON response"));
 
   useEffect(() => {
     void refreshStatus();
@@ -65,6 +69,11 @@ export function AiSettingsCard() {
                 ? `${status.provider} • fast ${status.fastModel} • review ${status.reviewModel}`
                 : statusError ?? "Waiting for status response"}
             </p>
+            {backendLikelyMisrouted ? (
+              <p className="mt-2 text-sm text-warning">
+                This usually means the frontend URL is pointing at GitHub Pages or the wrong Vercel project instead of the AI backend.
+              </p>
+            ) : null}
           </div>
         </div>
 
