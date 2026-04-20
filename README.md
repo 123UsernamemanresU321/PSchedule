@@ -74,8 +74,21 @@ Vercel setup for the private backend:
 
 1. Import this same repository into Vercel.
 2. Add the private environment variables listed above.
-3. Deploy it normally.
-4. Use the resulting Vercel URL as `NEXT_PUBLIC_AI_BACKEND_URL` in GitHub Actions.
+3. Make sure it is a normal Next.js deployment:
+   - Build Command: blank or `npm run build`
+   - Output Directory: blank
+   - `NEXT_OUTPUT_MODE` must not be set to `pages`
+4. Deploy it normally.
+5. Use the resulting Vercel URL as `NEXT_PUBLIC_AI_BACKEND_URL` in GitHub Actions.
+
+If `https://<your-vercel-backend>/api/ai/status` returns HTML instead of JSON, the Vercel project is still acting like a static site or the URL points at the wrong project. In that case:
+
+- remove any Vercel environment variable `NEXT_OUTPUT_MODE=pages`
+- make sure the project is not using `npm run build:pages`
+- leave Output Directory empty
+- redeploy
+
+For the least ambiguous setup, use a separate Vercel project name for the backend, for example `p-schedule-ai`, instead of reusing a frontend-looking domain.
 
 Local development note:
 

@@ -70,9 +70,28 @@ export function AiSettingsCard() {
                 : statusError ?? "Waiting for status response"}
             </p>
             {backendLikelyMisrouted ? (
-              <p className="mt-2 text-sm text-warning">
-                This usually means the frontend URL is pointing at GitHub Pages or the wrong Vercel project instead of the AI backend.
-              </p>
+              <div className="mt-2 space-y-2 text-sm text-warning">
+                <p>
+                  This usually means the frontend URL is pointing at GitHub Pages or the wrong Vercel project instead of the AI backend.
+                </p>
+                <p className="text-muted-foreground">
+                  For this repo, the backend URL must be a normal Next.js Vercel deployment that serves
+                  <span className="px-1 font-mono text-foreground">/api/ai/*</span>, not a static export.
+                </p>
+                <p className="text-muted-foreground">
+                  Check Vercel project settings:
+                  <span className="px-1 font-mono text-foreground">Build Command</span> should be blank or
+                  <span className="px-1 font-mono text-foreground">npm run build</span>,
+                  <span className="px-1 font-mono text-foreground">Output Directory</span> should be blank,
+                  and <span className="px-1 font-mono text-foreground">NEXT_OUTPUT_MODE</span> must not be set to
+                  <span className="px-1 font-mono text-foreground">pages</span>.
+                </p>
+                <p className="text-muted-foreground">
+                  If you want the least ambiguous setup, use a separate Vercel project for the backend, for example
+                  <span className="px-1 font-mono text-foreground">p-schedule-ai.vercel.app</span>, and point
+                  <span className="px-1 font-mono text-foreground">NEXT_PUBLIC_AI_BACKEND_URL</span> at that URL.
+                </p>
+              </div>
             ) : null}
           </div>
         </div>
