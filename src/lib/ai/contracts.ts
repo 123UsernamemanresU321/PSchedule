@@ -1,25 +1,56 @@
 import { z } from "zod";
 
-import { subjectIds } from "@/lib/constants/planner";
-import { fixedEventSchema, focusedDaySchema, focusedWeekSchema, plannerExportSchema } from "@/lib/types/schemas";
-
 export const aiConfidenceSchema = z.enum(["low", "medium", "high"]);
 export const aiPrioritySchema = z.enum(["high", "medium", "low"]);
 
 export const aiContextSchema = z.record(z.string(), z.unknown());
 
-export const fixedEventDraftSchema = fixedEventSchema.omit({ id: true }).extend({
+const aiSubjectIdSchema = z.enum([
+  "physics-hl",
+  "maths-aa-hl",
+  "chemistry-hl",
+  "olympiad",
+  "cpp-book",
+  "english-a-sl",
+  "french-b-sl",
+  "geography-transition",
+]);
+
+const aiFixedEventRecurrenceSchema = z.enum(["none", "weekly"]);
+const aiFixedEventFlexibilitySchema = z.enum(["fixed", "movable", "optional"]);
+const aiFixedEventCategorySchema = z.enum([
+  "school",
+  "activity",
+  "lesson",
+  "family",
+  "assessment",
+  "recovery",
+  "admin",
+]);
+
+export const fixedEventDraftSchema = z.object({
+  title: z.string(),
+  start: z.string(),
+  end: z.string(),
   isAllDay: z.boolean().optional().default(false),
+  recurrence: aiFixedEventRecurrenceSchema,
+  daysOfWeek: z.array(z.number().min(0).max(6)).optional(),
+  repeatUntil: z.string().optional(),
+  excludedDates: z.array(z.string()).optional(),
+  flexibility: aiFixedEventFlexibilitySchema,
+  category: aiFixedEventCategorySchema,
   notes: z.string().optional().default(""),
 });
 
-export const focusedDayDraftSchema = focusedDaySchema.omit({ id: true }).extend({
-  subjectIds: z.array(z.enum(subjectIds)).min(1),
+export const focusedDayDraftSchema = z.object({
+  date: z.string(),
+  subjectIds: z.array(aiSubjectIdSchema).min(1),
   notes: z.string().optional().default(""),
 });
 
-export const focusedWeekDraftSchema = focusedWeekSchema.omit({ id: true }).extend({
-  subjectIds: z.array(z.enum(subjectIds)).min(1),
+export const focusedWeekDraftSchema = z.object({
+  weekStart: z.string(),
+  subjectIds: z.array(aiSubjectIdSchema).min(1),
   notes: z.string().optional().default(""),
 });
 
@@ -160,7 +191,7 @@ export const aiProposeActionsResponseSchema = z.object({
 
 export const aiWhatIfRequestSchema = z.object({
   scenario: z.string().min(1),
-  snapshot: plannerExportSchema,
+  snapshot: z.unknown(),
   currentWeekStart: z.string().optional(),
 });
 
