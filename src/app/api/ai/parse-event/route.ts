@@ -5,9 +5,8 @@ import { assertAiRuntimeConfig } from "../../../../lib/ai/auth";
 import { aiParseEventRequestSchema, aiParseEventResponseSchema } from "../../../../lib/ai/contracts";
 import { callDeepSeekJson } from "../../../../lib/ai/deepseek";
 import { buildParseEventPrompt } from "../../../../lib/ai/prompts";
-import { aiRouteDynamicConfig } from "../_shared";
 
-export const dynamic = aiRouteDynamicConfig;
+export const dynamic = process.env.NEXT_OUTPUT_MODE === "pages" ? "force-static" : "force-dynamic";
 
 const handler = createAiRoute({
   method: "POST",
