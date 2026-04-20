@@ -14,17 +14,37 @@ function getHeaderValue(value: string | string[] | undefined) {
   return value ?? "";
 }
 
-function resolveAllowedOrigin(requestOrigin: string | null) {
-  if (!requestOrigin) {
+function normalizeOrigin(value: string | null | undefined) {
+  const trimmed = (value ?? "").trim();
+
+  if (!trimmed) {
     return null;
   }
 
-  const configuredOrigin = (process.env.AI_ALLOWED_ORIGIN ?? "").trim();
-  if (LOCAL_DEV_ORIGINS.has(requestOrigin)) {
-    return requestOrigin;
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return trimmed.replace(/\/+$/, "");
+  }
+}
+
+function resolveAllowedOrigin(requestOrigin: string | null) {
+  const normalizedRequestOrigin = normalizeOrigin(requestOrigin);
+
+  if (!normalizedRequestOrigin) {
+    return null;
   }
 
-  return configuredOrigin && configuredOrigin === requestOrigin ? requestOrigin : null;
+  if (LOCAL_DEV_ORIGINS.has(normalizedRequestOrigin)) {
+    return normalizedRequestOrigin;
+  }
+
+  const configuredOrigins = (process.env.AI_ALLOWED_ORIGIN ?? "")
+    .split(/[\s,]+/)
+    .map((value) => normalizeOrigin(value))
+    .filter((value): value is string => !!value);
+
+  return configuredOrigins.includes(normalizedRequestOrigin) ? normalizedRequestOrigin : null;
 }
 
 function sendJson(
