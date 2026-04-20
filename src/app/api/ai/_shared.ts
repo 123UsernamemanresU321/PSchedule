@@ -4,6 +4,9 @@ import { z } from "zod";
 import { buildAiCorsHeaders, resolveAiCorsOrigin } from "../../../lib/ai/cors";
 import { assertAiRuntimeConfig, type AiSessionTokenPayload, verifyAiSessionToken } from "../../../lib/ai/auth";
 
+export const aiRouteDynamicConfig =
+  process.env.NEXT_OUTPUT_MODE === "pages" ? "force-static" : "force-dynamic";
+
 export class AiHttpError extends Error {
   status: number;
 

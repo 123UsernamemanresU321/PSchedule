@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildCorsResponse } from "../_shared";
+import { buildCorsResponse, aiRouteDynamicConfig } from "../_shared";
 import { buildAiCorsHeaders, resolveAiCorsOrigin } from "../../../../lib/ai/cors";
+
+export const dynamic = aiRouteDynamicConfig;
 
 export async function GET(req: NextRequest) {
   const requestOrigin = req.headers.get("origin");

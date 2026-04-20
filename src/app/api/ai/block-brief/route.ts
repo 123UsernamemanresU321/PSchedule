@@ -5,6 +5,9 @@ import { assertAiRuntimeConfig } from "../../../../lib/ai/auth";
 import { aiBlockBriefRequestSchema, aiBlockBriefResponseSchema } from "../../../../lib/ai/contracts";
 import { callDeepSeekJson } from "../../../../lib/ai/deepseek";
 import { buildBlockBriefPrompt } from "../../../../lib/ai/prompts";
+import { aiRouteDynamicConfig } from "../_shared";
+
+export const dynamic = aiRouteDynamicConfig;
 
 const handler = createAiRoute({
   method: "POST",

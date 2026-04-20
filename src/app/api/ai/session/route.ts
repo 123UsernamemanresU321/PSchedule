@@ -3,7 +3,9 @@ import { createAiRoute, buildCorsResponse } from "../_shared";
 
 import { assertAiRuntimeConfig, issueAiSessionToken, passwordMatches } from "../../../../lib/ai/auth";
 import { aiSessionRequestSchema, aiSessionResponseSchema } from "../../../../lib/ai/contracts";
-import { AiHttpError } from "../_shared";
+import { AiHttpError, aiRouteDynamicConfig } from "../_shared";
+
+export const dynamic = aiRouteDynamicConfig;
 
 const handler = createAiRoute({
   method: "POST",

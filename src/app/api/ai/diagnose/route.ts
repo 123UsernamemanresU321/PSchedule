@@ -5,6 +5,9 @@ import { assertAiRuntimeConfig } from "../../../../lib/ai/auth";
 import { aiDiagnosisRequestSchema, aiDiagnosisResponseSchema } from "../../../../lib/ai/contracts";
 import { callDeepSeekJson } from "../../../../lib/ai/deepseek";
 import { buildDiagnosisPrompt } from "../../../../lib/ai/prompts";
+import { aiRouteDynamicConfig } from "../_shared";
+
+export const dynamic = aiRouteDynamicConfig;
 
 const handler = createAiRoute({
   method: "POST",

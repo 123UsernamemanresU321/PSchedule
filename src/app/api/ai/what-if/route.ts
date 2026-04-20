@@ -2,6 +2,9 @@ import { NextRequest } from "next/server";
 import { createAiRoute, buildCorsResponse } from "../_shared";
 
 import { aiWhatIfRequestSchema, aiWhatIfResponseSchema } from "../../../../lib/ai/contracts";
+import { aiRouteDynamicConfig } from "../_shared";
+
+export const dynamic = aiRouteDynamicConfig;
 
 const handler = createAiRoute({
   method: "POST",
