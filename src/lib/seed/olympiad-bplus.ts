@@ -51,10 +51,10 @@ type OlympiadPhase = {
 };
 
 const OLYMPIAD_PHASES: OlympiadPhase[] = [
-  { id: 1, label: "Phase 1 - Reset and foundations", start: "2026-04-06", end: "2026-05-31" },
-  { id: 2, label: "Phase 2 - Half-mock build", start: "2026-06-01", end: "2026-07-26" },
-  { id: 3, label: "Phase 3 - Coverage and SAMO conversion", start: "2026-07-27", end: "2026-09-27" },
-  { id: 4, label: "Phase 4 - Day-1 reliability", start: "2026-09-28", end: "2026-11-29" },
+  { id: 1, label: "Phase 1 - Reset and foundations", start: "2026-04-06", end: "2026-06-30" },
+  { id: 2, label: "Phase 2 - Half-mock build", start: "2026-07-01", end: "2026-08-31" },
+  { id: 3, label: "Phase 3 - Coverage and SAMO conversion", start: "2026-09-01", end: "2026-10-31" },
+  { id: 4, label: "Phase 4 - Day-1 reliability", start: "2026-11-01", end: "2026-11-29" },
   { id: 5, label: "Phase 5 - Camp and assignment season", start: "2026-11-30", end: "2027-02-28" },
   { id: 6, label: "Phase 6 - Selection peak", start: "2027-03-01", end: "2027-04-06" },
 ];
