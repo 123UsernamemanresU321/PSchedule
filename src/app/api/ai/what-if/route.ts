@@ -1,8 +1,9 @@
-import { createAiRoute } from "./_shared";
+import { NextRequest } from "next/server";
+import { createAiRoute, buildCorsResponse } from "../_shared";
 
-import { aiWhatIfRequestSchema, aiWhatIfResponseSchema } from "../../src/lib/ai/contracts";
+import { aiWhatIfRequestSchema, aiWhatIfResponseSchema } from "../../../../lib/ai/contracts";
 
-export default createAiRoute({
+const handler = createAiRoute({
   method: "POST",
   authRequired: true,
   requestSchema: aiWhatIfRequestSchema,
@@ -27,3 +28,9 @@ export default createAiRoute({
     };
   },
 });
+
+export const POST = handler;
+
+export async function OPTIONS(req: NextRequest) {
+  return buildCorsResponse(req);
+}
