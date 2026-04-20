@@ -6,7 +6,6 @@ export interface AiRuntimeConfig {
   apiKey: string;
   accessPassword: string;
   sessionSecret: string;
-  allowedOrigin: string;
   fastModel: string;
   reviewModel: string;
 }
@@ -34,7 +33,6 @@ function readEnv() {
     apiKey: (process.env.DEEPSEEK_API_KEY ?? "").trim(),
     accessPassword: (process.env.AI_ACCESS_PASSWORD ?? "").trim(),
     sessionSecret: (process.env.AI_SESSION_SECRET ?? "").trim(),
-    allowedOrigin: (process.env.AI_ALLOWED_ORIGIN ?? "").trim(),
     fastModel: (process.env.DEEPSEEK_MODEL_FAST ?? "deepseek-chat").trim(),
     reviewModel: (process.env.DEEPSEEK_MODEL_REVIEW ?? "deepseek-reasoner").trim(),
   };
@@ -47,11 +45,10 @@ export function getAiRuntimeConfigState() {
     configured:
       !!env.apiKey &&
       !!env.accessPassword &&
-      !!env.sessionSecret &&
-      !!env.allowedOrigin,
+      !!env.sessionSecret,
     fastModel: env.fastModel,
     reviewModel: env.reviewModel,
-    allowedOrigin: env.allowedOrigin || null,
+    allowedOrigin: null,
   };
 }
 
@@ -70,15 +67,10 @@ export function assertAiRuntimeConfig(): AiRuntimeConfig {
     throw new Error("AI_SESSION_SECRET is not configured.");
   }
 
-  if (!env.allowedOrigin) {
-    throw new Error("AI_ALLOWED_ORIGIN is not configured.");
-  }
-
   return {
     apiKey: env.apiKey,
     accessPassword: env.accessPassword,
     sessionSecret: env.sessionSecret,
-    allowedOrigin: env.allowedOrigin,
     fastModel: env.fastModel,
     reviewModel: env.reviewModel,
   };

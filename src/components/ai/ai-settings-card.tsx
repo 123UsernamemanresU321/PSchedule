@@ -104,8 +104,7 @@ export function AiSettingsCard() {
               <p>
                 Put <span className="font-mono text-foreground">DEEPSEEK_API_KEY</span>,{" "}
                 <span className="font-mono text-foreground">AI_ACCESS_PASSWORD</span>,{" "}
-                <span className="font-mono text-foreground">AI_SESSION_SECRET</span>, and{" "}
-                <span className="font-mono text-foreground">AI_ALLOWED_ORIGIN</span> in Vercel project environment variables.
+                and <span className="font-mono text-foreground">AI_SESSION_SECRET</span> in Vercel project environment variables.
               </p>
               <p>
                 Put only <span className="font-mono text-foreground">NEXT_PUBLIC_AI_BACKEND_URL</span> into the GitHub Pages build environment.

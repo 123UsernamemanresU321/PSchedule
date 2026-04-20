@@ -120,11 +120,6 @@ export function createAiRoute<TRequest, TResponse>(options: {
       return;
     }
 
-    if (requestOrigin && !allowedOrigin) {
-      sendJson(res, 403, { error: "Origin not allowed." }, corsHeaders);
-      return;
-    }
-
     if (req.method !== options.method) {
       sendJson(res, 405, { error: "Method not allowed." }, corsHeaders);
       return;

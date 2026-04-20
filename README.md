@@ -49,7 +49,6 @@ Put the environment variables here:
   - `DEEPSEEK_API_KEY`
   - `AI_ACCESS_PASSWORD`
   - `AI_SESSION_SECRET`
-  - `AI_ALLOWED_ORIGIN=https://<your-pages-domain>`
   - `DEEPSEEK_MODEL_FAST=deepseek-chat`
   - `DEEPSEEK_MODEL_REVIEW=deepseek-reasoner`
 - Local `.env.local` for backend development:

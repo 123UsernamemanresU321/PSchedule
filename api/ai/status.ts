@@ -15,7 +15,7 @@ function getHeaderValue(value: string | string[] | undefined) {
 }
 
 function normalizeOrigin(value: string | null | undefined) {
-  const trimmed = (value ?? "").trim();
+  const trimmed = (value ?? "").trim().replace(/^['"]|['"]$/g, "");
 
   if (!trimmed) {
     return null;
@@ -39,12 +39,7 @@ function resolveAllowedOrigin(requestOrigin: string | null) {
     return normalizedRequestOrigin;
   }
 
-  const configuredOrigins = (process.env.AI_ALLOWED_ORIGIN ?? "")
-    .split(/[\s,]+/)
-    .map((value) => normalizeOrigin(value))
-    .filter((value): value is string => !!value);
-
-  return configuredOrigins.includes(normalizedRequestOrigin) ? normalizedRequestOrigin : null;
+  return normalizedRequestOrigin;
 }
 
 function sendJson(
@@ -84,11 +79,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  if (requestOrigin && !allowedOrigin) {
-    sendJson(res, 403, { error: "Origin not allowed." }, null);
-    return;
-  }
-
   if (req.method !== "GET") {
     sendJson(res, 405, { error: "Method not allowed." }, allowedOrigin);
     return;
@@ -102,8 +92,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       configured:
         !!(process.env.DEEPSEEK_API_KEY ?? "").trim() &&
         !!(process.env.AI_ACCESS_PASSWORD ?? "").trim() &&
-        !!(process.env.AI_SESSION_SECRET ?? "").trim() &&
-        !!(process.env.AI_ALLOWED_ORIGIN ?? "").trim(),
+        !!(process.env.AI_SESSION_SECRET ?? "").trim(),
       provider: "deepseek",
       backendUrl: null,
       fastModel: (process.env.DEEPSEEK_MODEL_FAST ?? "deepseek-chat").trim(),

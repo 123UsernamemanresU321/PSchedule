@@ -1,7 +1,7 @@
 const LOCAL_DEV_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"];
 
 function normalizeOrigin(value: string | null | undefined) {
-  const trimmed = (value ?? "").trim();
+  const trimmed = (value ?? "").trim().replace(/^['"]|['"]$/g, "");
 
   if (!trimmed) {
     return null;
@@ -14,13 +14,6 @@ function normalizeOrigin(value: string | null | undefined) {
   }
 }
 
-function getConfiguredAllowedOrigins() {
-  return (process.env.AI_ALLOWED_ORIGIN ?? "")
-    .split(/[\s,]+/)
-    .map((value) => normalizeOrigin(value))
-    .filter((value): value is string => !!value);
-}
-
 export function resolveAiCorsOrigin(origin: string | null | undefined) {
   const normalizedRequestOrigin = normalizeOrigin(origin);
 
@@ -28,13 +21,12 @@ export function resolveAiCorsOrigin(origin: string | null | undefined) {
     return null;
   }
 
-  const allowedOrigins = new Set(LOCAL_DEV_ORIGINS.map((value) => normalizeOrigin(value) ?? value));
-
-  for (const configuredOrigin of getConfiguredAllowedOrigins()) {
-    allowedOrigins.add(configuredOrigin);
+  const localOriginSet = new Set(LOCAL_DEV_ORIGINS.map((value) => normalizeOrigin(value) ?? value));
+  if (localOriginSet.has(normalizedRequestOrigin)) {
+    return normalizedRequestOrigin;
   }
 
-  return allowedOrigins.has(normalizedRequestOrigin) ? normalizedRequestOrigin : null;
+  return normalizedRequestOrigin;
 }
 
 export function buildAiCorsHeaders(origin: string | null | undefined) {
