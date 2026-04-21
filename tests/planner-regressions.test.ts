@@ -285,6 +285,111 @@ test("dedicated past-paper review topics do not spawn extra review-of-review can
   assert.equal(candidates.length, 0);
 });
 
+test("untouched IB anchor topics do not spawn correction or review work", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
+  const topic = dataset.topics.find((entry) => entry.id === "physics-a1-kinematics");
+
+  assert.ok(topic, "expected seeded IB anchor topic");
+
+  const candidates = buildTaskCandidates({
+    topics: [topic as Topic],
+    existingPlannedBlocks: [],
+    completionLogs: [],
+    referenceDate: new Date("2026-03-14T08:00:00"),
+    subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+  });
+
+  assert.ok(candidates.some((candidate) => candidate.studyLayer === "learning"));
+  assert.ok(candidates.some((candidate) => candidate.studyLayer === "application"));
+  assert.ok(!candidates.some((candidate) => candidate.studyLayer === "correction"));
+  assert.ok(!candidates.some((candidate) => candidate.kind === "review"));
+});
+
+test("planned or missed IB topic blocks do not count as study history for correction work", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
+  const topic = dataset.topics.find((entry) => entry.id === "physics-a1-kinematics");
+
+  assert.ok(topic, "expected seeded IB anchor topic");
+
+  const plannedBlock = createStudyBlock({
+    id: "physics-planned-only",
+    subjectId: "physics-hl",
+    topicId: topic.id,
+    title: topic.title,
+    estimatedMinutes: 30,
+    status: "planned",
+  });
+  const missedBlock = createStudyBlock({
+    id: "physics-missed-only",
+    subjectId: "physics-hl",
+    topicId: topic.id,
+    title: topic.title,
+    estimatedMinutes: 60,
+    status: "missed",
+  });
+
+  const plannedCandidates = buildTaskCandidates({
+    topics: [topic as Topic],
+    existingPlannedBlocks: [plannedBlock],
+    completionLogs: [],
+    referenceDate: new Date("2026-03-14T08:00:00"),
+    subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+  });
+  const missedCandidates = buildTaskCandidates({
+    topics: [topic as Topic],
+    existingPlannedBlocks: [missedBlock],
+    completionLogs: [
+      {
+        id: "physics-missed-log",
+        studyBlockId: missedBlock.id,
+        outcome: "missed",
+        actualMinutes: 0,
+        perceivedDifficulty: 3,
+        notes: "",
+        recordedAt: "2026-03-14T10:00:00.000Z",
+      },
+    ],
+    referenceDate: new Date("2026-03-14T08:00:00"),
+    subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+  });
+
+  assert.ok(!plannedCandidates.some((candidate) => candidate.studyLayer === "correction"));
+  assert.ok(!plannedCandidates.some((candidate) => candidate.kind === "review"));
+  assert.ok(!missedCandidates.some((candidate) => candidate.studyLayer === "correction"));
+  assert.ok(!missedCandidates.some((candidate) => candidate.kind === "review"));
+});
+
+test("IB correction work unlocks only after a topic has real study history", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
+  const topic = dataset.topics.find((entry) => entry.id === "physics-a1-kinematics");
+
+  assert.ok(topic, "expected seeded IB anchor topic");
+
+  const startedTopic = {
+    ...topic,
+    completedHours: 1,
+    status: "learning" as const,
+    lastStudiedAt: "2026-03-13T08:00:00.000Z",
+  };
+
+  const candidates = buildTaskCandidates({
+    topics: [startedTopic as Topic],
+    existingPlannedBlocks: [],
+    completionLogs: [],
+    referenceDate: new Date("2026-03-14T08:00:00"),
+    subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+  });
+
+  assert.ok(
+    candidates.some(
+      (candidate) =>
+        candidate.topicId === topic.id &&
+        candidate.studyLayer === "correction" &&
+        candidate.title === `Correction and error log: ${topic.title}`,
+    ),
+  );
+});
+
 test("maths topics stay hard-gated in seeded order", () => {
   const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
   const hlBookTopic = dataset.topics.find(
@@ -674,7 +779,7 @@ test("calendar completion forecast treats blocks on the deadline day as on-track
   assert.equal(forecast.completionDate?.toISOString(), "2026-03-20T18:00:00.000Z");
 });
 
-test("seeded first-pass school milestones move to August 14 while olympiad and C++ stay unchanged", () => {
+test("seeded first-pass school milestones move to August 14, Olympiad phase 1 moves to July 31, and C++ stays unchanged", () => {
   const dataset = buildSeedDataset(new Date("2026-04-18T08:00:00"));
   const physicsGoal = dataset.goals.find((goal) => goal.id === "goal-physics-hl");
   const mathsGoal = dataset.goals.find((goal) => goal.id === "goal-maths-aa-hl");
@@ -685,7 +790,7 @@ test("seeded first-pass school milestones move to August 14 while olympiad and C
   assert.equal(physicsGoal?.deadline, "2026-08-14");
   assert.equal(mathsGoal?.deadline, "2026-08-14");
   assert.equal(chemistryGoal?.deadline, "2026-08-14");
-  assert.equal(olympiadGoal?.deadline, "2026-06-30");
+  assert.equal(olympiadGoal?.deadline, "2026-07-31");
   assert.equal(cppGoal?.deadline, "2027-06-30");
 });
 
@@ -6164,20 +6269,20 @@ test("olympiad B+ goals are scoped to phase topics instead of the full Olympiad 
   const dataset = buildSeedDataset(new Date("2026-04-07T08:00:00"));
   const olympiadGoals = dataset.goals.filter((goal) => goal.subjectId === "olympiad");
   const olympiadTopics = dataset.topics.filter((topic) => topic.subjectId === "olympiad");
-  const juneGoal = olympiadGoals.find((goal) => goal.id === "goal-olympiad-phase-1");
+  const phaseOneGoal = olympiadGoals.find((goal) => goal.id === "goal-olympiad-phase-1");
   const septemberGoal = olympiadGoals.find((goal) => goal.id === "goal-olympiad-phase-2");
 
   assert.equal(olympiadGoals.length, 4);
-  assert.ok(juneGoal?.topicIds?.length);
+  assert.ok(phaseOneGoal?.topicIds?.length);
   assert.ok(septemberGoal?.topicIds?.length);
-  assert.ok((juneGoal?.topicIds?.length ?? 0) < olympiadTopics.length);
-  assert.ok((septemberGoal?.topicIds?.length ?? 0) > (juneGoal?.topicIds?.length ?? 0));
+  assert.ok((phaseOneGoal?.topicIds?.length ?? 0) < olympiadTopics.length);
+  assert.ok((septemberGoal?.topicIds?.length ?? 0) > (phaseOneGoal?.topicIds?.length ?? 0));
 
   const lateTopic = olympiadTopics.find(
-    (topic) => topic.availableFrom && topic.availableFrom > "2026-06-30",
+    (topic) => topic.availableFrom && topic.availableFrom > "2026-07-31",
   );
   assert.ok(lateTopic);
-  assert.equal(juneGoal?.topicIds?.includes(lateTopic!.id), false);
+  assert.equal(phaseOneGoal?.topicIds?.includes(lateTopic!.id), false);
 });
 
 test("final Olympiad phase goal covers the full seeded Olympiad roadmap", () => {

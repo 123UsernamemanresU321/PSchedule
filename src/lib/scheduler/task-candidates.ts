@@ -121,6 +121,7 @@ function getTaskStudyLayer(options: {
 function buildIbTopicVariantCandidates(options: {
   topic: Topic;
   rawRemainingMinutes: number;
+  hasStudyHistory: boolean;
   timingWindow: {
     availableAt: Date | null;
     latestAt: string | null;
@@ -165,7 +166,7 @@ function buildIbTopicVariantCandidates(options: {
     "id" | "title" | "sessionSummary" | "preferredBlockTypes" | "intensity" | "kind" | "studyLayer"
   >;
 
-  return [
+  const candidates: TaskCandidate[] = [
     {
       ...baseCandidate,
       id: options.topic.id,
@@ -193,7 +194,10 @@ function buildIbTopicVariantCandidates(options: {
       kind: "topic" as const,
       studyLayer: "application" as const,
     },
-    {
+  ];
+
+  if (options.hasStudyHistory) {
+    candidates.push({
       ...baseCandidate,
       id: `${options.topic.id}::correction`,
       title: `Correction and error log: ${options.topic.title}`,
@@ -203,8 +207,10 @@ function buildIbTopicVariantCandidates(options: {
       intensity: "light" as const,
       kind: "review" as const,
       studyLayer: "correction" as const,
-    },
-  ] satisfies TaskCandidate[];
+    });
+  }
+
+  return candidates;
 }
 
 function createReviewCandidate(
@@ -267,6 +273,50 @@ function getLatestScheduledBlockByTopic(existingPlannedBlocks: StudyBlock[]) {
 
     return accumulator;
   }, {});
+}
+
+function getTopicIdsWithStudyHistory(
+  topics: Topic[],
+  existingPlannedBlocks: StudyBlock[],
+  completionLogs: CompletionLog[],
+) {
+  const topicIdsWithStudyHistory = new Set<string>();
+  const topicIdByBlockId = new Map<string, string>();
+
+  topics.forEach((topic) => {
+    if (
+      topic.completedHours > 0.001 ||
+      topic.status !== "not_started" ||
+      !!topic.lastStudiedAt
+    ) {
+      topicIdsWithStudyHistory.add(topic.id);
+    }
+  });
+
+  existingPlannedBlocks.forEach((block) => {
+    if (!block.topicId) {
+      return;
+    }
+
+    topicIdByBlockId.set(block.id, block.topicId);
+
+    if (block.status === "done" || block.status === "partial") {
+      topicIdsWithStudyHistory.add(block.topicId);
+    }
+  });
+
+  completionLogs.forEach((log) => {
+    if (log.outcome !== "done" && log.outcome !== "partial") {
+      return;
+    }
+
+    const topicId = topicIdByBlockId.get(log.studyBlockId);
+    if (topicId) {
+      topicIdsWithStudyHistory.add(topicId);
+    }
+  });
+
+  return topicIdsWithStudyHistory;
 }
 
 function resolveTopicTimingWindow(
@@ -466,6 +516,11 @@ export function buildTaskCandidates(options: {
   const weekEnd = addDays(endOfPlannerWeek(referenceDate), 3);
   const latestScheduledBlockByTopic = getLatestScheduledBlockByTopic(existingPlannedBlocks);
   const topicById = new Map(topics.map((topic) => [topic.id, topic]));
+  const topicIdsWithStudyHistory = getTopicIdsWithStudyHistory(
+    topics,
+    existingPlannedBlocks,
+    completionLogs,
+  );
   const plannedMinutesByTopic = existingPlannedBlocks.reduce<Record<string, number>>(
     (accumulator, block) => {
       if (!block.topicId || !["planned", "rescheduled", "done", "partial"].includes(block.status)) {
@@ -564,7 +619,9 @@ export function buildTaskCandidates(options: {
       Math.round((topic.estHours - topic.completedHours) * 60) - plannedMinutes,
       0,
     );
+    const hasStudyHistory = topicIdsWithStudyHistory.has(topic.id);
     const shouldSpawnReview =
+      hasStudyHistory &&
       !isDedicatedReviewTopic(topic) &&
       (existingReviewMinutesByTopic[topic.id] ?? 0) < 45 &&
       !!timingWindow.reviewDue &&
@@ -579,6 +636,7 @@ export function buildTaskCandidates(options: {
           ...buildIbTopicVariantCandidates({
             topic,
             rawRemainingMinutes,
+            hasStudyHistory,
             timingWindow,
             blockedByEarlierTopics: blockedByEarlierTopicsById[topic.id] ?? 0,
             subjectDeadlinesById,
