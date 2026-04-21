@@ -16,7 +16,7 @@ import { hasLegacySeedTopics } from "@/lib/seed/topic-catalog";
 import { db } from "@/lib/storage/db";
 import { parsePlannerJson } from "@/lib/storage/json-transfer";
 import { normalizeTopicProgress } from "@/lib/topics/status";
-import { hardScopeSubjectIds, subjectIds } from "@/lib/constants/planner";
+import { subjectIds, zeroUnscheduledCoverageSubjectIds } from "@/lib/constants/planner";
 import { detectFutureFillableGap, getSubjectProgress } from "@/lib/analytics/metrics";
 import { createId } from "@/lib/utils";
 import type {
@@ -32,13 +32,13 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-04-19-replan-fast-path-v52";
+const PLANNING_MODEL_VERSION = "2026-04-21-zero-core-coverage-v53";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-08-olympiad-bplus-roadmap-v11";
 const PREFERENCE_DEFAULTS_VERSION = "2026-04-13-priority-homework-defaults-v2";
 const EXTENDED_GOALS_VERSION = "2026-03-19-post-syllabus-papers-v8";
-const LANGUAGE_MAINTENANCE_VERSION = "2026-03-19-languages-v1";
+const LANGUAGE_MAINTENANCE_VERSION = "2026-04-21-languages-v2";
 const SEED_TOPIC_ORDERING_VERSION = "2026-04-13-maths-book-order-v4";
 const LEGACY_OLYMPIAD_DEFAULT_PRIORITY = 0.85;
 const LEGACY_CPP_BOOK_DEFAULT_PRIORITY = 0.45;
@@ -666,23 +666,25 @@ export function getCollapsedCoverageRepairState(
       );
       const futureTopicBlocks = futureBlocks.filter((block) => !!block.topicId);
       const scheduledCoverageRatio =
-        progress.scheduledFutureHours / Math.max(progress.remainingHours, 0.1);
+        progress.scheduledFutureMinutes / Math.max(progress.remainingMinutes, 1);
       const futureTopicHours =
-        futureTopicBlocks.reduce((total, block) => total + block.estimatedMinutes, 0) / 60;
-      const topicCoverageRatio = futureTopicHours / Math.max(progress.remainingHours, 0.1);
+        futureTopicBlocks.reduce((total, block) => total + block.estimatedMinutes, 0);
+      const topicCoverageRatio = futureTopicHours / Math.max(progress.remainingMinutes, 1);
+      const isCoreCoverageSubject = zeroUnscheduledCoverageSubjectIds.includes(
+        subject.id as (typeof zeroUnscheduledCoverageSubjectIds)[number],
+      );
       const hasMeaningfulUnscheduledWork =
-        progress.remainingHours > 0.25 && progress.unscheduledHours > 0.25;
+        progress.remainingMinutes > 0 && progress.unscheduledMinutes > 0;
       const hasStrictIncompleteCoverage =
-        hardScopeSubjectIds.includes(subject.id as (typeof hardScopeSubjectIds)[number]) &&
-        progress.remainingHours > 0.25 &&
-        progress.unscheduledHours > 0.25;
+        isCoreCoverageSubject &&
+        progress.unscheduledMinutes > 0;
       const hasNearZeroCoverage =
-        progress.remainingHours > 1 &&
-        progress.unscheduledHours > Math.max(1, progress.remainingHours - 1) &&
-        (progress.scheduledFutureHours < 0.5 || futureTopicBlocks.length === 0);
+        progress.remainingMinutes > 60 &&
+        progress.unscheduledMinutes > Math.max(60, progress.remainingMinutes - 60) &&
+        (progress.scheduledFutureMinutes < 30 || futureTopicBlocks.length === 0);
       const hasCollapsedPartialCoverage =
-        progress.remainingHours > 2 &&
-        progress.unscheduledHours > 0.25 &&
+        progress.remainingMinutes > 120 &&
+        progress.unscheduledMinutes > 0 &&
         (
           scheduledCoverageRatio < MIN_HEALTHY_SCHEDULED_COVERAGE_RATIO ||
           topicCoverageRatio < MIN_HEALTHY_SCHEDULED_COVERAGE_RATIO
@@ -697,9 +699,12 @@ export function getCollapsedCoverageRepairState(
         topicCoverageRatio,
         hasStrictIncompleteCoverage,
         isCollapsed:
-          hasStrictIncompleteCoverage ||
-          (hasMeaningfulUnscheduledWork &&
-            (hasNearZeroCoverage || hasCollapsedPartialCoverage)),
+          isCoreCoverageSubject &&
+          (
+            hasStrictIncompleteCoverage ||
+            (hasMeaningfulUnscheduledWork &&
+              (hasNearZeroCoverage || hasCollapsedPartialCoverage))
+          ),
       };
     });
   const collapsedSubjectIds = states
@@ -718,7 +723,7 @@ export function getCollapsedCoverageRepairState(
     completionLogs: snapshot.completionLogs,
     preferences: snapshot.preferences,
     referenceDate,
-    subjectIds: [...hardScopeSubjectIds],
+    subjectIds: [...zeroUnscheduledCoverageSubjectIds],
   });
 
   return {

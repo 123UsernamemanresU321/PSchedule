@@ -1,6 +1,10 @@
 import { addDays, addMinutes, getISOWeek, isAfter } from "date-fns";
 
-import { hardScopeSubjectIds, subjectIds } from "@/lib/constants/planner";
+import {
+  softMaintenanceSubjectIds,
+  subjectIds,
+  zeroUnscheduledCoverageSubjectIds,
+} from "@/lib/constants/planner";
 import {
   buildUnconfiguredWeeklyPlan,
   buildWeeklyPlan,
@@ -76,7 +80,10 @@ const CORE_IB_FILL_SUBJECT_ORDER: Subject["id"][] = [
 ];
 
 const HARD_SCOPE_PRIORITY_BY_SUBJECT = Object.fromEntries(
-  hardScopeSubjectIds.map((subjectId, index) => [subjectId, hardScopeSubjectIds.length - index]),
+  zeroUnscheduledCoverageSubjectIds.map((subjectId, index) => [
+    subjectId,
+    zeroUnscheduledCoverageSubjectIds.length - index,
+  ]),
 ) as Record<string, number>;
 
 function getSoftCommitmentFallbackTier(ruleId: string) {
@@ -1776,11 +1783,16 @@ function allocateTasksToSlots(options: {
 
     adjustment += backlogHours * 1.5;
 
-    if (task.subjectId === "french-b-sl") {
+    if (softMaintenanceSubjectIds.includes(task.subjectId as (typeof softMaintenanceSubjectIds)[number])) {
       adjustment -= 4;
     }
 
-    if (task.subjectId !== "french-b-sl" && dailyAssignedMinutes < 60) {
+    if (
+      !softMaintenanceSubjectIds.includes(
+        task.subjectId as (typeof softMaintenanceSubjectIds)[number],
+      ) &&
+      dailyAssignedMinutes < 60
+    ) {
       adjustment += 3;
     }
 
@@ -3099,7 +3111,7 @@ export function generateStudyPlanForWeek(options: {
   });
 
   if (shouldFillAvailableStudyDays) {
-    for (let cleanupPass = 0; cleanupPass < 2; cleanupPass += 1) {
+    for (let cleanupPass = 0; cleanupPass < 8; cleanupPass += 1) {
       const hasFillableGap = finalFreeSlots.some((slot) => slot.durationMinutes >= MIN_ALLOCATABLE_MINUTES);
 
       if (!hasFillableGap) {
@@ -3185,8 +3197,10 @@ export function generateStudyPlanForWeek(options: {
     finalTasks.some(
       (task) =>
         !!task.subjectId &&
-        hardScopeSubjectIds.includes(task.subjectId as (typeof hardScopeSubjectIds)[number]) &&
-        task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
+        zeroUnscheduledCoverageSubjectIds.includes(
+          task.subjectId as (typeof zeroUnscheduledCoverageSubjectIds)[number],
+        ) &&
+        task.remainingMinutes > 0,
     )
       ? Array.from(new Set(finalFreeSlots.map((slot) => slot.dateKey))).sort((left, right) =>
           left.localeCompare(right),
@@ -3315,7 +3329,21 @@ export function generateStudyPlanHorizon(options: {
   );
 
   const countRemainingAllocatableTasks = (tasks: TaskCandidate[]) =>
-    tasks.filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES).length;
+    tasks.filter((task) => {
+      if (!task.subjectId) {
+        return task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES;
+      }
+
+      if (
+        zeroUnscheduledCoverageSubjectIds.includes(
+          task.subjectId as (typeof zeroUnscheduledCoverageSubjectIds)[number],
+        )
+      ) {
+        return task.remainingMinutes > 0;
+      }
+
+      return task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES;
+    }).length;
   const horizonStudyBlocks: StudyBlock[] = [];
   const weeklyPlans: WeeklyPlan[] = [];
   const accumulatedBlocks: StudyBlock[] = [];

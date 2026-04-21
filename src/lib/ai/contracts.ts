@@ -204,6 +204,8 @@ export const aiWhatIfImpactSchema = z.object({
   afterCompletionDate: z.string().nullable(),
   beforeUnscheduledHours: z.number(),
   afterUnscheduledHours: z.number(),
+  beforeUnscheduledMinutes: z.number(),
+  afterUnscheduledMinutes: z.number(),
 });
 
 export const aiWhatIfResponseSchema = z.object({

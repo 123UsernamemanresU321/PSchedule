@@ -56,51 +56,62 @@ const rotatingPaperCycleWeeks = buildRotatingPaperCycleWeeks();
 
 function buildFrenchMaintenanceBlueprints(): SeedTopicBlueprint[] {
   const sessions: SeedTopicBlueprint[] = [];
-  let cursor = new Date("2026-03-23T00:00:00");
+  let weekCursor = new Date("2026-03-23T00:00:00");
   const end = new Date("2027-06-29T00:00:00");
   let index = 1;
 
-  while (cursor.getTime() <= end.getTime()) {
-    const isGrammarSession = index % 2 === 1;
-    sessions.push({
-      id: `french-maintenance-${String(index).padStart(2, "0")}`,
-      subjectId: "french-b-sl",
-      unitId: "french-maintenance",
-      unitTitle: "French maintenance",
-      title: isGrammarSession
-        ? `French grammar tune-up ${index}`
-        : `French vocabulary tune-up ${index}`,
-      subtopics: isGrammarSession
-        ? [
-            "Review one focused grammar point that keeps causing errors.",
-            "Write 6-8 clean example sentences using the structure correctly.",
-            "Finish with a short correction drill.",
-          ]
-        : [
-            "Review a small high-frequency vocab set from current class material.",
-            "Use the new words in short phrases or sentences.",
-            "Do a quick recall pass without notes.",
-          ],
-      availableFrom: cursor.toISOString().slice(0, 10),
-      estHours: 1,
-      difficulty: 2,
-      preferredBlockTypes: ["drill", "review"],
-      sourceMaterials: [
-        guide(
-          "Language B Guide 2020",
-          "Keep French active through light grammar and vocabulary maintenance rather than full theme study.",
-        ),
-        notes(
-          isGrammarSession ? "Grammar tune-up" : "Vocabulary tune-up",
-          isGrammarSession
-            ? "Use current error patterns from written work to choose the grammar point."
-            : "Use current class vocabulary and spaced recall, not broad theme revision.",
-        ),
-      ],
+  while (weekCursor.getTime() <= end.getTime()) {
+    [
+      { dayOffset: 0, isGrammarSession: true },
+      { dayOffset: 3, isGrammarSession: false },
+    ].forEach(({ dayOffset, isGrammarSession }) => {
+      const cursor = new Date(weekCursor.getTime() + dayOffset * 24 * 60 * 60 * 1000);
+
+      if (cursor.getTime() > end.getTime()) {
+        return;
+      }
+
+      sessions.push({
+        id: `french-maintenance-${String(index).padStart(3, "0")}`,
+        subjectId: "french-b-sl",
+        unitId: "french-maintenance",
+        unitTitle: "French maintenance",
+        title: isGrammarSession
+          ? `French grammar tune-up ${index}`
+          : `French vocabulary tune-up ${index}`,
+        subtopics: isGrammarSession
+          ? [
+              "Review one focused grammar point that keeps causing errors.",
+              "Write 4-6 clean example sentences using the structure correctly.",
+              "Finish with a short correction drill.",
+            ]
+          : [
+              "Review a small high-frequency vocab set from current class material.",
+              "Use the new words in short phrases or sentences.",
+              "Do a quick recall pass without notes.",
+            ],
+        availableFrom: cursor.toISOString().slice(0, 10),
+        estHours: 0.5,
+        difficulty: 2,
+        preferredBlockTypes: ["drill", "review"],
+        sourceMaterials: [
+          guide(
+            "Language B Guide 2020",
+            "Keep French active through light grammar and vocabulary maintenance rather than full theme study.",
+          ),
+          notes(
+            isGrammarSession ? "Grammar tune-up" : "Vocabulary tune-up",
+            isGrammarSession
+              ? "Use current error patterns from written work to choose the grammar point."
+              : "Use current class vocabulary and spaced recall, not broad theme revision.",
+          ),
+        ],
+      });
+
+      index += 1;
     });
 
-    cursor = new Date(cursor.getTime() + 14 * 24 * 60 * 60 * 1000);
-    index += 1;
+    weekCursor = new Date(weekCursor.getTime() + 7 * 24 * 60 * 60 * 1000);
   }
 
   return sessions;

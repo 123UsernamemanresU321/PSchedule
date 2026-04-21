@@ -949,7 +949,12 @@ test("clean full-horizon seed keeps every hard-scope subject fully scheduled", (
     .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
     .forEach((subject) => {
       const progress = getSubjectProgress(subject, dataset.topics, result.studyBlocks, referenceDate);
-      if (progress.remainingHours > 0.25) {
+      if (progress.remainingMinutes > 0) {
+        assert.equal(
+          progress.unscheduledMinutes,
+          0,
+          `expected ${subject.id} to keep zero raw unscheduled minutes on a clean horizon`,
+        );
         assert.equal(
           progress.unscheduledHours,
           0,
@@ -986,8 +991,96 @@ test("subject progress reports real sub-30-minute unscheduled work instead of ma
 
   const progress = getSubjectProgress(subject, [topic], [], new Date("2026-04-18T08:00:00"));
 
+  assert.equal(progress.unscheduledMinutes, 12);
   assert.equal(progress.scheduledFutureHours, 0);
   assert.equal(progress.unscheduledHours, 0.2);
+});
+
+test("subject progress never displays 0.0h unscheduled while positive core minutes remain", () => {
+  const subject = buildSeedDataset(new Date("2026-04-18T08:00:00"))
+    .subjects.find((candidate) => candidate.id === "physics-hl");
+
+  assert.ok(subject, "expected physics subject");
+
+  const topic: Topic = {
+    id: "physics-one-minute-gap",
+    subjectId: "physics-hl",
+    unitId: "physics-unit-one-minute-gap",
+    unitTitle: "Physics tiny residual",
+    title: "One minute residual",
+    subtopics: ["Residual"],
+    estHours: 1,
+    completedHours: 59 / 60,
+    difficulty: 2,
+    status: "learning",
+    mastery: 2,
+    reviewDue: null,
+    lastStudiedAt: null,
+    sourceMaterials: [],
+    preferredBlockTypes: ["review"],
+    order: 1,
+  };
+
+  const progress = getSubjectProgress(subject, [topic], [], new Date("2026-04-18T08:00:00"));
+
+  assert.equal(progress.unscheduledMinutes, 1);
+  assert.equal(progress.unscheduledHours, 0.1);
+});
+
+test("collapsed coverage repair treats any positive core unscheduled minutes as a hard failure", () => {
+  const referenceDate = new Date("2026-04-18T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const physicsSubject = dataset.subjects.find((subject) => subject.id === "physics-hl");
+
+  assert.ok(physicsSubject, "expected physics subject");
+
+  const tinyGapTopic: Topic = {
+    id: "physics-tiny-gap-repair",
+    subjectId: "physics-hl",
+    unitId: "physics-unit-tiny-gap-repair",
+    unitTitle: "Physics tiny repair",
+    title: "Tiny repair gap",
+    subtopics: ["Residual"],
+    estHours: 1,
+    completedHours: 59 / 60,
+    difficulty: 2,
+    status: "learning",
+    mastery: 2,
+    reviewDue: null,
+    lastStudiedAt: null,
+    sourceMaterials: [],
+    preferredBlockTypes: ["review"],
+    order: 1,
+  };
+
+  const repairState = getCollapsedCoverageRepairState(
+    {
+      goals: [
+        {
+          id: "goal-physics-tiny-gap",
+          title: "Finish the tiny physics gap",
+          subjectId: "physics-hl",
+          deadline: "2026-06-30",
+          targetCompletion: 1,
+          priorityWeight: 1,
+        },
+      ],
+      subjects: [physicsSubject],
+      topics: [tinyGapTopic],
+      fixedEvents: [],
+      sickDays: [],
+      focusedDays: [],
+      focusedWeeks: [],
+      studyBlocks: [],
+      completionLogs: [],
+      weeklyPlans: [createWeeklyPlan({ weekStart: "2026-04-13" })],
+      preferences: dataset.preferences,
+    },
+    referenceDate,
+  );
+
+  assert.equal(repairState.hasHardConstraintCoverageFailure, true);
+  assert.ok(repairState.hardConstraintSubjectIds.includes("physics-hl"));
 });
 
 test("micro gaps before hard boundaries are absorbed into adjacent flexible study blocks", () => {
@@ -6063,9 +6156,13 @@ test("english is no longer auto-seeded for study and french is only light gramma
   const dataset = buildSeedDataset(new Date("2026-03-19T08:00:00"));
   const englishTopics = dataset.topics.filter((topic) => topic.subjectId === "english-a-sl");
   const frenchTopics = dataset.topics.filter((topic) => topic.subjectId === "french-b-sl");
+  const firstFrenchWeekTopics = frenchTopics.filter(
+    (topic) => topic.availableFrom && topic.availableFrom >= "2026-03-23" && topic.availableFrom <= "2026-03-29",
+  );
 
   assert.equal(englishTopics.length, 0);
   assert.ok(frenchTopics.length > 0);
+  assert.equal(firstFrenchWeekTopics.length, 2);
   assert.ok(
     frenchTopics.every(
       (topic) =>
@@ -6073,6 +6170,7 @@ test("english is no longer auto-seeded for study and french is only light gramma
         topic.title.toLowerCase().includes("vocabulary"),
     ),
   );
+  assert.ok(frenchTopics.every((topic) => topic.estHours === 0.5));
   assert.ok(
     frenchTopics.every(
       (topic) =>

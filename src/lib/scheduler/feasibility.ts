@@ -1,7 +1,8 @@
 import { addDays, differenceInCalendarDays, min as minDate } from "date-fns";
 
-import { hardScopeSubjectIds, subjectIds } from "@/lib/constants/planner";
+import { subjectIds, zeroUnscheduledCoverageSubjectIds } from "@/lib/constants/planner";
 import {
+  displayHoursFromMinutes,
   endOfPlannerWeek,
   getAcademicDeadline,
   hoursFromMinutes,
@@ -585,20 +586,22 @@ export function buildWeeklyPlan(options: {
     const subjectRequired = (requiredHoursBySubject[subjectId] ?? 0) * 60;
     const weeklyDeficitMinutes = Math.max(subjectRequired - subjectAssigned, 0);
     const unscheduledMinutes = Math.max(unscheduledMinutesBySubject[subjectId] ?? 0, 0);
-    const hardScopeSubject = hardScopeSubjectIds.includes(
-      subjectId as (typeof hardScopeSubjectIds)[number],
+    const hardScopeSubject = zeroUnscheduledCoverageSubjectIds.includes(
+      subjectId as (typeof zeroUnscheduledCoverageSubjectIds)[number],
     );
     const effectiveGapMinutes = hardScopeSubject
       ? unscheduledMinutes
       : Math.max(weeklyDeficitMinutes, unscheduledMinutes);
-    coverageGapHoursBySubject[subjectId] = roundToTenth(effectiveGapMinutes / 60);
+    coverageGapHoursBySubject[subjectId] = displayHoursFromMinutes(effectiveGapMinutes, {
+      floorNonZero: true,
+    });
     hardCoverageSatisfiedBySubject[subjectId] = unscheduledMinutes <= 0;
 
     if (hardScopeSubject && unscheduledMinutes > 0) {
       underplannedSubjectIds.push(subjectId);
       const subject = options.subjects.find((candidate) => candidate.id === subjectId);
       warnings.push(
-        `${subject?.name ?? subjectId} still has ${hoursFromMinutes(unscheduledMinutes).toFixed(1)}h truly unscheduled on the future horizon.`,
+        `${subject?.name ?? subjectId} still has ${displayHoursFromMinutes(unscheduledMinutes, { floorNonZero: true }).toFixed(1)}h truly unscheduled on the future horizon.`,
       );
     }
 
@@ -616,12 +619,12 @@ export function buildWeeklyPlan(options: {
     ) {
       const subject = options.subjects.find((candidate) => candidate.id === subjectId);
       warnings.push(
-        `${subject?.name ?? subjectId} still has ${hoursFromMinutes(unscheduledMinutes).toFixed(1)}h unscheduled after this week's pacing and constraints.`,
+        `${subject?.name ?? subjectId} still has ${displayHoursFromMinutes(unscheduledMinutes, { floorNonZero: true }).toFixed(1)}h unscheduled after this week's pacing and constraints.`,
       );
     }
   });
 
-  const coverageComplete = hardScopeSubjectIds.every(
+  const coverageComplete = zeroUnscheduledCoverageSubjectIds.every(
     (subjectId) => (unscheduledMinutesBySubject[subjectId] ?? 0) <= 0,
   );
   const forcedCoverageMinutes = options.forcedCoverageMinutes ?? 0;
@@ -778,7 +781,7 @@ export function buildUnconfiguredWeeklyPlan(options: {
     hardCoverageSatisfiedBySubject: Object.fromEntries(
       subjectIds.map((subjectId) => [subjectId, false]),
     ),
-    underplannedSubjectIds: hardScopeSubjectIds.filter(
+    underplannedSubjectIds: zeroUnscheduledCoverageSubjectIds.filter(
       (subjectId) => (requiredHoursBySubject[subjectId] ?? 0) > 0,
     ),
     slackMinutes: 0,

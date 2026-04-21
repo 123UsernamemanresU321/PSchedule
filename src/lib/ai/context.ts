@@ -1,4 +1,7 @@
-import { hardScopeSubjectIds, mainSubjectIds } from "@/lib/constants/planner";
+import {
+  visibleCoreSubjectIds,
+  zeroUnscheduledCoverageSubjectIds,
+} from "@/lib/constants/planner";
 import { formatWeekRangeLabel, fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import {
   detectFutureFillableGap,
@@ -65,7 +68,9 @@ function buildTrackedProgress(options: {
   referenceDate: Date;
 }) {
   return options.subjects
-    .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
+    .filter((subject) =>
+      visibleCoreSubjectIds.includes(subject.id as (typeof visibleCoreSubjectIds)[number]),
+    )
     .map((subject) => {
       const progress = getSubjectProgress(subject, options.topics, options.studyBlocks, options.referenceDate);
       const forecast = getCalendarCompletionForecast({
@@ -81,8 +86,11 @@ function buildTrackedProgress(options: {
         subjectId: subject.id,
         subjectLabel: subject.shortName,
         remainingHours: progress.remainingHours,
+        remainingMinutes: progress.remainingMinutes,
         scheduledFutureHours: progress.scheduledFutureHours,
+        scheduledFutureMinutes: progress.scheduledFutureMinutes,
         unscheduledHours: progress.unscheduledHours,
+        unscheduledMinutes: progress.unscheduledMinutes,
         completionPercent: progress.completionPercent,
         milestoneDeadline: forecast.milestoneDeadline,
         finalDeadline: forecast.deadline,
@@ -106,10 +114,12 @@ export function getHardCoverageFailures(options: {
 
   return options.subjects
     .filter((subject) =>
-      hardScopeSubjectIds.includes(subject.id as (typeof hardScopeSubjectIds)[number]),
+      zeroUnscheduledCoverageSubjectIds.includes(
+        subject.id as (typeof zeroUnscheduledCoverageSubjectIds)[number],
+      ),
     )
     .map((subject) => getSubjectProgress(subject, options.topics, options.studyBlocks, referenceDate))
-    .filter((progress) => progress.unscheduledHours > 0.1)
+    .filter((progress) => progress.unscheduledMinutes > 0)
     .map((progress) => progress.subject.shortName);
 }
 
@@ -225,6 +235,7 @@ export function buildDiagnosisAiContext(options: {
     completionLogs: options.completionLogs,
     preferences: options.preferences,
     referenceDate,
+    subjectIds: [...zeroUnscheduledCoverageSubjectIds],
   });
 
   return {

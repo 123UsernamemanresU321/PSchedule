@@ -77,6 +77,23 @@ export function hoursFromMinutes(minutes: number) {
   return Math.round((minutes / 60) * 10) / 10;
 }
 
+export function displayHoursFromMinutes(
+  minutes: number,
+  options?: { floorNonZero?: boolean },
+) {
+  const safeMinutes = Math.max(0, minutes);
+
+  if (options?.floorNonZero) {
+    if (safeMinutes <= 0) {
+      return 0;
+    }
+
+    return Math.max(0.1, Math.ceil((safeMinutes / 60) * 10) / 10);
+  }
+
+  return hoursFromMinutes(safeMinutes);
+}
+
 export function formatHoursFromMinutes(minutes: number) {
   const hours = hoursFromMinutes(minutes);
   return `${hours.toFixed(hours % 1 === 0 ? 0 : 1)}h`;

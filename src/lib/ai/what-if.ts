@@ -1,4 +1,4 @@
-import { hardScopeSubjectIds } from "@/lib/constants/planner";
+import { zeroUnscheduledCoverageSubjectIds } from "@/lib/constants/planner";
 import { fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import {
   detectFutureFillableGap,
@@ -115,10 +115,12 @@ function applyChanges(snapshot: PlannerExportPayload, changes: AiWhatIfChange[])
 function getHardCoverageFailures(snapshot: PlannerExportPayload, referenceDate: Date) {
   return snapshot.subjects
     .filter((subject) =>
-      hardScopeSubjectIds.includes(subject.id as (typeof hardScopeSubjectIds)[number]),
+      zeroUnscheduledCoverageSubjectIds.includes(
+        subject.id as (typeof zeroUnscheduledCoverageSubjectIds)[number],
+      ),
     )
     .map((subject) => getSubjectProgress(subject, snapshot.topics, snapshot.studyBlocks, referenceDate))
-    .filter((progress) => progress.unscheduledHours > 0.1)
+    .filter((progress) => progress.unscheduledMinutes > 0)
     .map((progress) => progress.subject.shortName);
 }
 
@@ -129,7 +131,9 @@ function buildImpacts(options: {
 }) {
   return options.before.subjects
     .filter((subject) =>
-      hardScopeSubjectIds.includes(subject.id as (typeof hardScopeSubjectIds)[number]),
+      zeroUnscheduledCoverageSubjectIds.includes(
+        subject.id as (typeof zeroUnscheduledCoverageSubjectIds)[number],
+      ),
     )
     .map((subject) => {
       const beforeProgress = getSubjectProgress(
@@ -176,6 +180,8 @@ function buildImpacts(options: {
           null,
         beforeUnscheduledHours: beforeProgress.unscheduledHours,
         afterUnscheduledHours: afterProgress.unscheduledHours,
+        beforeUnscheduledMinutes: beforeProgress.unscheduledMinutes,
+        afterUnscheduledMinutes: afterProgress.unscheduledMinutes,
       };
     });
 }
@@ -199,7 +205,7 @@ export function simulateWhatIf(options: {
     completionLogs: options.snapshot.completionLogs,
     preferences: options.snapshot.preferences,
     referenceDate,
-    subjectIds: [...hardScopeSubjectIds],
+    subjectIds: [...zeroUnscheduledCoverageSubjectIds],
   });
   const { snapshot: adjustedSnapshot, parsedChanges } = applyChanges(options.snapshot, options.changes);
   const regenerated = generateStudyPlanHorizon({
@@ -232,7 +238,7 @@ export function simulateWhatIf(options: {
     completionLogs: afterSnapshot.completionLogs,
     preferences: afterSnapshot.preferences,
     referenceDate,
-    subjectIds: [...hardScopeSubjectIds],
+    subjectIds: [...zeroUnscheduledCoverageSubjectIds],
   });
 
   return {

@@ -11,7 +11,8 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { getSubjectProgress } from "@/lib/analytics/metrics";
-import { mainSubjectIds, topicStatusLabels } from "@/lib/constants/planner";
+import { visibleCoreSubjectIds, topicStatusLabels } from "@/lib/constants/planner";
+import { displayHoursFromMinutes } from "@/lib/dates/helpers";
 import { usePlannerStore } from "@/lib/store/planner-store";
 import type { Topic } from "@/lib/types/planner";
 import { groupBy } from "@/lib/utils";
@@ -51,7 +52,9 @@ export function SubjectsPage() {
 
   const visibleSubjects =
     activeTab === "all"
-      ? subjects.filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
+      ? subjects.filter((subject) =>
+          visibleCoreSubjectIds.includes(subject.id as (typeof visibleCoreSubjectIds)[number]),
+        )
       : subjects.filter((subject) => subject.id === activeTab);
 
   async function handleSaveCompletedHoursChanges() {
@@ -86,7 +89,11 @@ export function SubjectsPage() {
                 All subjects
               </Button>
               {subjects
-                .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
+                .filter((subject) =>
+                  visibleCoreSubjectIds.includes(
+                    subject.id as (typeof visibleCoreSubjectIds)[number],
+                  ),
+                )
                 .map((subject) => (
                   <Button
                     key={subject.id}
@@ -193,16 +200,18 @@ export function SubjectsPage() {
                   (total, topic) => total + Math.min(topic.completedHours, topic.estHours),
                   0,
                 );
-                const scheduledFutureHours = unitTopics.reduce((total, topic) => {
-                  const remainingHours = Math.max(topic.estHours - topic.completedHours, 0);
-                  const plannedFutureHours = progress.plannedFutureHoursByTopic[topic.id] ?? 0;
-                  return total + Math.min(remainingHours, plannedFutureHours);
-                }, 0);
-                const unscheduledHours = unitTopics.reduce((total, topic) => {
-                  const remainingHours = Math.max(topic.estHours - topic.completedHours, 0);
-                  const plannedFutureHours = progress.plannedFutureHoursByTopic[topic.id] ?? 0;
-                  return total + Math.max(remainingHours - plannedFutureHours, 0);
-                }, 0);
+                const scheduledFutureMinutes = unitTopics.reduce(
+                  (total, topic) => total + (progress.plannedFutureMinutesByTopic[topic.id] ?? 0),
+                  0,
+                );
+                const unscheduledMinutes = unitTopics.reduce(
+                  (total, topic) => total + (progress.unscheduledMinutesByTopic[topic.id] ?? 0),
+                  0,
+                );
+                const scheduledFutureHours = displayHoursFromMinutes(scheduledFutureMinutes);
+                const unscheduledHours = displayHoursFromMinutes(unscheduledMinutes, {
+                  floorNonZero: true,
+                });
                 const completionPercent = totalHours ? Math.round((completedHours / totalHours) * 100) : 0;
 
                 return (
@@ -236,14 +245,11 @@ export function SubjectsPage() {
                     <div className="border-t border-white/6 px-5 py-4">
                       <div className="space-y-3">
                         {unitTopics.map((topic) => {
-                          const remainingHours = Math.max(topic.estHours - topic.completedHours, 0);
-                          const plannedFutureHours = Math.min(
-                            remainingHours,
-                            progress.plannedFutureHoursByTopic[topic.id] ?? 0,
-                          );
-                          const unscheduledHours = Math.max(
-                            remainingHours - plannedFutureHours,
-                            0,
+                          const plannedFutureMinutes = progress.plannedFutureMinutesByTopic[topic.id] ?? 0;
+                          const plannedFutureHours = displayHoursFromMinutes(plannedFutureMinutes);
+                          const unscheduledHours = displayHoursFromMinutes(
+                            progress.unscheduledMinutesByTopic[topic.id] ?? 0,
+                            { floorNonZero: true },
                           );
 
                           return (

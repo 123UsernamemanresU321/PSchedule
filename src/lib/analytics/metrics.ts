@@ -8,8 +8,12 @@ import {
   startOfMonth,
 } from "date-fns";
 
-import { mainSubjectIds } from "@/lib/constants/planner";
 import {
+  visibleCoreSubjectIds,
+  zeroUnscheduledCoverageSubjectIds,
+} from "@/lib/constants/planner";
+import {
+  displayHoursFromMinutes,
   formatWeekRangeLabel,
   fromDateKey,
   hoursFromMinutes,
@@ -33,6 +37,26 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 import { clamp } from "@/lib/utils";
+
+export interface SubjectProgress {
+  subject: Subject;
+  topics: Topic[];
+  completionPercent: number;
+  totalMinutes: number;
+  remainingHours: number;
+  remainingMinutes: number;
+  scheduledFutureHours: number;
+  scheduledFutureMinutes: number;
+  unscheduledHours: number;
+  unscheduledMinutes: number;
+  plannedFutureHoursByTopic: Record<string, number>;
+  plannedFutureMinutesByTopic: Record<string, number>;
+  unscheduledMinutesByTopic: Record<string, number>;
+  totalHours: number;
+  unitCount: number;
+  completedUnits: number;
+  atRiskTopics: Topic[];
+}
 
 function getTopicsForGoal(subjectTopics: Topic[], goal: Goal | null | undefined) {
   if (!goal?.topicIds?.length) {
@@ -85,10 +109,10 @@ export function getSubjectProgress(
   topics: Topic[],
   studyBlocks: StudyBlock[] = [],
   referenceDate = new Date(),
-) {
+): SubjectProgress {
   const subjectTopics = topics.filter((topic) => topic.subjectId === subject.id);
   const topicById = new Map(subjectTopics.map((topic) => [topic.id, topic]));
-  const plannedFutureMinutesByTopic = studyBlocks.reduce<Record<string, number>>((accumulator, block) => {
+  const uncappedPlannedFutureMinutesByTopic = studyBlocks.reduce<Record<string, number>>((accumulator, block) => {
     const topic = block.topicId ? topicById.get(block.topicId) : null;
     const isSyntheticReviewFollowUp =
       !!topic &&
@@ -109,6 +133,25 @@ export function getSubjectProgress(
     accumulator[block.topicId] = (accumulator[block.topicId] ?? 0) + block.estimatedMinutes;
     return accumulator;
   }, {});
+  const remainingMinutesByTopic = Object.fromEntries(
+    subjectTopics.map((topic) => [
+      topic.id,
+      Math.max(Math.round((topic.estHours - topic.completedHours) * 60), 0),
+    ]),
+  );
+  const plannedFutureMinutesByTopic = Object.fromEntries(
+    subjectTopics.map((topic) => {
+      const remainingMinutes = remainingMinutesByTopic[topic.id] ?? 0;
+      return [topic.id, Math.min(uncappedPlannedFutureMinutesByTopic[topic.id] ?? 0, remainingMinutes)];
+    }),
+  );
+  const unscheduledMinutesByTopic = Object.fromEntries(
+    subjectTopics.map((topic) => {
+      const remainingMinutes = remainingMinutesByTopic[topic.id] ?? 0;
+      const plannedFutureMinutes = plannedFutureMinutesByTopic[topic.id] ?? 0;
+      return [topic.id, Math.max(remainingMinutes - plannedFutureMinutes, 0)];
+    }),
+  );
   const units = new Set(subjectTopics.map((topic) => topic.unitId));
   const completedUnits = new Set(
     subjectTopics
@@ -116,25 +159,23 @@ export function getSubjectProgress(
       .map((topic) => topic.unitId),
   );
   const totalHours = subjectTopics.reduce((total, topic) => total + topic.estHours, 0);
+  const totalMinutes = Math.round(totalHours * 60);
   const completedHours = subjectTopics.reduce(
     (total, topic) => total + Math.min(topic.completedHours, topic.estHours),
     0,
   );
-  const remainingHours = subjectTopics.reduce(
-    (total, topic) => total + Math.max(topic.estHours - topic.completedHours, 0),
+  const remainingMinutes = subjectTopics.reduce(
+    (total, topic) => total + (remainingMinutesByTopic[topic.id] ?? 0),
     0,
   );
-  const scheduledFutureHours = subjectTopics.reduce((total, topic) => {
-    const remainingHoursForTopic = Math.max(topic.estHours - topic.completedHours, 0);
-    const plannedFutureHours = (plannedFutureMinutesByTopic[topic.id] ?? 0) / 60;
-    const unscheduledHours = Math.max(remainingHoursForTopic - plannedFutureHours, 0);
-    return total + Math.max(remainingHoursForTopic - unscheduledHours, 0);
-  }, 0);
-  const unscheduledHours = subjectTopics.reduce((total, topic) => {
-    const remainingHoursForTopic = Math.max(topic.estHours - topic.completedHours, 0);
-    const plannedFutureHours = (plannedFutureMinutesByTopic[topic.id] ?? 0) / 60;
-    return total + Math.max(remainingHoursForTopic - plannedFutureHours, 0);
-  }, 0);
+  const scheduledFutureMinutes = subjectTopics.reduce(
+    (total, topic) => total + (plannedFutureMinutesByTopic[topic.id] ?? 0),
+    0,
+  );
+  const unscheduledMinutes = subjectTopics.reduce(
+    (total, topic) => total + (unscheduledMinutesByTopic[topic.id] ?? 0),
+    0,
+  );
   const atRiskTopics = subjectTopics.filter(
     (topic) => topic.mastery <= 2 || topic.status === "not_started",
   );
@@ -143,15 +184,21 @@ export function getSubjectProgress(
     subject,
     topics: subjectTopics,
     completionPercent: totalHours ? Math.round((completedHours / totalHours) * 100) : 0,
-    remainingHours: Number(remainingHours.toFixed(1)),
-    scheduledFutureHours: Number(scheduledFutureHours.toFixed(1)),
-    unscheduledHours: Number(unscheduledHours.toFixed(1)),
+    totalMinutes,
+    remainingHours: displayHoursFromMinutes(remainingMinutes),
+    remainingMinutes,
+    scheduledFutureHours: displayHoursFromMinutes(scheduledFutureMinutes),
+    scheduledFutureMinutes,
+    unscheduledHours: displayHoursFromMinutes(unscheduledMinutes, { floorNonZero: true }),
+    unscheduledMinutes,
     plannedFutureHoursByTopic: Object.fromEntries(
       subjectTopics.map((topic) => {
-        const plannedFutureHours = (plannedFutureMinutesByTopic[topic.id] ?? 0) / 60;
-        return [topic.id, Number(Math.min(plannedFutureHours, Math.max(topic.estHours - topic.completedHours, 0)).toFixed(1))];
+        const plannedFutureMinutes = plannedFutureMinutesByTopic[topic.id] ?? 0;
+        return [topic.id, displayHoursFromMinutes(plannedFutureMinutes)];
       }),
     ),
+    plannedFutureMinutesByTopic,
+    unscheduledMinutesByTopic,
     totalHours: Number(totalHours.toFixed(1)),
     unitCount: units.size,
     completedUnits: completedUnits.size,
@@ -193,13 +240,14 @@ export function countTrackStatus(weeklyPlan: WeeklyPlan | undefined) {
     };
   }
 
-  return mainSubjectIds.reduce(
+  return visibleCoreSubjectIds.reduce(
     (accumulator, subjectId) => {
       const required = weeklyPlan.requiredHoursBySubject[subjectId] ?? 0;
       const gap = weeklyPlan.coverageGapHoursBySubject[subjectId] ?? 0;
       const ratio = required > 0 ? Math.max(0, 1 - gap / Math.max(required, 0.25)) : 1;
+      const hasHardCoverageGap = !weeklyPlan.hardCoverageSatisfiedBySubject[subjectId];
 
-      if (gap <= 0.1 || ratio >= 0.95) {
+      if (!hasHardCoverageGap) {
         accumulator.onTrack += 1;
       } else if (ratio >= 0.8) {
         accumulator.atRisk += 1;
@@ -282,22 +330,30 @@ export function getDashboardHorizonMetrics(options: {
 }) {
   const referenceDate = options.referenceDate ?? new Date();
   const trackedProgress = options.subjects
-    .filter((subject) => mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]))
+    .filter((subject) =>
+      visibleCoreSubjectIds.includes(subject.id as (typeof visibleCoreSubjectIds)[number]),
+    )
     .map((subject) => getSubjectProgress(subject, options.topics, options.studyBlocks, referenceDate));
   const plannedTodayMinutes = getPlannedMinutesForDay(options.studyBlocks, referenceDate);
   const completedTodayMinutes = getCompletedMinutesForDay(options.studyBlocks, referenceDate);
-  const totalTrackedHours = trackedProgress.reduce((total, progress) => total + progress.totalHours, 0);
-  const totalCompletedHours = trackedProgress.reduce(
-    (total, progress) => total + (progress.totalHours - progress.remainingHours),
+  const totalTrackedMinutes = trackedProgress.reduce(
+    (total, progress) => total + progress.totalMinutes,
     0,
   );
-  const totalRemainingHours = trackedProgress.reduce((total, progress) => total + progress.remainingHours, 0);
-  const totalScheduledFutureHours = trackedProgress.reduce(
-    (total, progress) => total + progress.scheduledFutureHours,
+  const totalCompletedMinutes = trackedProgress.reduce(
+    (total, progress) => total + Math.max(progress.totalMinutes - progress.remainingMinutes, 0),
     0,
   );
-  const totalUnscheduledHours = trackedProgress.reduce(
-    (total, progress) => total + progress.unscheduledHours,
+  const totalRemainingMinutes = trackedProgress.reduce(
+    (total, progress) => total + progress.remainingMinutes,
+    0,
+  );
+  const totalScheduledFutureMinutes = trackedProgress.reduce(
+    (total, progress) => total + progress.scheduledFutureMinutes,
+    0,
+  );
+  const totalUnscheduledMinutes = trackedProgress.reduce(
+    (total, progress) => total + progress.unscheduledMinutes,
     0,
   );
 
@@ -305,18 +361,18 @@ export function getDashboardHorizonMetrics(options: {
     plannedTodayHours: hoursFromMinutes(plannedTodayMinutes),
     completedTodayHours: hoursFromMinutes(completedTodayMinutes),
     horizonProgressPercent:
-      totalTrackedHours > 0 ? Math.round((totalCompletedHours / totalTrackedHours) * 100) : 0,
-    totalTrackedHours: Number(totalTrackedHours.toFixed(1)),
-    totalCompletedHours: Number(totalCompletedHours.toFixed(1)),
-    totalRemainingHours: Number(totalRemainingHours.toFixed(1)),
-    totalScheduledFutureHours: Number(totalScheduledFutureHours.toFixed(1)),
-    totalUnscheduledHours: Number(totalUnscheduledHours.toFixed(1)),
+      totalTrackedMinutes > 0 ? Math.round((totalCompletedMinutes / totalTrackedMinutes) * 100) : 0,
+    totalTrackedHours: displayHoursFromMinutes(totalTrackedMinutes),
+    totalCompletedHours: displayHoursFromMinutes(totalCompletedMinutes),
+    totalRemainingHours: displayHoursFromMinutes(totalRemainingMinutes),
+    totalScheduledFutureHours: displayHoursFromMinutes(totalScheduledFutureMinutes),
+    totalUnscheduledHours: displayHoursFromMinutes(totalUnscheduledMinutes, { floorNonZero: true }),
   };
 }
 
 function getTrackedDashboardSubjects(subjects: Subject[]) {
   return subjects.filter((subject) =>
-    mainSubjectIds.includes(subject.id as (typeof mainSubjectIds)[number]),
+    visibleCoreSubjectIds.includes(subject.id as (typeof visibleCoreSubjectIds)[number]),
   );
 }
 
@@ -840,7 +896,7 @@ export function getCalendarCompletionForecast(options: {
   );
 
   const getCoverageSnapshot = (candidateBlocks: StudyBlock[]) => {
-    let scheduledHours = 0;
+    let scheduledMinutes = 0;
     let completionDate: Date | null = remainingTargetHours <= 0 ? referenceDate : null;
 
     candidateBlocks.forEach((block) => {
@@ -848,15 +904,18 @@ export function getCalendarCompletionForecast(options: {
         return;
       }
 
-      scheduledHours += (block.actualMinutes ?? block.estimatedMinutes) / 60;
-      if (effectiveCompletedHours + scheduledHours >= targetHours) {
+      scheduledMinutes += block.actualMinutes ?? block.estimatedMinutes;
+      if (effectiveCompletedHours + scheduledMinutes / 60 >= targetHours) {
         completionDate = new Date(block.end);
       }
     });
 
     return {
       completionDate,
-      scheduledHours: Number(Math.min(scheduledHours, remainingTargetHours).toFixed(1)),
+      scheduledMinutes: Math.min(
+        scheduledMinutes,
+        Math.max(Math.round(remainingTargetHours * 60), 0),
+      ),
       lastScheduledDate: candidateBlocks.length
         ? new Date(candidateBlocks[candidateBlocks.length - 1].end)
         : null,
@@ -865,24 +924,31 @@ export function getCalendarCompletionForecast(options: {
 
   const deadlineCoverage = getCoverageSnapshot(futureBlocksToDeadline);
   const horizonCoverage = getCoverageSnapshot(futureBlocks);
-  const scheduledHoursToDeadline = deadlineCoverage.scheduledHours;
-  const scheduledHoursToHorizon = horizonCoverage.scheduledHours;
-  const missingHours = Number(Math.max(remainingTargetHours - scheduledHoursToDeadline, 0).toFixed(1));
+  const remainingTargetMinutes = Math.max(Math.round(remainingTargetHours * 60), 0);
+  const scheduledHoursToDeadline = displayHoursFromMinutes(deadlineCoverage.scheduledMinutes);
+  const scheduledHoursToHorizon = displayHoursFromMinutes(horizonCoverage.scheduledMinutes);
+  const missingMinutes = Math.max(remainingTargetMinutes - deadlineCoverage.scheduledMinutes, 0);
+  const missingHours = displayHoursFromMinutes(missingMinutes, { floorNonZero: true });
   const deadlineWeekStart = toDateKey(startOfPlannerWeek(new Date(deadline)));
   const currentWeekStart = toDateKey(startOfPlannerWeek(referenceDate));
   const relevantWeeklyPlans = (options.weeklyPlans ?? [])
     .filter((plan) => plan.weekStart >= currentWeekStart && plan.weekStart <= deadlineWeekStart)
     .sort((left, right) => left.weekStart.localeCompare(right.weekStart));
   const subjectStillUndercovered = relevantWeeklyPlans.some(
-    (plan) => (plan.coverageGapHoursBySubject[options.subject.id] ?? 0) > 0.1,
+    (plan) =>
+      zeroUnscheduledCoverageSubjectIds.includes(
+        options.subject.id as (typeof zeroUnscheduledCoverageSubjectIds)[number],
+      )
+        ? !plan.hardCoverageSatisfiedBySubject[options.subject.id]
+        : (plan.coverageGapHoursBySubject[options.subject.id] ?? 0) > 0.1,
   );
   const hasUnusedCapacityBeforeDeadline = relevantWeeklyPlans.some((plan) => plan.slackMinutes > 0);
   const isCalendarImpossible =
-    missingHours > 0 &&
+    missingMinutes > 0 &&
     relevantWeeklyPlans.length > 0 &&
     subjectStillUndercovered &&
     !hasUnusedCapacityBeforeDeadline;
-  const needsMoreBlocks = missingHours > 0 && !isCalendarImpossible;
+  const needsMoreBlocks = missingMinutes > 0 && !isCalendarImpossible;
 
   return {
     subject: options.subject,
@@ -921,7 +987,7 @@ export function getHorizonRoadmapSummary(
   const totalRequiredHours = visiblePlans.reduce(
     (total, plan) =>
       total +
-      mainSubjectIds.reduce(
+      visibleCoreSubjectIds.reduce(
         (subjectTotal, subjectId) => subjectTotal + (plan.requiredHoursBySubject[subjectId] ?? 0),
         0,
       ),
@@ -930,7 +996,7 @@ export function getHorizonRoadmapSummary(
   const totalAssignedHours = visiblePlans.reduce(
     (total, plan) =>
       total +
-      mainSubjectIds.reduce(
+      visibleCoreSubjectIds.reduce(
         (subjectTotal, subjectId) => subjectTotal + (plan.assignedHoursBySubject[subjectId] ?? 0),
         0,
       ),
@@ -939,14 +1005,16 @@ export function getHorizonRoadmapSummary(
   const totalCompletedHours = visiblePlans.reduce(
     (total, plan) =>
       total +
-      mainSubjectIds.reduce(
+      visibleCoreSubjectIds.reduce(
         (subjectTotal, subjectId) => subjectTotal + (plan.completedHoursBySubject[subjectId] ?? 0),
         0,
       ),
     0,
   );
   const remainingCoreHours = topics
-    .filter((topic) => mainSubjectIds.includes(topic.subjectId as (typeof mainSubjectIds)[number]))
+    .filter((topic) =>
+      visibleCoreSubjectIds.includes(topic.subjectId as (typeof visibleCoreSubjectIds)[number]),
+    )
     .reduce((total, topic) => total + Math.max(topic.estHours - topic.completedHours, 0), 0);
 
   return {
@@ -964,22 +1032,22 @@ export function getHorizonRoadmapSummary(
       horizonEndDate: plan.horizonEndDate,
       weeksRemainingToDeadline: plan.weeksRemainingToDeadline,
       requiredHours: Number(
-        mainSubjectIds
+        visibleCoreSubjectIds
           .reduce((total, subjectId) => total + (plan.requiredHoursBySubject[subjectId] ?? 0), 0)
           .toFixed(1),
       ),
       assignedHours: Number(
-        mainSubjectIds
+        visibleCoreSubjectIds
           .reduce((total, subjectId) => total + (plan.assignedHoursBySubject[subjectId] ?? 0), 0)
           .toFixed(1),
       ),
       completedHours: Number(
-        mainSubjectIds
+        visibleCoreSubjectIds
           .reduce((total, subjectId) => total + (plan.completedHoursBySubject[subjectId] ?? 0), 0)
           .toFixed(1),
       ),
       remainingCoreHours: Number(
-        mainSubjectIds
+        visibleCoreSubjectIds
           .reduce((total, subjectId) => total + (plan.remainingHoursBySubject[subjectId] ?? 0), 0)
           .toFixed(1),
       ),

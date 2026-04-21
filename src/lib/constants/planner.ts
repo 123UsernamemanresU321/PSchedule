@@ -9,7 +9,7 @@ export const subjectIds = [
   "geography-transition",
 ] as const;
 
-export const mainSubjectIds = [
+export const visibleCoreSubjectIds = [
   "physics-hl",
   "maths-aa-hl",
   "chemistry-hl",
@@ -17,7 +17,13 @@ export const mainSubjectIds = [
   "cpp-book",
 ] as const;
 
-export const hardScopeSubjectIds = mainSubjectIds;
+export const zeroUnscheduledCoverageSubjectIds = visibleCoreSubjectIds;
+
+export const softMaintenanceSubjectIds = ["french-b-sl"] as const;
+
+export const mainSubjectIds = visibleCoreSubjectIds;
+
+export const hardScopeSubjectIds = zeroUnscheduledCoverageSubjectIds;
 
 export const topicStatusValues = [
   "not_started",

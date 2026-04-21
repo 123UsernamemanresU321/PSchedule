@@ -10,6 +10,7 @@ import {
   getOlympiadNumberTheoryEligibilityStatus,
   getOlympiadStageGateStatus,
 } from "@/lib/scheduler/olympiad-stage-gates";
+import { zeroUnscheduledCoverageSubjectIds } from "@/lib/constants/planner";
 import { startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import type { FixedEvent, Preferences, SickDay, StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
 
@@ -344,7 +345,14 @@ export function validateGeneratedHorizon(options: {
     }
 
     Object.entries(plan.coverageGapHoursBySubject).forEach(([subjectId, gapHours]) => {
-      if (gapHours <= 0.1) {
+      const isCoreCoverageSubject = zeroUnscheduledCoverageSubjectIds.includes(
+        subjectId as (typeof zeroUnscheduledCoverageSubjectIds)[number],
+      );
+      const hasGap = isCoreCoverageSubject
+        ? !plan.hardCoverageSatisfiedBySubject[subjectId]
+        : gapHours > 0.1;
+
+      if (!hasGap) {
         return;
       }
 
