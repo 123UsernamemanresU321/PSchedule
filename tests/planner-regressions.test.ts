@@ -31,6 +31,7 @@ import {
   shouldPreserveStudyBlockOnRegeneration,
 } from "@/lib/scheduler/generator";
 import {
+  applyStatusUpdateWithoutReplan,
   getEscalatedPlannerReplanScope,
   getPlannerReplanScopeForMutation,
   getStatusUpdatePreservedStudyBlockIds,
@@ -43,6 +44,7 @@ import {
   buildCollapsedCoverageRepairBaselineStudyBlocks,
   getCollapsedCoverageRepairState,
   normalizePreferences,
+  type PlannerSnapshot,
   normalizeStudyBlock,
 } from "@/lib/storage/planner-repository";
 import {
@@ -2787,6 +2789,106 @@ test("done subject-block updates bypass replanning even if minutes differ", () =
     }),
     false,
   );
+});
+
+test("done subject-block updates patch local state without rebuilding the horizon snapshot", () => {
+  const previousBlock = createStudyBlock({
+    id: "updated-block",
+    status: "planned",
+    estimatedMinutes: 90,
+    actualMinutes: null,
+    start: "2026-03-24T14:00:00.000Z",
+    end: "2026-03-24T15:30:00.000Z",
+  });
+  const futureBlock = createStudyBlock({
+    id: "future-block",
+    start: "2026-03-25T14:00:00.000Z",
+    end: "2026-03-25T15:30:00.000Z",
+  });
+  const rewriteBlock = createStudyBlock({
+    id: "rewrite-block",
+    subjectId: "olympiad",
+    topicId: null,
+    title: "Olympiad rewrite",
+    followUpKind: "olympiad-rewrite",
+    start: "2026-03-24T16:00:00.000Z",
+    end: "2026-03-24T16:45:00.000Z",
+  });
+  const topic: Topic = {
+    id: "topic-1",
+    subjectId: "physics-hl",
+    unitId: "unit-1",
+    unitTitle: "Mechanics",
+    title: "Kinematics",
+    subtopics: [],
+    availableFrom: null,
+    dependsOnTopicId: null,
+    sequenceGroup: null,
+    sequenceStage: null,
+    minDaysAfterDependency: null,
+    maxDaysAfterDependency: null,
+    sessionMode: "flexible",
+    exactSessionMinutes: null,
+    estHours: 12,
+    completedHours: 0,
+    difficulty: 3,
+    status: "not_started",
+    mastery: 0,
+    reviewDue: null,
+    lastStudiedAt: null,
+    sourceMaterials: [],
+    preferredBlockTypes: ["standard_focus"],
+    order: 1,
+    paperCode: null,
+    notes: "",
+  };
+  const snapshot: PlannerSnapshot = {
+    goals: [],
+    subjects: [],
+    topics: [topic],
+    fixedEvents: [],
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    studyBlocks: [futureBlock, previousBlock],
+    completionLogs: [],
+    weeklyPlans: [],
+    preferences: normalizePreferences(buildSeedPreferences()),
+  };
+
+  const nextState = applyStatusUpdateWithoutReplan({
+    snapshot,
+    updatedBlock: {
+      ...previousBlock,
+      status: "done",
+      actualMinutes: 60,
+    },
+    completionLog: {
+      id: "log-1",
+      studyBlockId: previousBlock.id,
+      outcome: "done",
+      actualMinutes: 60,
+      perceivedDifficulty: 3,
+      notes: "Finished cleanly",
+      recordedAt: "2026-03-24T16:00:00.000Z",
+    },
+    updatedTopic: {
+      ...topic,
+      completedHours: 1,
+      mastery: 1,
+      status: "learning",
+      lastStudiedAt: "2026-03-24T16:00:00.000Z",
+    },
+    insertedStudyBlock: rewriteBlock,
+  });
+
+  assert.deepEqual(
+    nextState.studyBlocks.map((block) => block.id),
+    ["updated-block", "rewrite-block", "future-block"],
+  );
+  assert.equal(nextState.studyBlocks.find((block) => block.id === "updated-block")?.status, "done");
+  assert.equal(nextState.topics.find((candidate) => candidate.id === topic.id)?.completedHours, 1);
+  assert.equal(nextState.completionLogs.at(-1)?.studyBlockId, previousBlock.id);
 });
 
 test("done subject-block updates do not get forced into replanning by unrelated expired blocks", () => {

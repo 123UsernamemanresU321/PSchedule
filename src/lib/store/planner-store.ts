@@ -1035,6 +1035,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       topicById,
     });
     let completionLog: CompletionLog | null = null;
+    const bypassReplan = shouldDoneStatusBypassReplan({
+      previousBlock: block,
+      nextBlock: updatedBlock,
+    });
 
     if (status === "planned") {
       await deleteCompletionLogsByStudyBlockId(block.id);
@@ -1061,56 +1065,72 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       await deleteStudyBlocksByIds(pendingRewriteIds);
     }
 
+    let updatedTopic: Topic | null = null;
     if (block.topicId) {
-      await applyTopicProgressForStudyBlockUpdate({
+      updatedTopic = await applyTopicProgressForStudyBlockUpdate({
         snapshot,
         previousBlock: block,
         nextBlock: updatedBlock,
       });
     }
 
+    let insertedStudyBlock: StudyBlock | null = null;
     if (
       isSeriousOlympiadAttempt &&
       status === "done" &&
       completionLog &&
-      shouldDoneStatusBypassReplan({
-        previousBlock: block,
-        nextBlock: updatedBlock,
-      })
+      bypassReplan
     ) {
-      await maybeInsertImmediateOlympiadRewriteFollowUp({
+      insertedStudyBlock = await maybeInsertImmediateOlympiadRewriteFollowUp({
         snapshot,
         sourceBlock: updatedBlock,
         completionLog,
       });
     }
 
-    const referenceDate = new Date();
-    const nextSnapshot = shouldRunStatusUpdateReplan({
-      previousBlock: block,
-      nextBlock: updatedBlock,
-      studyBlocks: snapshot.studyBlocks,
-      referenceDate,
-      hasCollapsedCoverage: getCollapsedCoverageRepairState(snapshot, referenceDate).hasCollapsedCoverage,
-    })
-      ? await replanPlannerState({
-          mutation: "status_update",
-          scope: "week_local",
-          affectedWeekStart: startOfPlannerWeek(new Date(block.start)),
-          preserveFlexibleFutureBlocks: false,
-          preservedStudyBlockIds: getStatusUpdatePreservedStudyBlockIds({
-            studyBlocks: snapshot.studyBlocks,
-            updatedBlockId: block.id,
-            nextStatus: status,
-            referenceDate,
-          }),
-        })
-      : await loadPlannerSnapshot();
-    set({
-      ...nextSnapshot,
-      loading: false,
-      error: null,
-    });
+    if (bypassReplan) {
+      const nextLocalState = applyStatusUpdateWithoutReplan({
+        snapshot,
+        updatedBlock,
+        completionLog,
+        updatedTopic,
+        insertedStudyBlock,
+      });
+      set({
+        studyBlocks: nextLocalState.studyBlocks,
+        completionLogs: nextLocalState.completionLogs,
+        topics: nextLocalState.topics,
+        loading: false,
+        error: null,
+      });
+    } else {
+      const referenceDate = new Date();
+      const nextSnapshot = shouldRunStatusUpdateReplan({
+        previousBlock: block,
+        nextBlock: updatedBlock,
+        studyBlocks: snapshot.studyBlocks,
+        referenceDate,
+        hasCollapsedCoverage: getCollapsedCoverageRepairState(snapshot, referenceDate).hasCollapsedCoverage,
+      })
+        ? await replanPlannerState({
+            mutation: "status_update",
+            scope: "week_local",
+            affectedWeekStart: startOfPlannerWeek(new Date(block.start)),
+            preserveFlexibleFutureBlocks: false,
+            preservedStudyBlockIds: getStatusUpdatePreservedStudyBlockIds({
+              studyBlocks: snapshot.studyBlocks,
+              updatedBlockId: block.id,
+              nextStatus: status,
+              referenceDate,
+            }),
+          })
+        : await loadPlannerSnapshot();
+      set({
+        ...nextSnapshot,
+        loading: false,
+        error: null,
+      });
+    }
     get().setCurrentWeekStart(toDateKey(startOfPlannerWeek(new Date(block.start))));
   },
   requestMorePractice: async ({ blockId, extraMinutes, notes = "" }) => {
@@ -1449,14 +1469,14 @@ async function applyTopicProgressForStudyBlockUpdate(options: {
   snapshot: Awaited<ReturnType<typeof loadPlannerSnapshot>>;
   previousBlock: Pick<StudyBlock, "topicId" | "status" | "estimatedMinutes" | "actualMinutes"> | null;
   nextBlock: Pick<StudyBlock, "topicId" | "status" | "estimatedMinutes" | "actualMinutes">;
-}) {
+}): Promise<Topic | null> {
   if (!options.nextBlock.topicId) {
-    return;
+    return null;
   }
 
   const topic = options.snapshot.topics.find((candidate) => candidate.id === options.nextBlock.topicId);
   if (!topic) {
-    return;
+    return null;
   }
 
   const previousDelta =
@@ -1476,6 +1496,44 @@ async function applyTopicProgressForStudyBlockUpdate(options: {
   };
   nextTopic.status = deriveTopicStatus(nextTopic);
   await updateTopic(nextTopic);
+  return nextTopic;
+}
+
+function sortStudyBlocksByStart(studyBlocks: StudyBlock[]) {
+  return [...studyBlocks].sort(
+    (left, right) => new Date(left.start).getTime() - new Date(right.start).getTime(),
+  );
+}
+
+export function applyStatusUpdateWithoutReplan(options: {
+  snapshot: Awaited<ReturnType<typeof loadPlannerSnapshot>>;
+  updatedBlock: StudyBlock;
+  completionLog?: CompletionLog | null;
+  updatedTopic?: Topic | null;
+  insertedStudyBlock?: StudyBlock | null;
+}) {
+  const nextStudyBlocks = options.snapshot.studyBlocks.map((candidate) =>
+    candidate.id === options.updatedBlock.id ? options.updatedBlock : candidate,
+  );
+
+  if (
+    options.insertedStudyBlock &&
+    !nextStudyBlocks.some((candidate) => candidate.id === options.insertedStudyBlock?.id)
+  ) {
+    nextStudyBlocks.push(options.insertedStudyBlock);
+  }
+
+  return {
+    studyBlocks: sortStudyBlocksByStart(nextStudyBlocks),
+    completionLogs: options.completionLog
+      ? [...options.snapshot.completionLogs, options.completionLog]
+      : options.snapshot.completionLogs,
+    topics: options.updatedTopic
+      ? options.snapshot.topics.map((candidate) =>
+          candidate.id === options.updatedTopic?.id ? options.updatedTopic : candidate,
+        )
+      : options.snapshot.topics,
+  };
 }
 
 function resolveAdditionalPracticeMinutes(block: StudyBlock, explicitMinutes?: number) {
@@ -1581,14 +1639,14 @@ async function maybeInsertImmediateOlympiadRewriteFollowUp(options: {
   snapshot: Awaited<ReturnType<typeof loadPlannerSnapshot>>;
   sourceBlock: StudyBlock;
   completionLog: CompletionLog;
-}) {
+}): Promise<StudyBlock | null> {
   const existingRewriteIds = getPendingOlympiadRewriteStudyBlockIdsForSource(
     options.snapshot.studyBlocks,
     options.sourceBlock.id,
   );
 
   if (existingRewriteIds.length > 0) {
-    return false;
+    return null;
   }
 
   const obligation = getOlympiadRewriteObligations({
@@ -1598,7 +1656,7 @@ async function maybeInsertImmediateOlympiadRewriteFollowUp(options: {
   }).find((candidate) => candidate.sourceStudyBlockId === options.sourceBlock.id);
 
   if (!obligation || obligation.scheduledBlock) {
-    return false;
+    return null;
   }
 
   const availableAt = new Date(obligation.availableAt);
@@ -1646,20 +1704,19 @@ async function maybeInsertImmediateOlympiadRewriteFollowUp(options: {
         continue;
       }
 
-      await updateStudyBlock(
-        buildOlympiadRewriteFollowUpBlock({
-          sourceBlock: options.sourceBlock,
-          start,
-          durationMinutes: obligation.durationMinutes,
-          slotEnergy: slot.energy,
-          dueAt: obligation.dueAt,
-        }),
-      );
-      return true;
+      const rewriteBlock = buildOlympiadRewriteFollowUpBlock({
+        sourceBlock: options.sourceBlock,
+        start,
+        durationMinutes: obligation.durationMinutes,
+        slotEnergy: slot.energy,
+        dueAt: obligation.dueAt,
+      });
+      await updateStudyBlock(rewriteBlock);
+      return rewriteBlock;
     }
   }
 
-  return false;
+  return null;
 }
 
 function isStudyBlockActiveAt(block: StudyBlock, referenceDate: Date) {
