@@ -5,6 +5,7 @@ import { create } from "zustand";
 import { fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import { calculateFreeSlots, expandFixedEventsForWeek } from "@/lib/scheduler/free-slots";
 import {
+  generateIncrementalStudyPlanTail,
   generateStudyPlanHorizon,
   shouldAlwaysPreserveStudyBlockOnRegeneration,
 } from "@/lib/scheduler/generator";
@@ -26,7 +27,9 @@ import {
   initializePlannerDatabase,
   loadPlannerSnapshot,
   getCollapsedCoverageRepairState,
+  getScopedReplanPrecheckState,
   repairCollapsedCoveragePlanningState,
+  replacePlanningWeeks,
   replacePlanningHorizon,
   replaceWeeklyPlan,
   deleteCompletionLogsByStudyBlockId,
@@ -51,6 +54,7 @@ import type {
   FocusedDay,
   FocusedWeek,
   PlannerExportPayload,
+  BackgroundReplanStatus,
   Preferences,
   PlannerReplanScope,
   ReplanDiagnostics,
@@ -67,6 +71,9 @@ interface PlannerState {
   initialized: boolean;
   loading: boolean;
   error: string | null;
+  backgroundReplanStatus: BackgroundReplanStatus;
+  backgroundReplanScope: PlannerReplanScope | null;
+  backgroundReplanDiagnostics: ReplanDiagnostics | null;
   currentWeekStart: string;
   goals: PlannerExportPayload["goals"];
   subjects: PlannerExportPayload["subjects"];
@@ -161,6 +168,18 @@ type PlannerReplanMutation =
   | "regenerate_horizon"
   | "collapsed_coverage_repair";
 
+let backgroundReplanRequestId = 0;
+let plannerMutationRevision = 0;
+
+function bumpPlannerMutationRevision() {
+  plannerMutationRevision += 1;
+  return plannerMutationRevision;
+}
+
+function getPlannerMutationRevision() {
+  return plannerMutationRevision;
+}
+
 export function getPlannerReplanScopeForMutation(
   mutation: PlannerReplanMutation,
 ): PlannerReplanScope {
@@ -218,6 +237,13 @@ function buildReplanDiagnostics(options: {
   scopeTimingsMs: Partial<Record<PlannerReplanScope, number>>;
   repairTriggered: boolean;
   hardCoverageEscalationForced: boolean;
+  localApplyMs?: number | null;
+  precheckMs?: number | null;
+  writeMs?: number | null;
+  snapshotLoadMs?: number | null;
+  repairMs?: number | null;
+  backgroundValidationMs?: number | null;
+  escalationReason?: ReplanDiagnostics["escalationReason"];
 }): ReplanDiagnostics {
   return {
     scope: options.scope,
@@ -231,6 +257,13 @@ function buildReplanDiagnostics(options: {
     ) as ReplanDiagnostics["scopeTimingsMs"],
     repairTriggered: options.repairTriggered,
     hardCoverageEscalationForced: options.hardCoverageEscalationForced,
+    localApplyMs: options.localApplyMs ?? null,
+    precheckMs: options.precheckMs ?? null,
+    writeMs: options.writeMs ?? null,
+    snapshotLoadMs: options.snapshotLoadMs ?? null,
+    repairMs: options.repairMs ?? null,
+    backgroundValidationMs: options.backgroundValidationMs ?? null,
+    escalationReason: options.escalationReason ?? null,
   };
 }
 
@@ -282,11 +315,45 @@ async function replanPlannerState(options: {
   scopeTimingsMs?: Partial<Record<PlannerReplanScope, number>>;
   hardCoverageEscalationForced?: boolean;
   repairTriggered?: boolean;
+  localApplyMs?: number | null;
+  backgroundValidationMs?: number | null;
+  expectedRevision?: number | null;
 }) {
   const referenceDate = new Date();
-  const snapshot = await repairCollapsedCoveragePlanningState(referenceDate);
-  const initialRepairState = getCollapsedCoverageRepairState(snapshot, referenceDate);
+  const shouldAbortForRevision = () =>
+    options.expectedRevision != null && options.expectedRevision !== getPlannerMutationRevision();
+  let snapshotLoadMs = 0;
+  let precheckMs = 0;
+  let repairMs = 0;
+  let writeMs = 0;
+  let escalationReason: ReplanDiagnostics["escalationReason"] = null;
+  const snapshotLoadStartedAtMs = nowMs();
+  let snapshot = await loadPlannerSnapshot();
+  snapshotLoadMs += nowMs() - snapshotLoadStartedAtMs;
   const initialScope = options.scope ?? getPlannerReplanScopeForMutation(options.mutation);
+  if (initialScope === "full_horizon") {
+    const repairStartedAtMs = nowMs();
+    snapshot = await repairCollapsedCoveragePlanningState(referenceDate);
+    repairMs += nowMs() - repairStartedAtMs;
+  } else {
+    const precheckStartedAtMs = nowMs();
+    const precheckState = getScopedReplanPrecheckState({
+      snapshot,
+      scope: initialScope,
+      affectedWeekStart: startOfPlannerWeek(options.affectedWeekStart ?? referenceDate),
+      referenceDate,
+    });
+    precheckMs += nowMs() - precheckStartedAtMs;
+    escalationReason = precheckState.escalationReason as ReplanDiagnostics["escalationReason"];
+
+    if (precheckState.hasPotentialIssue) {
+      const repairStartedAtMs = nowMs();
+      snapshot = await repairCollapsedCoveragePlanningState(referenceDate);
+      repairMs += nowMs() - repairStartedAtMs;
+    }
+  }
+
+  const initialRepairState = getCollapsedCoverageRepairState(snapshot, referenceDate);
   const scope = initialRepairState.hasCollapsedCoverage
     ? "full_horizon"
     : initialScope;
@@ -298,6 +365,16 @@ async function replanPlannerState(options: {
     (options.hardCoverageEscalationForced ?? false) || initialRepairState.hasHardConstraintCoverageFailure;
   const affectedWeekStart = startOfPlannerWeek(options.affectedWeekStart ?? referenceDate);
   const planningStartWeek = startOfPlannerWeek(referenceDate);
+
+  if (initialRepairState.hasCollapsedCoverage && !escalationReason) {
+    escalationReason = initialRepairState.hasHardConstraintCoverageFailure
+      ? "hard_coverage"
+      : initialRepairState.futureFillableGap.hasGap
+      ? "fillable_gap"
+      : initialRepairState.invalidOverlapIssues.length > 0
+      ? "overlap"
+      : "collapsed_coverage";
+  }
 
   if (scope === "week_local") {
     const scopeStartedAtMs = nowMs();
@@ -324,11 +401,25 @@ async function replanPlannerState(options: {
       scopeTimingsMs,
       repairTriggered,
       hardCoverageEscalationForced,
+      localApplyMs: options.localApplyMs,
+      precheckMs,
+      writeMs,
+      snapshotLoadMs,
+      repairMs,
+      backgroundValidationMs: options.backgroundValidationMs,
+      escalationReason,
     });
     const [weeklyPlan] = applyReplanDiagnostics([result.weeklyPlan], diagnostics);
+    if (shouldAbortForRevision()) {
+      return loadPlannerSnapshot();
+    }
+    const writeStartedAtMs = nowMs();
     await replaceWeeklyPlan(result.studyBlocks, weeklyPlan);
+    writeMs += nowMs() - writeStartedAtMs;
 
+    const nextSnapshotLoadStartedAtMs = nowMs();
     const nextSnapshot = await loadPlannerSnapshot();
+    snapshotLoadMs += nowMs() - nextSnapshotLoadStartedAtMs;
     const nextRepairState = getCollapsedCoverageRepairState(nextSnapshot, referenceDate);
     if (!nextRepairState.hasCollapsedCoverage) {
       return nextSnapshot;
@@ -349,6 +440,9 @@ async function replanPlannerState(options: {
       repairTriggered: true,
       hardCoverageEscalationForced:
         hardCoverageEscalationForced || nextRepairState.hasHardConstraintCoverageFailure,
+      localApplyMs: options.localApplyMs,
+      backgroundValidationMs: options.backgroundValidationMs,
+      expectedRevision: options.expectedRevision,
     });
   }
 
@@ -359,8 +453,9 @@ async function replanPlannerState(options: {
       referenceDate,
       preservedStudyBlockIds: options.preservedStudyBlockIds,
     });
-    const replanned = generateStudyPlanHorizon({
+    const replanned = generateIncrementalStudyPlanTail({
       startWeek: affectedWeekStart,
+      referenceDate,
       goals: snapshot.goals,
       subjects: snapshot.subjects,
       topics: snapshot.topics,
@@ -371,6 +466,7 @@ async function replanPlannerState(options: {
       focusedWeeks: snapshot.focusedWeeks,
       preferences: snapshot.preferences,
       existingStudyBlocks: snapshot.studyBlocks,
+      existingWeeklyPlans: snapshot.weeklyPlans,
       preservedStudyBlockIds,
       preserveFlexibleFutureBlocks: false,
     });
@@ -383,18 +479,28 @@ async function replanPlannerState(options: {
       scopeTimingsMs,
       repairTriggered,
       hardCoverageEscalationForced,
+      localApplyMs: options.localApplyMs,
+      precheckMs,
+      writeMs,
+      snapshotLoadMs,
+      repairMs,
+      backgroundValidationMs: options.backgroundValidationMs,
+      escalationReason,
     });
-    await replacePlanningHorizon(
+    if (shouldAbortForRevision()) {
+      return loadPlannerSnapshot();
+    }
+    const writeStartedAtMs = nowMs();
+    await replacePlanningWeeks(
       replanned.studyBlocks,
       applyReplanDiagnostics(replanned.weeklyPlans, diagnostics),
-      toDateKey(affectedWeekStart),
-      {
-        preservedStudyBlockIds,
-        preserveFlexibleFutureBlocks: false,
-      },
+      replanned.changedWeekStarts,
     );
+    writeMs += nowMs() - writeStartedAtMs;
 
+    const nextSnapshotLoadStartedAtMs = nowMs();
     const nextSnapshot = await loadPlannerSnapshot();
+    snapshotLoadMs += nowMs() - nextSnapshotLoadStartedAtMs;
     const nextRepairState = getCollapsedCoverageRepairState(nextSnapshot, referenceDate);
     if (!nextRepairState.hasCollapsedCoverage) {
       return nextSnapshot;
@@ -412,6 +518,9 @@ async function replanPlannerState(options: {
       hardCoverageEscalationForced:
         hardCoverageEscalationForced || nextRepairState.hasHardConstraintCoverageFailure,
       aggressiveFutureReset: true,
+      localApplyMs: options.localApplyMs,
+      backgroundValidationMs: options.backgroundValidationMs,
+      expectedRevision: options.expectedRevision,
     });
   }
 
@@ -430,6 +539,7 @@ async function replanPlannerState(options: {
       : options.preserveFlexibleFutureBlocks;
     const replanned = generateStudyPlanHorizon({
       startWeek: planningStartWeek,
+      referenceDate,
       goals: workingSnapshot.goals,
       subjects: workingSnapshot.subjects,
       topics: workingSnapshot.topics,
@@ -465,8 +575,19 @@ async function replanPlannerState(options: {
       scopeTimingsMs,
       repairTriggered,
       hardCoverageEscalationForced,
+      localApplyMs: options.localApplyMs,
+      precheckMs,
+      writeMs,
+      snapshotLoadMs,
+      repairMs,
+      backgroundValidationMs: options.backgroundValidationMs,
+      escalationReason,
     });
 
+    if (shouldAbortForRevision()) {
+      return;
+    }
+    const writeStartedAtMs = nowMs();
     await replacePlanningHorizon(
       replanned.studyBlocks,
       applyReplanDiagnostics(replanned.weeklyPlans, diagnostics),
@@ -477,18 +598,29 @@ async function replanPlannerState(options: {
         aggressiveFutureReset: shouldAggressivelyResetFuture,
       },
     );
+    writeMs += nowMs() - writeStartedAtMs;
   };
 
   await buildAndReplaceHorizon(snapshot);
+  if (shouldAbortForRevision()) {
+    return loadPlannerSnapshot();
+  }
 
+  let nextSnapshotLoadStartedAtMs = nowMs();
   let nextSnapshot = await loadPlannerSnapshot();
+  snapshotLoadMs += nowMs() - nextSnapshotLoadStartedAtMs;
   if (!getCollapsedCoverageRepairState(nextSnapshot, referenceDate).hasCollapsedCoverage) {
     return nextSnapshot;
   }
 
+  const repairStartedAtMs = nowMs();
   nextSnapshot = await repairCollapsedCoveragePlanningState(referenceDate);
+  repairMs += nowMs() - repairStartedAtMs;
   await buildAndReplaceHorizon(nextSnapshot);
-  return loadPlannerSnapshot();
+  nextSnapshotLoadStartedAtMs = nowMs();
+  const finalSnapshot = await loadPlannerSnapshot();
+  snapshotLoadMs += nowMs() - nextSnapshotLoadStartedAtMs;
+  return finalSnapshot;
 }
 
 function studyBlockOverlapsExpandedFixedEvent(block: StudyBlock, expandedEvent: FixedEvent) {
@@ -529,6 +661,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   initialized: false,
   loading: false,
   error: null,
+  backgroundReplanStatus: "idle",
+  backgroundReplanScope: null,
+  backgroundReplanDiagnostics: null,
   currentWeekStart: getCurrentWeekKey(),
   goals: [],
   subjects: [],
@@ -553,6 +688,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       const snapshot = await initializePlannerDatabase();
       set({
         ...snapshot,
+        backgroundReplanStatus: "idle",
+        backgroundReplanScope: null,
+        backgroundReplanDiagnostics: null,
         currentWeekStart: getCurrentWeekKey(),
         initialized: true,
         loading: false,
@@ -571,6 +709,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       const snapshot = await loadPlannerSnapshot();
       set({
         ...snapshot,
+        backgroundReplanStatus: "idle",
+        backgroundReplanScope: null,
+        backgroundReplanDiagnostics: null,
         loading: false,
       });
     } catch (error) {
@@ -589,12 +730,16 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     set({ loading: true, error: null });
 
     try {
+      bumpPlannerMutationRevision();
       const snapshot = await replanPlannerState({
         mutation: "regenerate_horizon",
         preserveFlexibleFutureBlocks: false,
       });
       set({
         ...snapshot,
+        backgroundReplanStatus: "idle",
+        backgroundReplanScope: null,
+        backgroundReplanDiagnostics: null,
         loading: false,
       });
     } catch (error) {
@@ -641,12 +786,16 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       const snapshot = await loadPlannerSnapshot();
       set({
         ...snapshot,
+        backgroundReplanStatus: "idle",
+        backgroundReplanScope: null,
+        backgroundReplanDiagnostics: null,
         loading: false,
         error: null,
       });
       return;
     }
 
+    bumpPlannerMutationRevision();
     const snapshot = await replanPlannerState({
       mutation: "fixed_event",
       preserveFlexibleFutureBlocks: false,
@@ -654,6 +803,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     });
     set({
       ...snapshot,
+      backgroundReplanStatus: "idle",
+      backgroundReplanScope: null,
+      backgroundReplanDiagnostics: null,
       loading: false,
       error: null,
     });
@@ -661,6 +813,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
   saveSickDay: async (sickDay) => {
     await persistSickDay(sickDay);
+    bumpPlannerMutationRevision();
     const snapshot = await replanPlannerState({
       mutation: "sick_day",
       affectedWeekStart: fromDateKey(sickDay.startDate),
@@ -668,6 +821,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     });
     set({
       ...snapshot,
+      backgroundReplanStatus: "idle",
+      backgroundReplanScope: null,
+      backgroundReplanDiagnostics: null,
       loading: false,
       error: null,
     });
@@ -675,6 +831,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
   saveFocusedDay: async (focusedDay) => {
     await persistFocusedDay(focusedDay);
+    bumpPlannerMutationRevision();
     const snapshot = await replanPlannerState({
       mutation: "focused_day",
       affectedWeekStart: fromDateKey(focusedDay.date),
@@ -682,6 +839,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     });
     set({
       ...snapshot,
+      backgroundReplanStatus: "idle",
+      backgroundReplanScope: null,
+      backgroundReplanDiagnostics: null,
       loading: false,
       error: null,
     });
@@ -689,6 +849,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
   saveFocusedWeek: async (focusedWeek) => {
     await persistFocusedWeek(focusedWeek);
+    bumpPlannerMutationRevision();
     const snapshot = await replanPlannerState({
       mutation: "focused_week",
       affectedWeekStart: fromDateKey(focusedWeek.weekStart),
@@ -696,6 +857,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     });
     set({
       ...snapshot,
+      backgroundReplanStatus: "idle",
+      backgroundReplanScope: null,
+      backgroundReplanDiagnostics: null,
       loading: false,
       error: null,
     });
@@ -707,6 +871,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     } else {
       await deleteFixedEventById(id);
     }
+    bumpPlannerMutationRevision();
     const snapshot = await replanPlannerState({
       mutation: "fixed_event",
       preserveFlexibleFutureBlocks: false,
@@ -714,42 +879,57 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     });
     set({
       ...snapshot,
+      backgroundReplanStatus: "idle",
+      backgroundReplanScope: null,
+      backgroundReplanDiagnostics: null,
       loading: false,
       error: null,
     });
   },
   deleteSickDay: async (id) => {
     await deleteSickDayRecordById(id);
+    bumpPlannerMutationRevision();
     const snapshot = await replanPlannerState({
       mutation: "sick_day",
       preserveFlexibleFutureBlocks: false,
     });
     set({
       ...snapshot,
+      backgroundReplanStatus: "idle",
+      backgroundReplanScope: null,
+      backgroundReplanDiagnostics: null,
       loading: false,
       error: null,
     });
   },
   deleteFocusedDay: async (id) => {
     await deleteFocusedDayRecordById(id);
+    bumpPlannerMutationRevision();
     const snapshot = await replanPlannerState({
       mutation: "focused_day",
       preserveFlexibleFutureBlocks: false,
     });
     set({
       ...snapshot,
+      backgroundReplanStatus: "idle",
+      backgroundReplanScope: null,
+      backgroundReplanDiagnostics: null,
       loading: false,
       error: null,
     });
   },
   deleteFocusedWeek: async (id) => {
     await deleteFocusedWeekRecordById(id);
+    bumpPlannerMutationRevision();
     const snapshot = await replanPlannerState({
       mutation: "focused_week",
       preserveFlexibleFutureBlocks: false,
     });
     set({
       ...snapshot,
+      backgroundReplanStatus: "idle",
+      backgroundReplanScope: null,
+      backgroundReplanDiagnostics: null,
       loading: false,
       error: null,
     });
@@ -791,20 +971,23 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     };
 
     await savePreferences(nextPreferences);
+    bumpPlannerMutationRevision();
     const snapshot = await replanPlannerState({
       mutation: "preferences",
       preserveFlexibleFutureBlocks: false,
     });
     set({
       ...snapshot,
+      backgroundReplanStatus: "idle",
+      backgroundReplanScope: null,
+      backgroundReplanDiagnostics: null,
       loading: false,
       error: null,
     });
   },
   saveManualStudyBlock: async ({ start, end, topicId, notes, status, actualMinutes }) => {
-    set({ loading: true, error: null });
-
     try {
+      const mutationStartedAtMs = nowMs();
       const snapshot = await loadPlannerSnapshot();
       const referenceDate = new Date();
       const isHistoricalBlock = new Date(end).getTime() <= referenceDate.getTime();
@@ -847,25 +1030,26 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         });
       }
 
-      const nextSnapshot = await replanPlannerState({
-        mutation:
-          isHistoricalBlock || !shouldUseWeekLocalReplan(new Date(start), new Date())
-            ? "manual_block_tail"
-            : "manual_block_current_week",
-        scope:
-          isHistoricalBlock || !shouldUseWeekLocalReplan(new Date(start), new Date())
-            ? "tail_from_week"
-            : "week_local",
-        affectedWeekStart: startOfPlannerWeek(new Date(start)),
-        preservedStudyBlockIds: [nextBlock.id],
+      const affectedWeekStart = startOfPlannerWeek(new Date(start));
+      const useWeekLocalReplan =
+        !isHistoricalBlock && shouldUseWeekLocalReplan(new Date(start), new Date());
+      const localApplyMs = nowMs() - mutationStartedAtMs;
+      bumpPlannerMutationRevision();
+      await applyRoutineMutationPhaseA({
+        mutation: useWeekLocalReplan ? "manual_block_current_week" : "manual_block_tail",
+        affectedWeekStart,
+        preservedStudyBlockIds: [savedBlock.id],
         preserveFlexibleFutureBlocks: false,
+        localApplyMs,
+        useWeekLocalReplan,
       });
-      set({
-        ...nextSnapshot,
-        loading: false,
-        error: null,
+      queueBackgroundReplan({
+        mutation: useWeekLocalReplan ? "manual_block_current_week" : "manual_block_tail",
+        affectedWeekStart,
+        preservedStudyBlockIds: [savedBlock.id],
+        preserveFlexibleFutureBlocks: false,
+        localApplyMs,
       });
-      get().setCurrentWeekStart(toDateKey(startOfPlannerWeek(new Date(start))));
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to save the manual study block.";
@@ -877,9 +1061,8 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
   editStudyBlockSchedule: async ({ blockId, start, end, topicId, notes }) => {
-    set({ loading: true, error: null });
-
     try {
+      const mutationStartedAtMs = nowMs();
       const snapshot = await loadPlannerSnapshot();
       const existingBlock = snapshot.studyBlocks.find((candidate) => candidate.id === blockId);
 
@@ -903,23 +1086,25 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         notes: notes?.trim() ?? existingBlock.notes,
       });
 
-      const nextSnapshot = await replanPlannerState({
-        mutation: shouldUseWeekLocalReplan(new Date(start), new Date())
-          ? "edit_study_block"
-          : "manual_block_tail",
-        scope: shouldUseWeekLocalReplan(new Date(start), new Date())
-          ? "week_local"
-          : "tail_from_week",
-        affectedWeekStart: startOfPlannerWeek(new Date(start)),
+      const affectedWeekStart = startOfPlannerWeek(new Date(start));
+      const useWeekLocalReplan = shouldUseWeekLocalReplan(new Date(start), new Date());
+      const localApplyMs = nowMs() - mutationStartedAtMs;
+      bumpPlannerMutationRevision();
+      await applyRoutineMutationPhaseA({
+        mutation: useWeekLocalReplan ? "edit_study_block" : "manual_block_tail",
+        affectedWeekStart,
         preservedStudyBlockIds: [existingBlock.id],
         preserveFlexibleFutureBlocks: false,
+        localApplyMs,
+        useWeekLocalReplan,
       });
-      set({
-        ...nextSnapshot,
-        loading: false,
-        error: null,
+      queueBackgroundReplan({
+        mutation: useWeekLocalReplan ? "edit_study_block" : "manual_block_tail",
+        affectedWeekStart,
+        preservedStudyBlockIds: [existingBlock.id],
+        preserveFlexibleFutureBlocks: false,
+        localApplyMs,
       });
-      get().setCurrentWeekStart(toDateKey(startOfPlannerWeek(new Date(start))));
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to edit the study block.";
@@ -983,18 +1168,25 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         const nextSnapshot = await loadPlannerSnapshot();
         set({
           ...nextSnapshot,
+          backgroundReplanStatus: "idle",
+          backgroundReplanScope: null,
+          backgroundReplanDiagnostics: null,
           loading: false,
           error: null,
         });
         return;
       }
 
+      bumpPlannerMutationRevision();
       const nextSnapshot = await replanPlannerState({
         mutation: "topic_progress",
         preserveFlexibleFutureBlocks: false,
       });
       set({
         ...nextSnapshot,
+        backgroundReplanStatus: "idle",
+        backgroundReplanScope: null,
+        backgroundReplanDiagnostics: null,
         loading: false,
         error: null,
       });
@@ -1013,6 +1205,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     notes = "",
     perceivedDifficulty = 3,
   }) => {
+    const mutationStartedAtMs = nowMs();
     const snapshot = await loadPlannerSnapshot();
     const block = snapshot.studyBlocks.find((candidate) => candidate.id === blockId);
 
@@ -1089,6 +1282,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
 
     if (bypassReplan) {
+      const affectedWeekStart = startOfPlannerWeek(new Date(block.start));
+      const localApplyMs = nowMs() - mutationStartedAtMs;
+      bumpPlannerMutationRevision();
       const nextLocalState = applyStatusUpdateWithoutReplan({
         snapshot,
         updatedBlock,
@@ -1103,37 +1299,52 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         loading: false,
         error: null,
       });
+      queueBackgroundReplan({
+        mutation: "status_update",
+        affectedWeekStart,
+        preserveFlexibleFutureBlocks: false,
+        localApplyMs,
+      });
     } else {
       const referenceDate = new Date();
-      const nextSnapshot = shouldRunStatusUpdateReplan({
-        previousBlock: block,
-        nextBlock: updatedBlock,
+      const affectedWeekStart = startOfPlannerWeek(new Date(block.start));
+      const useWeekLocalReplan =
+        shouldUseWeekLocalReplan(new Date(block.start), referenceDate) &&
+        shouldRunStatusUpdateReplan({
+          previousBlock: block,
+          nextBlock: updatedBlock,
+          studyBlocks: snapshot.studyBlocks,
+          referenceDate,
+          hasCollapsedCoverage: getCollapsedCoverageRepairState(snapshot, referenceDate).hasCollapsedCoverage,
+        });
+      const preservedStudyBlockIds = getStatusUpdatePreservedStudyBlockIds({
         studyBlocks: snapshot.studyBlocks,
+        updatedBlockId: block.id,
+        nextStatus: status,
         referenceDate,
-        hasCollapsedCoverage: getCollapsedCoverageRepairState(snapshot, referenceDate).hasCollapsedCoverage,
-      })
-        ? await replanPlannerState({
-            mutation: "status_update",
-            scope: "week_local",
-            affectedWeekStart: startOfPlannerWeek(new Date(block.start)),
-            preserveFlexibleFutureBlocks: false,
-            preservedStudyBlockIds: getStatusUpdatePreservedStudyBlockIds({
-              studyBlocks: snapshot.studyBlocks,
-              updatedBlockId: block.id,
-              nextStatus: status,
-              referenceDate,
-            }),
-          })
-        : await loadPlannerSnapshot();
-      set({
-        ...nextSnapshot,
-        loading: false,
-        error: null,
+      });
+      const localApplyMs = nowMs() - mutationStartedAtMs;
+      bumpPlannerMutationRevision();
+      await applyRoutineMutationPhaseA({
+        mutation: "status_update",
+        affectedWeekStart,
+        preservedStudyBlockIds,
+        preserveFlexibleFutureBlocks: false,
+        localApplyMs,
+        useWeekLocalReplan,
+      });
+      queueBackgroundReplan({
+        mutation: "status_update",
+        affectedWeekStart,
+        preservedStudyBlockIds,
+        preserveFlexibleFutureBlocks: false,
+        localApplyMs,
       });
     }
     get().setCurrentWeekStart(toDateKey(startOfPlannerWeek(new Date(block.start))));
   },
   requestMorePractice: async ({ blockId, extraMinutes, notes = "" }) => {
+    const mutationStartedAtMs = nowMs();
     const snapshot = await loadPlannerSnapshot();
     const block = snapshot.studyBlocks.find((candidate) => candidate.id === blockId);
 
@@ -1171,25 +1382,28 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       })
       .map((candidate) => candidate.id);
 
-    const nextSnapshot = await replanPlannerState({
-      mutation: shouldUseWeekLocalReplan(new Date(block.start), now)
-        ? "request_more_practice"
-        : "manual_block_tail",
-      scope: shouldUseWeekLocalReplan(new Date(block.start), now)
-        ? "week_local"
-        : "tail_from_week",
-      affectedWeekStart: startOfPlannerWeek(new Date(block.start)),
+    const affectedWeekStart = startOfPlannerWeek(new Date(block.start));
+    const useWeekLocalReplan = shouldUseWeekLocalReplan(new Date(block.start), now);
+    const localApplyMs = nowMs() - mutationStartedAtMs;
+    bumpPlannerMutationRevision();
+    await applyRoutineMutationPhaseA({
+      mutation: useWeekLocalReplan ? "request_more_practice" : "manual_block_tail",
+      affectedWeekStart,
       preservedStudyBlockIds,
       preserveFlexibleFutureBlocks: false,
+      localApplyMs,
+      useWeekLocalReplan,
     });
-    set({
-      ...nextSnapshot,
-      loading: false,
-      error: null,
+    queueBackgroundReplan({
+      mutation: useWeekLocalReplan ? "request_more_practice" : "manual_block_tail",
+      affectedWeekStart,
+      preservedStudyBlockIds,
+      preserveFlexibleFutureBlocks: false,
+      localApplyMs,
     });
-    get().setCurrentWeekStart(toDateKey(startOfPlannerWeek(new Date(block.start))));
   },
   reassignStudyBlock: async ({ blockId, topicId, notes }) => {
+    const mutationStartedAtMs = nowMs();
     const snapshot = await loadPlannerSnapshot();
     const block = snapshot.studyBlocks.find((candidate) => candidate.id === blockId);
 
@@ -1238,23 +1452,25 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
     await updateStudyBlock(updatedBlock);
 
-    const nextSnapshot = await replanPlannerState({
-      mutation: shouldUseWeekLocalReplan(new Date(block.start), new Date())
-        ? "reassign_study_block"
-        : "manual_block_tail",
-      scope: shouldUseWeekLocalReplan(new Date(block.start), new Date())
-        ? "week_local"
-        : "tail_from_week",
-      affectedWeekStart: startOfPlannerWeek(new Date(block.start)),
+    const affectedWeekStart = startOfPlannerWeek(new Date(block.start));
+    const useWeekLocalReplan = shouldUseWeekLocalReplan(new Date(block.start), new Date());
+    const localApplyMs = nowMs() - mutationStartedAtMs;
+    bumpPlannerMutationRevision();
+    await applyRoutineMutationPhaseA({
+      mutation: useWeekLocalReplan ? "reassign_study_block" : "manual_block_tail",
+      affectedWeekStart,
       preservedStudyBlockIds: [block.id],
       preserveFlexibleFutureBlocks: false,
+      localApplyMs,
+      useWeekLocalReplan,
     });
-    set({
-      ...nextSnapshot,
-      loading: false,
-      error: null,
+    queueBackgroundReplan({
+      mutation: useWeekLocalReplan ? "reassign_study_block" : "manual_block_tail",
+      affectedWeekStart,
+      preservedStudyBlockIds: [block.id],
+      preserveFlexibleFutureBlocks: false,
+      localApplyMs,
     });
-    get().setCurrentWeekStart(toDateKey(startOfPlannerWeek(new Date(block.start))));
   },
   exportToJson: async () => {
     const payload = await exportPlannerData();
@@ -1264,9 +1480,13 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     set({ loading: true, error: null });
 
     try {
+      bumpPlannerMutationRevision();
       const snapshot = await importPlannerData(rawJson);
       set({
         ...snapshot,
+        backgroundReplanStatus: "idle",
+        backgroundReplanScope: null,
+        backgroundReplanDiagnostics: null,
         currentWeekStart: getCurrentWeekKey(),
         loading: false,
       });
@@ -1281,6 +1501,131 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     set({ selectedStudyBlockId: id });
   },
 }));
+
+function applyPlannerSnapshotToStore(
+  snapshot: Awaited<ReturnType<typeof loadPlannerSnapshot>>,
+  overrides?: Partial<PlannerState>,
+) {
+  usePlannerStore.setState({
+    ...snapshot,
+    loading: false,
+    error: null,
+    ...(overrides ?? {}),
+  });
+}
+
+async function applyRoutineMutationPhaseA(options: {
+  mutation: PlannerReplanMutation;
+  affectedWeekStart: Date;
+  preserveFlexibleFutureBlocks?: boolean;
+  preservedStudyBlockIds?: string[];
+  localApplyMs?: number | null;
+  useWeekLocalReplan: boolean;
+}) {
+  const expectedRevision = getPlannerMutationRevision();
+  const nextSnapshot = options.useWeekLocalReplan
+    ? await replanPlannerState({
+        mutation: options.mutation,
+        scope: "week_local",
+        affectedWeekStart: options.affectedWeekStart,
+        preserveFlexibleFutureBlocks: options.preserveFlexibleFutureBlocks,
+        preservedStudyBlockIds: options.preservedStudyBlockIds,
+        localApplyMs: options.localApplyMs,
+        expectedRevision,
+      })
+    : await loadPlannerSnapshot();
+
+  if (expectedRevision !== getPlannerMutationRevision()) {
+    return;
+  }
+
+  applyPlannerSnapshotToStore(nextSnapshot);
+  usePlannerStore
+    .getState()
+    .setCurrentWeekStart(toDateKey(startOfPlannerWeek(options.affectedWeekStart)));
+}
+
+function queueBackgroundReplan(options: {
+  mutation: PlannerReplanMutation;
+  affectedWeekStart: Date;
+  preserveFlexibleFutureBlocks?: boolean;
+  preservedStudyBlockIds?: string[];
+  localApplyMs?: number | null;
+}) {
+  const requestId = ++backgroundReplanRequestId;
+  const expectedRevision = getPlannerMutationRevision();
+  const backgroundStartedAtMs = nowMs();
+  usePlannerStore.setState({
+    backgroundReplanStatus: "running",
+    backgroundReplanScope: "tail_from_week",
+    backgroundReplanDiagnostics: null,
+  });
+
+  void Promise.resolve().then(async () => {
+    try {
+      const nextSnapshot = await replanPlannerState({
+        mutation: options.mutation,
+        scope: "tail_from_week",
+        affectedWeekStart: options.affectedWeekStart,
+        preserveFlexibleFutureBlocks: options.preserveFlexibleFutureBlocks,
+        preservedStudyBlockIds: options.preservedStudyBlockIds,
+        localApplyMs: options.localApplyMs,
+        expectedRevision,
+      });
+
+      if (
+        requestId !== backgroundReplanRequestId ||
+        expectedRevision !== getPlannerMutationRevision()
+      ) {
+        return;
+      }
+
+      const relevantWeekStart = toDateKey(startOfPlannerWeek(options.affectedWeekStart));
+      const backgroundDiagnostics =
+        nextSnapshot.weeklyPlans.find((weeklyPlan) => weeklyPlan.weekStart === relevantWeekStart)
+          ?.replanDiagnostics ??
+        nextSnapshot.weeklyPlans.at(-1)?.replanDiagnostics ??
+        null;
+
+      applyPlannerSnapshotToStore(nextSnapshot, {
+        backgroundReplanStatus: "idle",
+        backgroundReplanScope: null,
+        backgroundReplanDiagnostics: backgroundDiagnostics
+          ? {
+              ...backgroundDiagnostics,
+              backgroundValidationMs: Number((nowMs() - backgroundStartedAtMs).toFixed(1)),
+            }
+          : null,
+      });
+    } catch (error) {
+      if (
+        requestId !== backgroundReplanRequestId ||
+        expectedRevision !== getPlannerMutationRevision()
+      ) {
+        return;
+      }
+
+      usePlannerStore.setState({
+        backgroundReplanStatus: "failed",
+        backgroundReplanScope: "tail_from_week",
+        backgroundReplanDiagnostics: {
+          scope: "tail_from_week",
+          escalationPath: ["tail_from_week"],
+          totalGenerationMs: Number((nowMs() - backgroundStartedAtMs).toFixed(1)),
+          scopeTimingsMs: {},
+          repairTriggered: false,
+          hardCoverageEscalationForced: false,
+          backgroundValidationMs: Number((nowMs() - backgroundStartedAtMs).toFixed(1)),
+          escalationReason: null,
+        },
+        error:
+          error instanceof Error
+            ? error.message
+            : "Background planner validation failed.",
+      });
+    }
+  });
+}
 
 async function buildManualStudyBlock(options: {
   snapshot: Awaited<ReturnType<typeof loadPlannerSnapshot>>;

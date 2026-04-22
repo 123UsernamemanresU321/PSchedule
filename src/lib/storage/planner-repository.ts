@@ -24,6 +24,7 @@ import type {
   FocusedDay,
   FocusedWeek,
   PlannerExportPayload,
+  PlannerReplanScope,
   Preferences,
   SeedDataset,
   SickDay,
@@ -614,6 +615,44 @@ function normalizeWeeklyPlan(
           repairTriggered: weeklyPlan.replanDiagnostics.repairTriggered ?? false,
           hardCoverageEscalationForced:
             weeklyPlan.replanDiagnostics.hardCoverageEscalationForced ?? false,
+          localApplyMs:
+            typeof weeklyPlan.replanDiagnostics.localApplyMs === "number" &&
+            Number.isFinite(weeklyPlan.replanDiagnostics.localApplyMs) &&
+            weeklyPlan.replanDiagnostics.localApplyMs >= 0
+              ? weeklyPlan.replanDiagnostics.localApplyMs
+              : null,
+          precheckMs:
+            typeof weeklyPlan.replanDiagnostics.precheckMs === "number" &&
+            Number.isFinite(weeklyPlan.replanDiagnostics.precheckMs) &&
+            weeklyPlan.replanDiagnostics.precheckMs >= 0
+              ? weeklyPlan.replanDiagnostics.precheckMs
+              : null,
+          writeMs:
+            typeof weeklyPlan.replanDiagnostics.writeMs === "number" &&
+            Number.isFinite(weeklyPlan.replanDiagnostics.writeMs) &&
+            weeklyPlan.replanDiagnostics.writeMs >= 0
+              ? weeklyPlan.replanDiagnostics.writeMs
+              : null,
+          snapshotLoadMs:
+            typeof weeklyPlan.replanDiagnostics.snapshotLoadMs === "number" &&
+            Number.isFinite(weeklyPlan.replanDiagnostics.snapshotLoadMs) &&
+            weeklyPlan.replanDiagnostics.snapshotLoadMs >= 0
+              ? weeklyPlan.replanDiagnostics.snapshotLoadMs
+              : null,
+          repairMs:
+            typeof weeklyPlan.replanDiagnostics.repairMs === "number" &&
+            Number.isFinite(weeklyPlan.replanDiagnostics.repairMs) &&
+            weeklyPlan.replanDiagnostics.repairMs >= 0
+              ? weeklyPlan.replanDiagnostics.repairMs
+              : null,
+          backgroundValidationMs:
+            typeof weeklyPlan.replanDiagnostics.backgroundValidationMs === "number" &&
+            Number.isFinite(weeklyPlan.replanDiagnostics.backgroundValidationMs) &&
+            weeklyPlan.replanDiagnostics.backgroundValidationMs >= 0
+              ? weeklyPlan.replanDiagnostics.backgroundValidationMs
+              : null,
+          escalationReason:
+            weeklyPlan.replanDiagnostics.escalationReason ?? null,
         }
       : null,
     weeksRemainingToDeadline: weeklyPlan.weeksRemainingToDeadline ?? 1,
@@ -633,6 +672,103 @@ export interface PlannerSnapshot {
   completionLogs: PlannerExportPayload["completionLogs"];
   weeklyPlans: PlannerExportPayload["weeklyPlans"];
   preferences: Preferences;
+}
+
+function getScopedWeekStarts(
+  snapshot: PlannerSnapshot,
+  scope: PlannerReplanScope,
+  affectedWeekStart: Date,
+) {
+  const affectedWeekKey = toDateKey(startOfPlannerWeek(affectedWeekStart));
+
+  if (scope === "week_local") {
+    return [affectedWeekKey];
+  }
+
+  return snapshot.weeklyPlans
+    .map((weeklyPlan) => weeklyPlan.weekStart)
+    .filter((weekStart) => weekStart >= affectedWeekKey)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+export function getScopedReplanPrecheckState(options: {
+  snapshot: PlannerSnapshot;
+  scope: PlannerReplanScope;
+  affectedWeekStart: Date;
+  referenceDate?: Date;
+}) {
+  const referenceDate = options.referenceDate ?? new Date();
+  const affectedWeekKey = toDateKey(startOfPlannerWeek(options.affectedWeekStart));
+  const relevantWeekStarts = getScopedWeekStarts(
+    options.snapshot,
+    options.scope,
+    options.affectedWeekStart,
+  );
+  const relevantWeekStartSet = new Set(relevantWeekStarts);
+  const relevantWeeklyPlans = options.snapshot.weeklyPlans.filter((weeklyPlan) =>
+    relevantWeekStartSet.has(weeklyPlan.weekStart),
+  );
+  const relevantStudyBlocks = options.snapshot.studyBlocks.filter((block) => {
+    const weekStart = block.weekStart || toDateKey(startOfPlannerWeek(new Date(block.start)));
+    return relevantWeekStartSet.has(weekStart);
+  });
+  const invalidOverlapIssues = validateGeneratedHorizon({
+    studyBlocks: relevantStudyBlocks,
+    topics: options.snapshot.topics,
+    weeklyPlans: relevantWeeklyPlans,
+    fixedEvents: options.snapshot.fixedEvents,
+    preferences: options.snapshot.preferences,
+    sickDays: options.snapshot.sickDays,
+    referenceDate,
+  }).filter((issue) => issue.severity === "error" && issue.code === "overlap");
+  const hasFutureFillableGap = relevantWeeklyPlans.some((weeklyPlan) => {
+    if (weeklyPlan.fillableGapDateKeys.length === 0) {
+      return false;
+    }
+
+    return zeroUnscheduledCoverageSubjectIds.some(
+      (subjectId) => weeklyPlan.hardCoverageSatisfiedBySubject[subjectId] === false,
+    );
+  });
+  const hardConstraintSubjectIds = options.snapshot.subjects
+    .filter((subject) =>
+      zeroUnscheduledCoverageSubjectIds.includes(
+        subject.id as (typeof zeroUnscheduledCoverageSubjectIds)[number],
+      ),
+    )
+    .map((subject) => ({
+      subjectId: subject.id,
+      progress: getSubjectProgress(subject, options.snapshot.topics, options.snapshot.studyBlocks, referenceDate),
+    }))
+    .filter(({ progress }) => progress.remainingMinutes > 0 && progress.unscheduledMinutes > 0)
+    .map(({ subjectId }) => subjectId);
+  const missingScopedWeeks =
+    options.scope !== "week_local" &&
+    relevantWeekStarts.length === 0 &&
+    options.snapshot.weeklyPlans.every((weeklyPlan) => weeklyPlan.weekStart < affectedWeekKey);
+  const escalationReason = hardConstraintSubjectIds.length
+    ? "hard_coverage"
+    : hasFutureFillableGap
+    ? "fillable_gap"
+    : invalidOverlapIssues.length > 0
+    ? "overlap"
+    : missingScopedWeeks
+    ? "collapsed_coverage"
+    : null;
+
+  return {
+    relevantWeekStarts,
+    invalidOverlapIssues,
+    hasFutureFillableGap,
+    hardConstraintSubjectIds,
+    missingScopedWeeks,
+    hasPotentialIssue:
+      hardConstraintSubjectIds.length > 0 ||
+      hasFutureFillableGap ||
+      invalidOverlapIssues.length > 0 ||
+      missingScopedWeeks,
+    escalationReason,
+  };
 }
 
 export function getCollapsedCoverageRepairState(
@@ -836,6 +972,7 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
 
   const replanned = generateStudyPlanHorizon({
     startWeek: weekStart,
+    referenceDate,
     goals: workingSnapshot.goals,
     subjects: workingSnapshot.subjects,
     topics: workingSnapshot.topics,
@@ -863,6 +1000,7 @@ async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: D
   nextSnapshot = await syncPlanningSubjectsToCurrentSeed(nextSnapshot, referenceDate);
   const repaired = generateStudyPlanHorizon({
     startWeek: weekStart,
+    referenceDate,
     goals: nextSnapshot.goals,
     subjects: nextSnapshot.subjects,
     topics: nextSnapshot.topics,
@@ -905,6 +1043,7 @@ async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Da
   const repairState = getCollapsedCoverageRepairState(syncedSnapshot, referenceDate);
   const replanned = generateStudyPlanHorizon({
     startWeek: weekStart,
+    referenceDate,
     goals: syncedSnapshot.goals,
     subjects: syncedSnapshot.subjects,
     topics: syncedSnapshot.topics,
@@ -1699,6 +1838,7 @@ export async function initializePlannerDatabase(referenceDate = new Date()) {
 
     const initialPlan = generateStudyPlanHorizon({
       startWeek: startOfPlannerWeek(referenceDate),
+      referenceDate,
       goals: seedDataset.goals,
       subjects: seedDataset.subjects,
       topics: seedDataset.topics,
@@ -1746,6 +1886,46 @@ export async function replaceWeeklyPlan(studyBlocks: StudyBlock[], weeklyPlan: W
       await db.weeklyPlans.put(weeklyPlan);
     },
   );
+}
+
+export async function replacePlanningWeeks(
+  studyBlocks: StudyBlock[],
+  weeklyPlans: WeeklyPlan[],
+  changedWeekStarts: string[],
+) {
+  if (changedWeekStarts.length === 0) {
+    return;
+  }
+
+  const changedWeekStartSet = new Set(changedWeekStarts);
+  const normalizedStudyBlocks = studyBlocks.map(normalizeStudyBlock);
+  const nextStudyBlocks = normalizedStudyBlocks.filter((block) =>
+    changedWeekStartSet.has(block.weekStart),
+  );
+  const nextWeeklyPlans = weeklyPlans.filter((weeklyPlan) =>
+    changedWeekStartSet.has(weeklyPlan.weekStart),
+  );
+
+  await db.transaction("rw", db.studyBlocks, db.weeklyPlans, async () => {
+    const blockIdsToDelete = (await db.studyBlocks
+      .where("weekStart")
+      .anyOf(changedWeekStarts)
+      .primaryKeys()) as string[];
+
+    if (blockIdsToDelete.length) {
+      await db.studyBlocks.bulkDelete(blockIdsToDelete);
+    }
+
+    await db.weeklyPlans.bulkDelete(changedWeekStarts);
+
+    if (nextStudyBlocks.length) {
+      await db.studyBlocks.bulkPut(nextStudyBlocks);
+    }
+
+    if (nextWeeklyPlans.length) {
+      await db.weeklyPlans.bulkPut(nextWeeklyPlans);
+    }
+  });
 }
 
 export async function replacePlanningHorizon(

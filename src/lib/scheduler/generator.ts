@@ -3297,6 +3297,7 @@ export function shouldPreserveStudyBlockOnRegeneration(
 export function generateStudyPlanHorizon(options: {
   startWeek?: Date;
   endWeek?: Date;
+  referenceDate?: Date;
   goals: Goal[];
   subjects: Subject[];
   topics: Topic[];
@@ -3312,10 +3313,11 @@ export function generateStudyPlanHorizon(options: {
   availabilityOverrideSubjectIds?: Subject["id"][];
 }) {
   const startWeek = startOfPlannerWeek(options.startWeek ?? new Date());
-  const horizonStartDate = getPlannerReferenceDate(startWeek);
+  const referenceDate = options.referenceDate ?? new Date();
+  const horizonStartDate = getPlannerReferenceDate(startWeek, referenceDate);
   const configuredEndWeek = options.endWeek
     ? startOfPlannerWeek(options.endWeek)
-    : getPlanningHorizonEndWeek(options.goals, options.subjects, startWeek);
+    : getPlanningHorizonEndWeek(options.goals, options.subjects, referenceDate);
   const existingStudyBlocks = options.existingStudyBlocks ?? [];
   const extraPreservedIds = new Set(options.preservedStudyBlockIds ?? []);
   const preservedLockedBlocks = existingStudyBlocks.filter(
@@ -3466,6 +3468,408 @@ export function generateStudyPlanHorizon(options: {
       ...plan,
       horizonEndDate,
     })),
+  };
+}
+
+function buildComparableStudyBlock(block: StudyBlock) {
+  return {
+    date: block.date,
+    start: block.start,
+    end: block.end,
+    subjectId: block.subjectId,
+    topicId: block.topicId,
+    title: block.title,
+    sessionSummary: block.sessionSummary,
+    paperCode: block.paperCode,
+    unitTitle: block.unitTitle,
+    blockType: block.blockType,
+    intensity: block.intensity,
+    status: block.status,
+    creationSource: block.creationSource,
+    sourceMaterials: block.sourceMaterials,
+    slotEnergy: block.slotEnergy,
+    estimatedMinutes: block.estimatedMinutes,
+    actualMinutes: block.actualMinutes,
+    notes: block.notes,
+    rescheduleCount: block.rescheduleCount,
+    assignmentLocked: block.assignmentLocked,
+    studyLayer: block.studyLayer ?? null,
+    followUpKind: block.followUpKind ?? null,
+    followUpSourceStudyBlockId: block.followUpSourceStudyBlockId ?? null,
+    followUpDueAt: block.followUpDueAt ?? null,
+  };
+}
+
+function areStudyBlockListsEquivalent(left: StudyBlock[], right: StudyBlock[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const comparableLeft = [...left]
+    .map(buildComparableStudyBlock)
+    .sort((a, b) =>
+      a.start.localeCompare(b.start) ||
+      a.end.localeCompare(b.end) ||
+      (a.topicId ?? "").localeCompare(b.topicId ?? "") ||
+      (a.followUpSourceStudyBlockId ?? "").localeCompare(b.followUpSourceStudyBlockId ?? "") ||
+      a.title.localeCompare(b.title),
+    );
+  const comparableRight = [...right]
+    .map(buildComparableStudyBlock)
+    .sort((a, b) =>
+      a.start.localeCompare(b.start) ||
+      a.end.localeCompare(b.end) ||
+      (a.topicId ?? "").localeCompare(b.topicId ?? "") ||
+      (a.followUpSourceStudyBlockId ?? "").localeCompare(b.followUpSourceStudyBlockId ?? "") ||
+      a.title.localeCompare(b.title),
+    );
+
+  return JSON.stringify(comparableLeft) === JSON.stringify(comparableRight);
+}
+
+function buildComparableWeeklyPlan(weeklyPlan: WeeklyPlan | null | undefined) {
+  if (!weeklyPlan) {
+    return null;
+  }
+
+  return {
+    weekStart: weeklyPlan.weekStart,
+    requiredHoursBySubject: weeklyPlan.requiredHoursBySubject,
+    deadlinePaceHoursBySubject: weeklyPlan.deadlinePaceHoursBySubject,
+    assignedHoursBySubject: weeklyPlan.assignedHoursBySubject,
+    completedHoursBySubject: weeklyPlan.completedHoursBySubject,
+    remainingHoursBySubject: weeklyPlan.remainingHoursBySubject,
+    coverageGapHoursBySubject: weeklyPlan.coverageGapHoursBySubject,
+    scheduledToGoalHoursBySubject: weeklyPlan.scheduledToGoalHoursBySubject,
+    hardCoverageSatisfiedBySubject: weeklyPlan.hardCoverageSatisfiedBySubject,
+    underplannedSubjectIds: weeklyPlan.underplannedSubjectIds,
+    slackMinutes: weeklyPlan.slackMinutes,
+    carryOverBlockIds: weeklyPlan.carryOverBlockIds,
+    feasibilityScore: weeklyPlan.feasibilityScore,
+    riskFlag: weeklyPlan.riskFlag,
+    feasibilityWarnings: weeklyPlan.feasibilityWarnings,
+    fallbackTierUsed: weeklyPlan.fallbackTierUsed,
+    forcedCoverageMinutes: weeklyPlan.forcedCoverageMinutes,
+    usedSundayMinutes: weeklyPlan.usedSundayMinutes,
+    overloadMinutes: weeklyPlan.overloadMinutes,
+    overscheduledMinutes: weeklyPlan.overscheduledMinutes,
+    coverageComplete: weeklyPlan.coverageComplete,
+    fillableGapDateKeys: weeklyPlan.fillableGapDateKeys,
+    effectiveReservedCommitmentDurations: weeklyPlan.effectiveReservedCommitmentDurations,
+    excludedReservedCommitmentRuleIds: weeklyPlan.excludedReservedCommitmentRuleIds,
+    weeksRemainingToDeadline: weeklyPlan.weeksRemainingToDeadline,
+  };
+}
+
+function areWeeklyPlansEquivalent(left: WeeklyPlan | null | undefined, right: WeeklyPlan | null | undefined) {
+  return JSON.stringify(buildComparableWeeklyPlan(left)) === JSON.stringify(buildComparableWeeklyPlan(right));
+}
+
+function buildCarryForwardPlanningSignature(studyBlocks: StudyBlock[]) {
+  const topicStateById = new Map<
+    string,
+    {
+      plannedMinutes: number;
+      reviewMinutes: number;
+      latestEnd: string | null;
+      hasStudyHistory: boolean;
+    }
+  >();
+  const followUpStates: Array<{
+    followUpKind: string | null;
+    followUpSourceStudyBlockId: string | null;
+    followUpDueAt: string | null;
+    end: string;
+    estimatedMinutes: number;
+    status: StudyBlock["status"];
+  }> = [];
+
+  studyBlocks.forEach((block) => {
+    if (block.status === "missed") {
+      return;
+    }
+
+    if (block.topicId) {
+      const current = topicStateById.get(block.topicId) ?? {
+        plannedMinutes: 0,
+        reviewMinutes: 0,
+        latestEnd: null,
+        hasStudyHistory: false,
+      };
+
+      if (["planned", "rescheduled", "done", "partial"].includes(block.status)) {
+        current.plannedMinutes += block.estimatedMinutes;
+      }
+
+      if (
+        block.blockType === "review" &&
+        ["planned", "rescheduled", "done", "partial"].includes(block.status)
+      ) {
+        current.reviewMinutes += block.estimatedMinutes;
+      }
+
+      if (!current.latestEnd || block.end > current.latestEnd) {
+        current.latestEnd = block.end;
+      }
+
+      if (block.status === "done" || block.status === "partial") {
+        current.hasStudyHistory = true;
+      }
+
+      topicStateById.set(block.topicId, current);
+    }
+
+    if (block.followUpKind) {
+      followUpStates.push({
+        followUpKind: block.followUpKind,
+        followUpSourceStudyBlockId: block.followUpSourceStudyBlockId ?? null,
+        followUpDueAt: block.followUpDueAt ?? null,
+        end: block.end,
+        estimatedMinutes: block.estimatedMinutes,
+        status: block.status,
+      });
+    }
+  });
+
+  return JSON.stringify({
+    topicStates: Array.from(topicStateById.entries())
+      .map(([topicId, state]) => ({ topicId, ...state }))
+      .sort((left, right) => left.topicId.localeCompare(right.topicId)),
+    followUpStates: followUpStates.sort(
+      (left, right) =>
+        (left.followUpKind ?? "").localeCompare(right.followUpKind ?? "") ||
+        (left.followUpSourceStudyBlockId ?? "").localeCompare(right.followUpSourceStudyBlockId ?? "") ||
+        left.end.localeCompare(right.end),
+    ),
+  });
+}
+
+export function generateIncrementalStudyPlanTail(options: {
+  startWeek?: Date;
+  endWeek?: Date;
+  referenceDate?: Date;
+  goals: Goal[];
+  subjects: Subject[];
+  topics: Topic[];
+  completionLogs?: CompletionLog[];
+  fixedEvents: import("@/lib/types/planner").FixedEvent[];
+  sickDays?: SickDay[];
+  focusedDays?: FocusedDay[];
+  focusedWeeks?: FocusedWeek[];
+  preferences: Preferences;
+  existingStudyBlocks: StudyBlock[];
+  existingWeeklyPlans: WeeklyPlan[];
+  preservedStudyBlockIds?: string[];
+  preserveFlexibleFutureBlocks?: boolean;
+  availabilityOverrideSubjectIds?: Subject["id"][];
+}) {
+  const startWeek = startOfPlannerWeek(options.startWeek ?? new Date());
+  const referenceDate = options.referenceDate ?? new Date();
+  const horizonStartDate = getPlannerReferenceDate(startWeek, referenceDate);
+  const configuredEndWeek = options.endWeek
+    ? startOfPlannerWeek(options.endWeek)
+    : getPlanningHorizonEndWeek(options.goals, options.subjects, referenceDate);
+  const extraPreservedIds = new Set(options.preservedStudyBlockIds ?? []);
+  const preservedLockedBlocks = options.existingStudyBlocks.filter(
+    (block) =>
+      shouldPreserveStudyBlockOnRegeneration(block, {
+        preserveFlexibleFutureBlocks: options.preserveFlexibleFutureBlocks,
+      }) || extraPreservedIds.has(block.id),
+  );
+  const subjectDeadlinesById = Object.fromEntries(
+    options.subjects.map((subject) => [subject.id, subject.deadline]),
+  );
+  const existingWeeklyPlanByWeek = new Map(
+    options.existingWeeklyPlans.map((weeklyPlan) => [weeklyPlan.weekStart, weeklyPlan]),
+  );
+  const existingStudyBlocksByWeek = options.existingStudyBlocks.reduce<Record<string, StudyBlock[]>>(
+    (accumulator, block) => {
+      const weekStartKey = block.weekStart || toDateKey(startOfPlannerWeek(new Date(block.start)));
+      const current = accumulator[weekStartKey] ?? [];
+      current.push(block);
+      accumulator[weekStartKey] = current;
+      return accumulator;
+    },
+    {},
+  );
+  const existingPrefixBlocks = options.existingStudyBlocks.filter(
+    (block) =>
+      toDateKey(startOfPlannerWeek(new Date(block.start))) < toDateKey(startWeek),
+  );
+  const countRemainingAllocatableTasks = (tasks: TaskCandidate[]) =>
+    tasks.filter((task) => {
+      if (!task.subjectId) {
+        return task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES;
+      }
+
+      if (
+        zeroUnscheduledCoverageSubjectIds.includes(
+          task.subjectId as (typeof zeroUnscheduledCoverageSubjectIds)[number],
+        )
+      ) {
+        return task.remainingMinutes > 0;
+      }
+
+      return task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES;
+    }).length;
+  const rebuiltWeeklyPlans: WeeklyPlan[] = [];
+  const rebuiltStudyBlocks: StudyBlock[] = [];
+  const rebuiltAccumulatedBlocks: StudyBlock[] = [...existingPrefixBlocks];
+  const persistedAccumulatedBlocks: StudyBlock[] = [...existingPrefixBlocks];
+  const changedWeekStarts = new Set<string>();
+  const existingHorizonEndDate =
+    options.existingWeeklyPlans.at(-1)?.horizonEndDate ?? toDateKey(configuredEndWeek);
+  let effectiveEndWeek = configuredEndWeek;
+  let extensionWeeksUsed = 0;
+  let finalWeek = configuredEndWeek;
+
+  for (
+    let currentWeek = startWeek;
+    currentWeek.getTime() <= effectiveEndWeek.getTime();
+    currentWeek = addDays(currentWeek, 7)
+  ) {
+    finalWeek = currentWeek;
+    const weekKey = toDateKey(currentWeek);
+    const lockedBlocks = preservedLockedBlocks.filter((block) => {
+      if (block.weekStart === weekKey) {
+        return true;
+      }
+
+      return toDateKey(startOfPlannerWeek(new Date(block.start))) === weekKey;
+    });
+    const existingPlannedBlocks = [...rebuiltAccumulatedBlocks, ...lockedBlocks];
+    const effectiveReservedCommitmentPlan = selectEffectiveReservedCommitmentPlanForWeek({
+      currentWeek,
+      endWeek: effectiveEndWeek,
+      goals: options.goals,
+      subjects: options.subjects,
+      topics: options.topics,
+      completionLogs: options.completionLogs,
+      fixedEvents: options.fixedEvents,
+      sickDays: options.sickDays,
+      focusedDays: options.focusedDays,
+      focusedWeeks: options.focusedWeeks,
+      preferences: options.preferences,
+      existingPlannedBlocks,
+      lockedBlocks,
+      horizonStartDate,
+      subjectDeadlinesById,
+      availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+    });
+    const futureFocusedReserveMinutesBySubject = buildFutureFocusedReserveMinutesBySubject({
+      currentWeek,
+      endWeek: effectiveEndWeek,
+      topics: options.topics,
+      completionLogs: options.completionLogs,
+      fixedEvents: options.fixedEvents,
+      sickDays: options.sickDays,
+      focusedDays: options.focusedDays,
+      focusedWeeks: options.focusedWeeks,
+      preferences: options.preferences,
+      subjectDeadlinesById,
+      existingPlannedBlocks,
+      availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+      getEffectiveReservedCommitmentPlanForWeek: (candidateWeek) =>
+        selectEffectiveReservedCommitmentPlanForWeek({
+          currentWeek: candidateWeek,
+          endWeek: effectiveEndWeek,
+          goals: options.goals,
+          subjects: options.subjects,
+          topics: options.topics,
+          completionLogs: options.completionLogs,
+          fixedEvents: options.fixedEvents,
+          sickDays: options.sickDays,
+          focusedDays: options.focusedDays,
+          focusedWeeks: options.focusedWeeks,
+          preferences: options.preferences,
+          existingPlannedBlocks,
+          horizonStartDate,
+          subjectDeadlinesById,
+          availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+        }),
+    });
+    const result = generateStudyPlanForWeek({
+      weekStart: currentWeek,
+      goals: options.goals,
+      subjects: options.subjects,
+      topics: options.topics,
+      completionLogs: options.completionLogs,
+      fixedEvents: options.fixedEvents,
+      sickDays: options.sickDays,
+      focusedDays: options.focusedDays,
+      focusedWeeks: options.focusedWeeks,
+      preferences: options.preferences,
+      lockedBlocks,
+      existingPlannedBlocks,
+      futureFocusedReserveMinutesBySubject,
+      horizonStartDate,
+      availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+      effectiveReservedCommitmentDurations:
+        effectiveReservedCommitmentPlan.effectiveReservedCommitmentDurations,
+      excludedReservedCommitmentRuleIds:
+        effectiveReservedCommitmentPlan.excludedReservedCommitmentRuleIds,
+      reservedCommitmentFallbackTierUsed:
+        effectiveReservedCommitmentPlan.fallbackTierUsed,
+    });
+
+    rebuiltWeeklyPlans.push(result.weeklyPlan);
+    rebuiltStudyBlocks.push(...result.studyBlocks);
+    rebuiltAccumulatedBlocks.push(...result.studyBlocks);
+
+    const persistedWeekBlocks = [...(existingStudyBlocksByWeek[weekKey] ?? [])].sort(
+      (left, right) => new Date(left.start).getTime() - new Date(right.start).getTime(),
+    );
+    persistedAccumulatedBlocks.push(...persistedWeekBlocks);
+
+    const weekBlocksEqual = areStudyBlockListsEquivalent(result.studyBlocks, persistedWeekBlocks);
+    const weekPlanEqual = areWeeklyPlansEquivalent(
+      result.weeklyPlan,
+      existingWeeklyPlanByWeek.get(weekKey),
+    );
+    const carryStateEqual =
+      buildCarryForwardPlanningSignature(rebuiltAccumulatedBlocks) ===
+      buildCarryForwardPlanningSignature(persistedAccumulatedBlocks);
+
+    if (!weekBlocksEqual || !weekPlanEqual) {
+      changedWeekStarts.add(weekKey);
+    }
+
+    const remainingTaskCount = countRemainingAllocatableTasks(result.unscheduledTasks);
+    if (
+      currentWeek.getTime() >= effectiveEndWeek.getTime() &&
+      remainingTaskCount > 0 &&
+      extensionWeeksUsed < MAX_HORIZON_EXTENSION_WEEKS
+    ) {
+      effectiveEndWeek = addDays(effectiveEndWeek, 7);
+      extensionWeeksUsed += 1;
+      continue;
+    }
+
+    if (weekBlocksEqual && weekPlanEqual && carryStateEqual) {
+      break;
+    }
+  }
+
+  const horizonEndDate =
+    changedWeekStarts.size === 0 || finalWeek.getTime() < configuredEndWeek.getTime()
+      ? existingHorizonEndDate
+      : toDateKey(finalWeek);
+  const changedWeekStartList = Array.from(changedWeekStarts).sort((left, right) =>
+    left.localeCompare(right),
+  );
+
+  return {
+    studyBlocks: rebuiltStudyBlocks
+      .filter((block) => changedWeekStarts.has(block.weekStart))
+      .sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime()),
+    weeklyPlans: rebuiltWeeklyPlans
+      .filter((weeklyPlan) => changedWeekStarts.has(weeklyPlan.weekStart))
+      .map((weeklyPlan) => ({
+        ...weeklyPlan,
+        horizonEndDate,
+      })),
+    changedWeekStarts: changedWeekStartList,
+    horizonEndDate,
   };
 }
 

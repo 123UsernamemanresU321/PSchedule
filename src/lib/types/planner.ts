@@ -27,6 +27,7 @@ export type StudyLayer = "learning" | "application" | "exam_sim" | "correction";
 export type SickDaySeverity = "light" | "moderate" | "severe";
 export type StudyBlockCreationSource = "planner" | "manual";
 export type PlannerReplanScope = "week_local" | "tail_from_week" | "full_horizon";
+export type BackgroundReplanStatus = "idle" | "running" | "failed";
 export type SubjectCategory =
   | "physics"
   | "maths"
@@ -228,6 +229,13 @@ export interface ReplanDiagnostics {
   scopeTimingsMs: Partial<Record<PlannerReplanScope, number>>;
   repairTriggered: boolean;
   hardCoverageEscalationForced: boolean;
+  localApplyMs?: number | null;
+  precheckMs?: number | null;
+  writeMs?: number | null;
+  snapshotLoadMs?: number | null;
+  repairMs?: number | null;
+  backgroundValidationMs?: number | null;
+  escalationReason?: "collapsed_coverage" | "hard_coverage" | "fillable_gap" | "overlap" | null;
 }
 
 export interface EffectiveReservedCommitmentDuration {

@@ -8,6 +8,8 @@ import { usePlannerStore } from "@/lib/store/planner-store";
 
 export function TopHeader() {
   const loading = usePlannerStore((state) => state.loading);
+  const backgroundReplanStatus = usePlannerStore((state) => state.backgroundReplanStatus);
+  const backgroundReplanScope = usePlannerStore((state) => state.backgroundReplanScope);
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-white/8 bg-background/78 px-5 backdrop-blur-xl lg:px-8">
@@ -23,6 +25,14 @@ export function TopHeader() {
       </div>
       <div className="flex items-center gap-3">
         {loading ? <Badge variant="default">Replanning…</Badge> : null}
+        {!loading && backgroundReplanStatus === "running" ? (
+          <Badge variant="muted">
+            {backgroundReplanScope === "tail_from_week" ? "Updating horizon…" : "Validating…"}
+          </Badge>
+        ) : null}
+        {!loading && backgroundReplanStatus === "failed" ? (
+          <Badge variant="default">Background sync failed</Badge>
+        ) : null}
         <Button variant="ghost" size="sm" className="h-10 w-10 rounded-full p-0">
           <Bell className="h-4 w-4" />
         </Button>

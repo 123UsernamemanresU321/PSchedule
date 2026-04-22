@@ -2,7 +2,10 @@ import { addDays } from "date-fns";
 
 import { startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import { buildSeedDataset } from "@/lib/seed";
-import { generateStudyPlanHorizon } from "@/lib/scheduler/generator";
+import {
+  generateIncrementalStudyPlanTail,
+  generateStudyPlanHorizon,
+} from "@/lib/scheduler/generator";
 import { replanStudyPlan } from "@/lib/scheduler/replanner";
 
 function nowMs() {
@@ -27,6 +30,7 @@ const weekStart = startOfPlannerWeek(referenceDate);
 const fullHorizon = measure("full_horizon", () =>
   generateStudyPlanHorizon({
     startWeek: weekStart,
+    referenceDate,
     goals: dataset.goals,
     subjects: dataset.subjects,
     topics: dataset.topics,
@@ -62,6 +66,7 @@ const weekLocal = measure("week_local", () =>
 const tailFromWeek = measure("tail_from_week", () =>
   generateStudyPlanHorizon({
     startWeek: affectedTailWeek,
+    referenceDate,
     goals: dataset.goals,
     subjects: dataset.subjects,
     topics: dataset.topics,
@@ -78,17 +83,78 @@ const tailFromWeek = measure("tail_from_week", () =>
   }),
 );
 
-const summary = [fullHorizon, weekLocal, tailFromWeek].map((entry) => ({
-  scope: entry.label,
-  elapsedMs: entry.elapsedMs,
-  studyBlocks:
-    "studyBlocks" in entry.result ? entry.result.studyBlocks.length : 0,
-  weeklyPlans:
-    "weeklyPlans" in entry.result
-      ? entry.result.weeklyPlans.length
-      : entry.label === "week_local"
-      ? 1
-      : 0,
-}));
+const tailIncrementalNoop = measure("tail_incremental_noop", () =>
+  generateIncrementalStudyPlanTail({
+    startWeek: affectedTailWeek,
+    referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    completionLogs: [],
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+    existingStudyBlocks: fullHorizon.result.studyBlocks,
+    existingWeeklyPlans: fullHorizon.result.weeklyPlans,
+    preserveFlexibleFutureBlocks: false,
+  }),
+);
+
+const editedTailBlocks = fullHorizon.result.studyBlocks.map((block) =>
+  block.weekStart === tailWeekKey && block.subjectId && block.topicId
+    ? {
+        ...block,
+        notes: `${block.notes} benchmark-edit`.trim(),
+      }
+    : block,
+);
+
+const tailIncrementalChanged = measure("tail_incremental_changed", () =>
+  generateIncrementalStudyPlanTail({
+    startWeek: affectedTailWeek,
+    referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    completionLogs: [],
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+    existingStudyBlocks: editedTailBlocks,
+    existingWeeklyPlans: fullHorizon.result.weeklyPlans,
+    preserveFlexibleFutureBlocks: false,
+  }),
+);
+
+const summary = [
+  fullHorizon,
+  weekLocal,
+  tailFromWeek,
+  tailIncrementalNoop,
+  tailIncrementalChanged,
+].map((entry) => {
+  const maybeChangedWeekStarts =
+    "changedWeekStarts" in entry.result
+      ? (entry.result as { changedWeekStarts: string[] }).changedWeekStarts
+      : null;
+
+  return {
+    scope: entry.label,
+    elapsedMs: entry.elapsedMs,
+    studyBlocks:
+      "studyBlocks" in entry.result ? entry.result.studyBlocks.length : 0,
+    weeklyPlans:
+      "weeklyPlans" in entry.result
+        ? entry.result.weeklyPlans.length
+        : entry.label === "week_local"
+        ? 1
+        : 0,
+    changedWeeks: maybeChangedWeekStarts?.length,
+  };
+});
 
 console.table(summary);

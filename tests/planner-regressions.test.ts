@@ -24,6 +24,7 @@ import {
 } from "@/lib/scheduler/free-slots";
 import {
   absorbStudyMicroGaps,
+  generateIncrementalStudyPlanTail,
   generateStudyPlanForWeek,
   generateStudyPlanHorizon,
   getInlineBreakMinutes,
@@ -43,6 +44,7 @@ import {
   buildHardConstraintFutureResetBaselineStudyBlocks,
   buildCollapsedCoverageRepairBaselineStudyBlocks,
   getCollapsedCoverageRepairState,
+  getScopedReplanPrecheckState,
   normalizePreferences,
   type PlannerSnapshot,
   normalizeStudyBlock,
@@ -543,6 +545,95 @@ test("planner replan scope selection prefers local scope before escalation", () 
   assert.equal(getEscalatedPlannerReplanScope("week_local"), "tail_from_week");
   assert.equal(getEscalatedPlannerReplanScope("tail_from_week"), "full_horizon");
   assert.equal(getEscalatedPlannerReplanScope("full_horizon"), null);
+});
+
+test("healthy snapshots pass the cheap scoped replan precheck", () => {
+  const referenceDate = new Date("2026-04-20T08:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const horizon = generateStudyPlanHorizon({
+    startWeek: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    completionLogs: [],
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+  });
+  const snapshot: PlannerSnapshot = {
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    studyBlocks: horizon.studyBlocks,
+    completionLogs: [],
+    weeklyPlans: horizon.weeklyPlans,
+    preferences: dataset.preferences,
+  };
+
+  const precheck = getScopedReplanPrecheckState({
+    snapshot,
+    scope: "tail_from_week",
+    affectedWeekStart: addDays(startOfPlannerWeek(referenceDate), 28),
+    referenceDate,
+  });
+
+  assert.equal(precheck.hasPotentialIssue, false);
+  assert.equal(precheck.escalationReason, null);
+});
+
+test("incremental tail generation stops after the first unchanged week on benign edits", () => {
+  const referenceDate = new Date("2026-04-20T08:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const fullHorizon = generateStudyPlanHorizon({
+    startWeek: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    completionLogs: [],
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+  });
+  const affectedWeekStart = addDays(startOfPlannerWeek(referenceDate), 28);
+  const affectedWeekKey = toDateKey(affectedWeekStart);
+  const editedStudyBlocks = fullHorizon.studyBlocks.map((block) =>
+    block.weekStart === affectedWeekKey && block.subjectId && block.topicId
+      ? {
+          ...block,
+          notes: `${block.notes} benchmark-edit`.trim(),
+        }
+      : block,
+  );
+
+  const incremental = generateIncrementalStudyPlanTail({
+    startWeek: affectedWeekStart,
+    referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    completionLogs: [],
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+    existingStudyBlocks: editedStudyBlocks,
+    existingWeeklyPlans: fullHorizon.weeklyPlans,
+    preserveFlexibleFutureBlocks: false,
+  });
+
+  assert.ok(incremental.changedWeekStarts.length <= 2);
+  assert.equal(incremental.changedWeekStarts[0], affectedWeekKey);
 });
 
 test("physics topics are hard-gated in seeded syllabus order", () => {

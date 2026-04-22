@@ -215,6 +215,17 @@ export const weeklyPlanSchema = z.object({
         .default({}),
       repairTriggered: z.boolean().optional().default(false),
       hardCoverageEscalationForced: z.boolean().optional().default(false),
+      localApplyMs: z.number().nullable().optional().default(null),
+      precheckMs: z.number().nullable().optional().default(null),
+      writeMs: z.number().nullable().optional().default(null),
+      snapshotLoadMs: z.number().nullable().optional().default(null),
+      repairMs: z.number().nullable().optional().default(null),
+      backgroundValidationMs: z.number().nullable().optional().default(null),
+      escalationReason: z
+        .enum(["collapsed_coverage", "hard_coverage", "fillable_gap", "overlap"])
+        .nullable()
+        .optional()
+        .default(null),
     })
     .nullable()
     .optional()
