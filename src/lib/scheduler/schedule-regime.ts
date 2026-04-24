@@ -60,7 +60,16 @@ function getConfiguredSchoolTerms(preferences: Preferences) {
   );
 }
 
+export function getNoSchoolDay(day: Date, preferences: Preferences) {
+  const dateKey = toDateKey(day);
+  return preferences.schoolSchedule.noSchoolDays.find((entry) => entry.date === dateKey) ?? null;
+}
+
 export function isDateInActiveSchoolTerm(day: Date, preferences: Preferences) {
+  if (getNoSchoolDay(day, preferences)) {
+    return false;
+  }
+
   const configuredTerms = getConfiguredSchoolTerms(preferences);
   if (!configuredTerms.length) {
     return false;

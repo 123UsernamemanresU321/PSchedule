@@ -95,6 +95,7 @@ export function buildSeedPreferences(): Preferences {
         { id: "term-3", label: "Term 3", startDate: "", endDate: "" },
         { id: "term-4", label: "Term 4", startDate: "", endDate: "" },
       ],
+      noSchoolDays: [],
     },
     holidaySchedule: {
       enabled: true,

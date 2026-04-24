@@ -260,12 +260,20 @@ export const schoolTermSchema = z.object({
   endDate: z.string(),
 });
 
+export const noSchoolDaySchema = z.object({
+  id: z.string(),
+  date: z.string(),
+  label: z.string(),
+  notes: z.string().optional(),
+});
+
 export const schoolScheduleSchema = z.object({
   enabled: z.boolean(),
   weekdays: z.array(z.number().min(0).max(6)),
   start: z.string(),
   end: z.string(),
   terms: z.array(schoolTermSchema),
+  noSchoolDays: z.array(noSchoolDaySchema).optional().default([]),
 });
 
 export const reservedCommitmentRuleSchema = z.object({
@@ -360,6 +368,7 @@ export const preferencesSchema = z.object({
       { id: "term-3", label: "Term 3", startDate: "", endDate: "" },
       { id: "term-4", label: "Term 4", startDate: "", endDate: "" },
     ],
+    noSchoolDays: [],
   }),
   holidaySchedule: holidayScheduleSchema.optional().default({
     enabled: true,

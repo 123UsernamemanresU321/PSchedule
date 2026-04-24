@@ -127,6 +127,13 @@ export interface FocusedDay {
   notes?: string;
 }
 
+export interface NoSchoolDay {
+  id: string;
+  date: string;
+  label: string;
+  notes?: string;
+}
+
 export interface FocusedWeek {
   id: string;
   weekStart: string;
@@ -266,6 +273,7 @@ export interface SchoolSchedule {
   start: string;
   end: string;
   terms: SchoolTerm[];
+  noSchoolDays: NoSchoolDay[];
 }
 
 export interface ReservedCommitmentRule {

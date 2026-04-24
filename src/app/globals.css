@@ -173,6 +173,12 @@ select {
   background: linear-gradient(180deg, rgba(251, 113, 133, 0.09), rgba(251, 113, 133, 0.03));
 }
 
+.fc .planner-no-school-day {
+  background-image:
+    linear-gradient(180deg, rgba(251, 191, 36, 0.1), rgba(251, 191, 36, 0.03)),
+    linear-gradient(90deg, rgba(251, 191, 36, 0.045), transparent 38%);
+}
+
 .fc .planner-focused-day {
   background-image:
     linear-gradient(180deg, rgba(59, 130, 246, 0.11), rgba(59, 130, 246, 0.03)),

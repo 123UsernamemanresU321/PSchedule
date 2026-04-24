@@ -5,6 +5,7 @@ import { addDays, subDays } from "date-fns";
 import {
   BookOpen,
   CalendarClock,
+  CalendarX2,
   ChevronLeft,
   ChevronRight,
   Crosshair,
@@ -23,6 +24,7 @@ import {
 import { CommitmentOverrideDialog } from "@/components/calendar/commitment-override-dialog";
 import { FocusDayDialog } from "@/components/calendar/focus-day-dialog";
 import { FocusWeekDialog } from "@/components/calendar/focus-week-dialog";
+import { NoSchoolDayDialog } from "@/components/calendar/no-school-day-dialog";
 import { RecoveryWindowOverrideDialog } from "@/components/calendar/recovery-window-override-dialog";
 import { HorizonRoadmap } from "@/components/planner/horizon-roadmap";
 import {
@@ -39,6 +41,7 @@ import { buildEventParseContext } from "@/lib/ai/context";
 import { getHorizonRoadmapSummary } from "@/lib/analytics/metrics";
 import { formatWeekRangeLabel, fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import { usePlannerStore } from "@/lib/store/planner-store";
+import type { NoSchoolDay } from "@/lib/types/planner";
 import { createId } from "@/lib/utils";
 
 export function CalendarPage() {
@@ -75,12 +78,14 @@ export function CalendarPage() {
     date: string;
   } | null>(null);
   const [focusDayDraftDate, setFocusDayDraftDate] = useState<string | null>(null);
+  const [noSchoolDayDraftDate, setNoSchoolDayDraftDate] = useState<string | null>(null);
   const [focusWeekDraftWeekStart, setFocusWeekDraftWeekStart] = useState<string | null>(null);
   const [aiEventAssistantOpen, setAiEventAssistantOpen] = useState(false);
   const hasConfiguredConstraints =
     !!fixedEvents.length || !!preferences?.schoolSchedule.enabled || !!preferences?.holidaySchedule.enabled;
   const roadmapSummary = getHorizonRoadmapSummary(weeklyPlans, topics, currentWeekStart);
   const visibleWeekPlan = weeklyPlans.find((plan) => plan.weekStart === currentWeekStart) ?? null;
+  const noSchoolDays = preferences?.schoolSchedule.noSchoolDays ?? [];
 
   const visibleWeekStart = startOfPlannerWeek(fromDateKey(currentWeekStart));
   const visibleWeekEnd = addDays(visibleWeekStart, 6);
@@ -100,6 +105,40 @@ export function CalendarPage() {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     subjects,
   });
+  const saveNoSchoolDay = async (noSchoolDay: NoSchoolDay) => {
+    if (!preferences) {
+      return;
+    }
+
+    const nextNoSchoolDays = [
+      ...noSchoolDays.filter(
+        (candidate) => candidate.date !== noSchoolDay.date && candidate.id !== noSchoolDay.id,
+      ),
+      {
+        ...noSchoolDay,
+        id: noSchoolDay.id || createId("no-school"),
+      },
+    ].sort((left, right) => left.date.localeCompare(right.date));
+
+    await updatePreferences({
+      schoolSchedule: {
+        ...preferences.schoolSchedule,
+        noSchoolDays: nextNoSchoolDays,
+      },
+    });
+  };
+  const deleteNoSchoolDay = async (id: string) => {
+    if (!preferences) {
+      return;
+    }
+
+    await updatePreferences({
+      schoolSchedule: {
+        ...preferences.schoolSchedule,
+        noSchoolDays: noSchoolDays.filter((candidate) => candidate.id !== id),
+      },
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -243,6 +282,13 @@ export function CalendarPage() {
                       mode: "add",
                     }),
                 },
+                {
+                  id: "mark-no-school",
+                  label: "Mark no school",
+                  icon: <CalendarX2 className="h-4 w-4" />,
+                  testId: "calendar-mark-no-school",
+                  onSelect: () => setNoSchoolDayDraftDate(defaultOverrideDate),
+                },
               ]}
             />
             <Button data-testid="calendar-regenerate-horizon" onClick={() => void regenerateHorizon()}>
@@ -327,6 +373,7 @@ export function CalendarPage() {
             })
           }
           onManageFocusDay={(dateKey) => setFocusDayDraftDate(dateKey)}
+          onManageNoSchoolDay={(dateKey) => setNoSchoolDayDraftDate(dateKey)}
           onManageFocusWeek={(weekStartKey) => setFocusWeekDraftWeekStart(weekStartKey)}
           onEditFixedEvent={({ event, occurrenceStart, occurrenceEnd }) =>
             setEditorDraft({
@@ -436,6 +483,26 @@ export function CalendarPage() {
             id: focusedWeek.id || createId("focused-week"),
           });
           setFocusWeekDraftWeekStart(null);
+        }}
+      />
+
+      <NoSchoolDayDialog
+        key={noSchoolDayDraftDate ?? "no-school-day-dialog"}
+        open={!!noSchoolDayDraftDate}
+        defaultDate={noSchoolDayDraftDate}
+        existingNoSchoolDay={
+          noSchoolDayDraftDate
+            ? noSchoolDays.find((noSchoolDay) => noSchoolDay.date === noSchoolDayDraftDate) ?? null
+            : null
+        }
+        onClose={() => setNoSchoolDayDraftDate(null)}
+        onDelete={async (id) => {
+          await deleteNoSchoolDay(id);
+          setNoSchoolDayDraftDate(null);
+        }}
+        onSave={async (noSchoolDay) => {
+          await saveNoSchoolDay(noSchoolDay);
+          setNoSchoolDayDraftDate(null);
         }}
       />
 

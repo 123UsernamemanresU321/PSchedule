@@ -406,6 +406,42 @@ function normalizeDays(days: unknown, fallbackDays: number[]) {
   return normalizedDays.length ? normalizedDays : fallbackDays;
 }
 
+function normalizeNoSchoolDays(
+  value: unknown,
+): Preferences["schoolSchedule"]["noSchoolDays"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const byDate = new Map<string, Preferences["schoolSchedule"]["noSchoolDays"][number]>();
+
+  value.forEach((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return;
+    }
+
+    const candidate = entry as Partial<Preferences["schoolSchedule"]["noSchoolDays"][number]>;
+    if (typeof candidate.date !== "string" || !candidate.date.trim()) {
+      return;
+    }
+
+    byDate.set(candidate.date, {
+      id: typeof candidate.id === "string" && candidate.id ? candidate.id : createId("no-school"),
+      date: candidate.date,
+      label:
+        typeof candidate.label === "string" && candidate.label.trim()
+          ? candidate.label.trim()
+          : "No School",
+      notes:
+        typeof candidate.notes === "string" && candidate.notes.trim()
+          ? candidate.notes.trim()
+          : undefined,
+    });
+  });
+
+  return Array.from(byDate.values()).sort((left, right) => left.date.localeCompare(right.date));
+}
+
 function normalizeTimeWindows<T extends Preferences["preferredDeepWorkWindows"][number]>(
   timeWindows: unknown,
   seedTimeWindows: T[],
@@ -491,6 +527,7 @@ export function normalizePreferences(preferences?: Partial<Preferences> | null):
               ...(term ?? {}),
             }))
           : seedPreferences.schoolSchedule.terms,
+      noSchoolDays: normalizeNoSchoolDays(schoolSchedule.noSchoolDays),
     },
     holidaySchedule: {
       ...seedPreferences.holidaySchedule,

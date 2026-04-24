@@ -3,7 +3,7 @@
 import FullCalendar from "@fullcalendar/react";
 import interactionPlugin from "@fullcalendar/interaction";
 import timeGridPlugin from "@fullcalendar/timegrid";
-import { BedDouble, BookOpen, CheckCircle2, Coffee, Crosshair, Lock, Music4, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
+import { BedDouble, BookOpen, CalendarX2, CheckCircle2, Coffee, Crosshair, Lock, Music4, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 import { addDays, differenceInMinutes, format } from "date-fns";
 
 import { SubjectBadge, getSubjectAccentStyles } from "@/components/planner/subject-badge";
@@ -142,6 +142,7 @@ interface PlannerCalendarProps {
     label: "Lunch break" | "Dinner reset";
   }) => void;
   onManageFocusDay: (dateKey: string) => void;
+  onManageNoSchoolDay: (dateKey: string) => void;
   onManageFocusWeek: (weekStart: string) => void;
 }
 
@@ -162,6 +163,7 @@ export function PlannerCalendar({
   onManageReservedCommitmentDate,
   onManageRecoveryWindowDate,
   onManageFocusDay,
+  onManageNoSchoolDay,
   onManageFocusWeek,
 }: PlannerCalendarProps) {
   const subjectMap = new Map(subjects.map((subject) => [subject.id, subject]));
@@ -223,6 +225,22 @@ export function PlannerCalendar({
       },
     ];
   });
+  const noSchoolDayEvents = preferences.schoolSchedule.noSchoolDays
+    .filter((noSchoolDay) => {
+      const day = fromDateKey(noSchoolDay.date);
+      return day >= visibleWeekStart && day < visibleWeekEnd;
+    })
+    .map((noSchoolDay) => ({
+      id: `no-school-day:${noSchoolDay.date}`,
+      title: noSchoolDay.label,
+      start: fromDateKey(noSchoolDay.date),
+      end: addDays(fromDateKey(noSchoolDay.date), 1),
+      allDay: true,
+      extendedProps: {
+        kind: "no-school-day" as const,
+        noSchoolDay,
+      },
+    }));
   const focusedDayEvents = focusedDays
     .filter((focusedDay) => {
       const day = fromDateKey(focusedDay.date);
@@ -312,6 +330,7 @@ export function PlannerCalendar({
       };
     }),
     ...sickDayEvents,
+    ...noSchoolDayEvents,
     ...focusedWeekEvents,
     ...focusedDayEvents,
     ...reservedCommitments.map((commitment) => ({
@@ -378,6 +397,9 @@ export function PlannerCalendar({
           if (severity) {
             classNames.push(`planner-sick-day-${severity}`);
           }
+          if (preferences.schoolSchedule.noSchoolDays.some((noSchoolDay) => noSchoolDay.date === dateKey)) {
+            classNames.push("planner-no-school-day");
+          }
           if (visibleFocusedWeek && !focusedDays.some((focusedDay) => focusedDay.date === dateKey)) {
             classNames.push("planner-focused-week");
           }
@@ -401,6 +423,7 @@ export function PlannerCalendar({
             | "reserved-commitment"
             | "break"
             | "sick-day"
+            | "no-school-day"
             | "focused-day"
             | "focused-week";
           if (
@@ -426,6 +449,12 @@ export function PlannerCalendar({
             }
           }
           if (kind === "break") {
+            return;
+          }
+          if (kind === "no-school-day") {
+            const noSchoolDay = clickInfo.event.extendedProps
+              .noSchoolDay as Preferences["schoolSchedule"]["noSchoolDays"][number];
+            onManageNoSchoolDay(noSchoolDay.date);
             return;
           }
           if (kind === "focused-day") {
@@ -490,6 +519,7 @@ export function PlannerCalendar({
             | "reserved-commitment"
             | "break"
             | "sick-day"
+            | "no-school-day"
             | "focused-day"
             | "focused-week";
           const eventStart = eventInfo.event.start ?? new Date();
@@ -513,6 +543,27 @@ export function PlannerCalendar({
                 data-event-title={eventInfo.event.title}
               >
                 <p className="truncate font-medium">{eventInfo.event.title}</p>
+              </div>
+            );
+          }
+
+          if (kind === "no-school-day") {
+            const noSchoolDay = eventInfo.event.extendedProps
+              .noSchoolDay as Preferences["schoolSchedule"]["noSchoolDays"][number];
+
+            return (
+              <div
+                className="h-full overflow-hidden rounded-lg border border-warning/35 bg-warning/12 px-3 py-2 text-sm text-warning shadow-panel"
+                data-testid="calendar-no-school-day"
+                data-event-title={eventInfo.event.title}
+              >
+                <div className="flex items-center gap-2">
+                  <CalendarX2 className="h-3.5 w-3.5" />
+                  <span className="truncate font-medium">{eventInfo.event.title}</span>
+                </div>
+                {noSchoolDay.notes ? (
+                  <p className="mt-1 truncate text-xs text-warning/75">{noSchoolDay.notes}</p>
+                ) : null}
               </div>
             );
           }

@@ -21,6 +21,7 @@ import { mainSubjectIds } from "@/lib/constants/planner";
 import {
   calculateFreeSlots,
   expandLockedRecoveryWindowsForWeek,
+  expandPlannerFixedEventsForWeek,
   expandReservedCommitmentWindowsForWeek,
 } from "@/lib/scheduler/free-slots";
 import {
@@ -5907,6 +5908,72 @@ test("school-term homework still appears when term dates are configured but scho
   assert.equal(
     sundayHomeworkCommitment?.start,
     createDateAtTime(fromDateKey("2026-04-19"), "16:00").toISOString(),
+  );
+});
+
+test("marked no-school weekdays are treated as non-school days during active terms", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-14T08:00:00"));
+  const preferences = withConfiguredSchoolTerm(dataset.preferences, {
+    noSchoolDays: [
+      {
+        id: "no-school-2026-04-14",
+        date: "2026-04-14",
+        label: "No School",
+        notes: "Long weekend",
+      },
+    ],
+  });
+  const weekStart = new Date("2026-04-13T00:00:00.000Z");
+  const noSchoolDate = new Date("2026-04-14T10:00:00.000Z");
+
+  assert.equal(isDateInActiveSchoolTerm(noSchoolDate, preferences), false);
+  assert.equal(
+    isDateInActiveSchoolTerm(new Date("2026-04-15T10:00:00.000Z"), preferences),
+    true,
+  );
+  assert.equal(resolveDailyScheduleProfile(noSchoolDate, preferences).regime, "holiday");
+
+  const fixedEvents = expandPlannerFixedEventsForWeek(weekStart, [], preferences);
+  assert.equal(
+    fixedEvents.find((event) => event.id === "school-schedule:2026-04-14"),
+    undefined,
+  );
+  assert.ok(
+    fixedEvents.find((event) => event.id === "school-schedule:2026-04-15"),
+    "expected normal school days in the same term week to keep generated school blocks",
+  );
+
+  const commitments = expandReservedCommitmentWindowsForWeek(weekStart, preferences, [], [], []);
+  assert.equal(
+    commitments.find(
+      (commitment) => commitment.ruleId === "term-homework" && commitment.dateKey === "2026-04-14",
+    ),
+    undefined,
+  );
+  assert.ok(
+    commitments.find(
+      (commitment) => commitment.ruleId === "term-homework" && commitment.dateKey === "2026-04-15",
+    ),
+    "expected term homework to continue on normal school weekdays",
+  );
+
+  const template = buildSchoolTermWeekTemplate({
+    weekStart,
+    topics: dataset.topics,
+    preferences,
+    existingPlannedBlocks: [],
+  });
+  assert.equal(
+    template.requirements.some((requirement) =>
+      requirement.allowedDateKeys.includes("2026-04-14"),
+    ),
+    false,
+  );
+  assert.ok(
+    template.requirements.some((requirement) =>
+      requirement.allowedDateKeys.includes("2026-04-15"),
+    ),
+    "expected weekday school-term requirements to remain for non-overridden weekdays",
   );
 });
 
