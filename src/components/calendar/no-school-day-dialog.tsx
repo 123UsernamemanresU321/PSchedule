@@ -13,8 +13,10 @@ interface NoSchoolDayDialogProps {
   open: boolean;
   defaultDate: string | null;
   existingNoSchoolDay: NoSchoolDay | null;
+  noSchoolDays: NoSchoolDay[];
   onClose: () => void;
   onSave: (noSchoolDay: NoSchoolDay) => Promise<void>;
+  onSaveAndAddAnother?: (noSchoolDay: NoSchoolDay) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }
 
@@ -22,13 +24,22 @@ export function NoSchoolDayDialog({
   open,
   defaultDate,
   existingNoSchoolDay,
+  noSchoolDays,
   onClose,
   onSave,
+  onSaveAndAddAnother,
   onDelete,
 }: NoSchoolDayDialogProps) {
   const [dateKey, setDateKey] = useState(existingNoSchoolDay?.date ?? defaultDate ?? "");
   const [label, setLabel] = useState(existingNoSchoolDay?.label ?? "No School");
   const [notes, setNotes] = useState(existingNoSchoolDay?.notes ?? "");
+  const sortedNoSchoolDays = [...noSchoolDays].sort((left, right) => left.date.localeCompare(right.date));
+  const draft: NoSchoolDay = {
+    id: existingNoSchoolDay?.id ?? "",
+    date: dateKey,
+    label: label.trim() || "No School",
+    notes: notes.trim() || undefined,
+  };
 
   if (!open) {
     return null;
@@ -44,9 +55,10 @@ export function NoSchoolDayDialog({
           >
             <CardHeader className="flex-row items-start justify-between">
               <div>
-                <CardTitle>Mark no school</CardTitle>
+                <CardTitle>{existingNoSchoolDay ? "Edit no-school day" : "Add no-school day"}</CardTitle>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  This date is treated like a holiday/weekend study day inside the school term.
+                  Add one date at a time. You can save as many no-school days as needed; each one is treated like
+                  a holiday/weekend study day inside the school term.
                 </p>
               </div>
               <Button variant="ghost" size="sm" className="h-10 w-10 rounded-full p-0" onClick={onClose}>
@@ -94,6 +106,31 @@ export function NoSchoolDayDialog({
                 </div>
               </div>
 
+              <div className="rounded-sm border border-white/8 bg-white/4 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-foreground">
+                    Saved no-school days ({sortedNoSchoolDays.length})
+                  </p>
+                  <p className="text-xs text-muted-foreground">Use “Save and add another” for multiple closures.</p>
+                </div>
+                {sortedNoSchoolDays.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {sortedNoSchoolDays.map((noSchoolDay) => (
+                      <span
+                        key={noSchoolDay.id}
+                        className="rounded-full border border-warning/25 bg-warning/10 px-3 py-1 text-xs text-warning"
+                      >
+                        {noSchoolDay.date} · {noSchoolDay.label}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    None yet. Add this date, then add another if the closure spans multiple days.
+                  </p>
+                )}
+              </div>
+
               <div className="flex flex-wrap justify-between gap-2">
                 <div>
                   {existingNoSchoolDay && existingNoSchoolDay.date === dateKey ? (
@@ -110,19 +147,22 @@ export function NoSchoolDayDialog({
                   <Button variant="outline" onClick={onClose}>
                     Cancel
                   </Button>
+                  {onSaveAndAddAnother ? (
+                    <Button
+                      variant="outline"
+                      data-testid="no-school-day-save-another"
+                      disabled={!dateKey}
+                      onClick={() => void onSaveAndAddAnother(draft)}
+                    >
+                      Save and add another
+                    </Button>
+                  ) : null}
                   <Button
                     data-testid="no-school-day-save"
                     disabled={!dateKey}
-                    onClick={() =>
-                      void onSave({
-                        id: existingNoSchoolDay?.id ?? "",
-                        date: dateKey,
-                        label: label.trim() || "No School",
-                        notes: notes.trim() || undefined,
-                      })
-                    }
+                    onClick={() => void onSave(draft)}
                   >
-                    Save no school
+                    Save date
                   </Button>
                 </div>
               </div>

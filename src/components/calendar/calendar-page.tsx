@@ -105,9 +105,25 @@ export function CalendarPage() {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     subjects,
   });
+  const getNextNoSchoolDraftDate = (
+    existingNoSchoolDays: NoSchoolDay[],
+    startDateKey = defaultOverrideDate,
+  ) => {
+    const usedDateKeys = new Set(existingNoSchoolDays.map((noSchoolDay) => noSchoolDay.date));
+    const cursor = fromDateKey(startDateKey);
+
+    for (let offset = 0; offset < 366; offset += 1) {
+      const candidateKey = toDateKey(addDays(cursor, offset));
+      if (!usedDateKeys.has(candidateKey)) {
+        return candidateKey;
+      }
+    }
+
+    return startDateKey;
+  };
   const saveNoSchoolDay = async (noSchoolDay: NoSchoolDay) => {
     if (!preferences) {
-      return;
+      return noSchoolDays;
     }
 
     const nextNoSchoolDays = [
@@ -126,6 +142,8 @@ export function CalendarPage() {
         noSchoolDays: nextNoSchoolDays,
       },
     });
+
+    return nextNoSchoolDays;
   };
   const deleteNoSchoolDay = async (id: string) => {
     if (!preferences) {
@@ -284,10 +302,10 @@ export function CalendarPage() {
                 },
                 {
                   id: "mark-no-school",
-                  label: "Mark no school",
+                  label: "Add no-school day",
                   icon: <CalendarX2 className="h-4 w-4" />,
                   testId: "calendar-mark-no-school",
-                  onSelect: () => setNoSchoolDayDraftDate(defaultOverrideDate),
+                  onSelect: () => setNoSchoolDayDraftDate(getNextNoSchoolDraftDate(noSchoolDays)),
                 },
               ]}
             />
@@ -490,6 +508,7 @@ export function CalendarPage() {
         key={noSchoolDayDraftDate ?? "no-school-day-dialog"}
         open={!!noSchoolDayDraftDate}
         defaultDate={noSchoolDayDraftDate}
+        noSchoolDays={noSchoolDays}
         existingNoSchoolDay={
           noSchoolDayDraftDate
             ? noSchoolDays.find((noSchoolDay) => noSchoolDay.date === noSchoolDayDraftDate) ?? null
@@ -503,6 +522,10 @@ export function CalendarPage() {
         onSave={async (noSchoolDay) => {
           await saveNoSchoolDay(noSchoolDay);
           setNoSchoolDayDraftDate(null);
+        }}
+        onSaveAndAddAnother={async (noSchoolDay) => {
+          const nextNoSchoolDays = await saveNoSchoolDay(noSchoolDay);
+          setNoSchoolDayDraftDate(getNextNoSchoolDraftDate(nextNoSchoolDays, noSchoolDay.date));
         }}
       />
 

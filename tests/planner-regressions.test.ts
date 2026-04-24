@@ -6600,6 +6600,46 @@ test("normalizePreferences keeps valid nested settings arrays while normalizing 
   assert.equal(normalized.schoolSchedule.terms[0]?.label, "Custom term");
 });
 
+test("normalizePreferences preserves multiple no-school days and dedupes by date", () => {
+  const seedPreferences = buildSeedPreferences();
+  const normalized = normalizePreferences({
+    ...seedPreferences,
+    schoolSchedule: {
+      ...seedPreferences.schoolSchedule,
+      noSchoolDays: [
+        {
+          id: "closure-later",
+          date: "2026-04-16",
+          label: "Long weekend",
+          notes: "Travel day",
+        },
+        {
+          id: "closure-earlier",
+          date: "2026-04-14",
+          label: "No School",
+        },
+        {
+          id: "closure-duplicate",
+          date: "2026-04-14",
+          label: "Protest closure",
+        },
+        {
+          id: "closure-invalid",
+          date: "",
+          label: "Broken",
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(
+    normalized.schoolSchedule.noSchoolDays.map((noSchoolDay) => noSchoolDay.date),
+    ["2026-04-14", "2026-04-16"],
+  );
+  assert.equal(normalized.schoolSchedule.noSchoolDays[0]?.label, "Protest closure");
+  assert.equal(normalized.schoolSchedule.noSchoolDays[1]?.notes, "Travel day");
+});
+
 test("normalizePreferences upgrades exact legacy Olympiad and C++ default overrides", () => {
   const normalized = normalizePreferences({
     ...buildSeedPreferences(),

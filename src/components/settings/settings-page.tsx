@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Download, Plus, Trash2, Upload } from "lucide-react";
+import { CalendarX2, Download, Plus, Trash2, Upload } from "lucide-react";
 
 import { AiSettingsCard } from "@/components/ai/ai-settings-card";
 import { PageHeader } from "@/components/layout/page-header";
@@ -105,6 +105,33 @@ export function SettingsPage() {
       schoolSchedule: {
         ...form.schoolSchedule,
         terms: [...form.schoolSchedule.terms, ...nextTerms],
+      },
+    });
+  };
+
+  const appendNoSchoolDay = () => {
+    const usedDateKeys = new Set(form.schoolSchedule.noSchoolDays.map((noSchoolDay) => noSchoolDay.date));
+    const today = new Date();
+    const defaultDate =
+      Array.from({ length: 366 }, (_, offset) => {
+        const candidate = new Date(today);
+        candidate.setDate(today.getDate() + offset);
+        return toDateKey(candidate);
+      }).find((dateKey) => !usedDateKeys.has(dateKey)) ?? toDateKey(today);
+
+    setForm({
+      ...form,
+      schoolSchedule: {
+        ...form.schoolSchedule,
+        noSchoolDays: [
+          ...form.schoolSchedule.noSchoolDays,
+          {
+            id: createId("no-school"),
+            date: defaultDate,
+            label: "No School",
+            notes: "",
+          },
+        ],
       },
     });
   };
@@ -401,6 +428,138 @@ export function SettingsPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                      No-school days
+                    </label>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Add as many one-off school closures as needed. Each date is treated like a weekend/holiday
+                      inside the term.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-full border border-white/8 px-3"
+                    onClick={appendNoSchoolDay}
+                  >
+                    <CalendarX2 className="h-4 w-4" />
+                    Add no-school day
+                  </Button>
+                </div>
+                {form.schoolSchedule.noSchoolDays.length ? (
+                  <div className="space-y-3">
+                    {form.schoolSchedule.noSchoolDays.map((noSchoolDay, index) => (
+                      <div
+                        key={noSchoolDay.id}
+                        className="rounded-sm border border-warning/20 bg-warning/10 p-4"
+                      >
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <p className="text-sm font-medium text-warning">
+                            No-school day {index + 1}
+                          </p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 rounded-full border border-warning/20"
+                            aria-label={`Remove no-school day ${noSchoolDay.date}`}
+                            onClick={() =>
+                              setForm({
+                                ...form,
+                                schoolSchedule: {
+                                  ...form.schoolSchedule,
+                                  noSchoolDays: form.schoolSchedule.noSchoolDays.filter(
+                                    (candidate) => candidate.id !== noSchoolDay.id,
+                                  ),
+                                },
+                              })
+                            }
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-[170px_minmax(0,1fr)_minmax(0,1.3fr)]">
+                          <div className="space-y-2">
+                            <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                              Date
+                            </label>
+                            <Input
+                              type="date"
+                              value={noSchoolDay.date}
+                              onChange={(event) =>
+                                setForm({
+                                  ...form,
+                                  schoolSchedule: {
+                                    ...form.schoolSchedule,
+                                    noSchoolDays: form.schoolSchedule.noSchoolDays.map((candidate) =>
+                                      candidate.id === noSchoolDay.id
+                                        ? { ...candidate, date: event.target.value }
+                                        : candidate,
+                                    ),
+                                  },
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                              Label
+                            </label>
+                            <Input
+                              value={noSchoolDay.label}
+                              placeholder="No School"
+                              onChange={(event) =>
+                                setForm({
+                                  ...form,
+                                  schoolSchedule: {
+                                    ...form.schoolSchedule,
+                                    noSchoolDays: form.schoolSchedule.noSchoolDays.map((candidate) =>
+                                      candidate.id === noSchoolDay.id
+                                        ? { ...candidate, label: event.target.value }
+                                        : candidate,
+                                    ),
+                                  },
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                              Notes
+                            </label>
+                            <Input
+                              value={noSchoolDay.notes ?? ""}
+                              placeholder="Protest, long weekend, school closure..."
+                              onChange={(event) =>
+                                setForm({
+                                  ...form,
+                                  schoolSchedule: {
+                                    ...form.schoolSchedule,
+                                    noSchoolDays: form.schoolSchedule.noSchoolDays.map((candidate) =>
+                                      candidate.id === noSchoolDay.id
+                                        ? { ...candidate, notes: event.target.value }
+                                        : candidate,
+                                    ),
+                                  },
+                                })
+                              }
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-sm border border-dashed border-white/10 bg-white/4 px-4 py-3 text-sm text-muted-foreground">
+                    No no-school days yet. Use this for protests, long weekends, special closures, or any weekday
+                    inside a term that should behave like a weekend/holiday.
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
