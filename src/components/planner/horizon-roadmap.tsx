@@ -76,13 +76,13 @@ export function HorizonRoadmap({
           {visibleWeeks.map((week) => {
             const ratio = week.requiredHours > 0 ? Math.min(week.assignedHours / week.requiredHours, 1.25) : 1;
             const weekState =
-              !week.coverageComplete && week.slackMinutes === 0
-                ? { label: "Calendar-impossible", variant: "danger" as const }
-                : week.coverageComplete && week.overloadMinutes > 0
-                  ? { label: "Overloaded", variant: "warning" as const }
-                  : !week.coverageComplete || week.forcedCoverageMinutes > 0
-                    ? { label: "Catch-up", variant: "warning" as const }
-                    : { label: "On target", variant: "success" as const };
+              week.weekOverloadMinutes > 0
+                ? { label: "Week over capacity", variant: "warning" as const }
+                : week.weekCarryForwardSubjectIds.length > 0
+                  ? { label: "Carries forward work", variant: "warning" as const }
+                  : week.forcedCoverageMinutes > 0
+                    ? { label: "Off pace", variant: "warning" as const }
+                    : { label: "Week on pace", variant: "success" as const };
 
             return (
               <div
@@ -117,9 +117,9 @@ export function HorizonRoadmap({
                     {week.forcedCoverageMinutes > 0 ? `${Math.round(week.forcedCoverageMinutes)} forced catch-up min` : "No forced catch-up"}
                   </p>
                 ) : null}
-                {week.underplannedSubjectIds.length ? (
+                {week.weekCarryForwardSubjectIds.length ? (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {week.underplannedSubjectIds.map((subjectId) => (
+                    {week.weekCarryForwardSubjectIds.map((subjectId) => (
                       <SubjectBadge
                         key={`${week.weekStart}-${subjectId}`}
                         subjectId={subjectId}

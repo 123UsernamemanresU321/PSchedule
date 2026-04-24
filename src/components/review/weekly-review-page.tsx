@@ -24,10 +24,11 @@ import { buildDiagnosisAiContext, buildPlannerSnapshot } from "@/lib/ai/context"
 import {
   getCalendarCompletionForecast,
   getCarryOverBlocks,
+  getHorizonCoverageState,
   getPlanningHierarchyMetrics,
   getWeekBlocks,
   getWeekFillDiagnostics,
-  getWeeklyCoverageState,
+  getWeekPressureState,
   getWeeklyPlan,
 } from "@/lib/analytics/metrics";
 import { mainSubjectIds } from "@/lib/constants/planner";
@@ -59,7 +60,6 @@ export function WeeklyReviewPage() {
   const todayWeekStart = toDateKey(startOfPlannerWeek(new Date()));
   const isViewingCurrentWeek = currentWeekStart === todayWeekStart;
   const weeklyPlan = getWeeklyPlan(weeklyPlans, currentWeekStart);
-  const weeklyCoverageState = getWeeklyCoverageState(weeklyPlan);
   const weekBlocks = getWeekBlocks(studyBlocks, currentWeekStart);
   const carryOverBlocks = getCarryOverBlocks(weekBlocks);
   const hierarchyMetrics = getPlanningHierarchyMetrics({
@@ -110,6 +110,8 @@ export function WeeklyReviewPage() {
         referenceDate: new Date(),
       }),
     );
+  const horizonCoverageState = getHorizonCoverageState(completionForecasts);
+  const weekPressureState = getWeekPressureState(weeklyPlan);
   const olympiadLoadProfile = preferences
     ? getOlympiadWeekLoadProfile({
         weekStart: visibleWeekStart,
@@ -361,9 +363,14 @@ export function WeeklyReviewPage() {
             <CardTitle>Feasibility analysis</CardTitle>
             <p className="text-sm text-muted-foreground">Projected completion dates based on the actual scheduled horizon on the calendar.</p>
           </div>
-          <Badge variant={weeklyCoverageState.tone}>
-            {weeklyCoverageState.label}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={horizonCoverageState.tone}>
+              {horizonCoverageState.label}
+            </Badge>
+            <Badge variant={weekPressureState.tone}>
+              {weekPressureState.label}
+            </Badge>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {weeklyPlan?.feasibilityWarnings.length ? (

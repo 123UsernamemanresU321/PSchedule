@@ -553,27 +553,25 @@ export function buildWeeklyPlan(options: {
     options.studyBlocks
       .filter((block) => block.subjectId && new Date(block.start).getDay() === 0)
       .reduce((total, block) => total + block.estimatedMinutes, 0);
-  const unscheduledMinutesBySubject = (options.unscheduledTasks ?? []).reduce<Record<string, number>>(
-    (accumulator, task) => {
+  const remainingAfterWeekMinutesBySubject = {
+    ...emptyBySubject,
+    ...(options.unscheduledTasks ?? []).reduce<Record<string, number>>((accumulator, task) => {
       if (!task.subjectId) {
         return accumulator;
       }
 
       accumulator[task.subjectId] = (accumulator[task.subjectId] ?? 0) + task.remainingMinutes;
       return accumulator;
-    },
-    {},
-  );
+    }, {}),
+  };
 
   const warnings: string[] = [];
-  const underplannedSubjectIds: string[] = [];
-  const coverageGapHoursBySubject = { ...emptyBySubject };
-  const hardCoverageSatisfiedBySubject = Object.fromEntries(
-    subjectIds.map((subjectId) => [subjectId, true]),
-  ) as Record<string, boolean>;
+  const weekCarryForwardSubjectIds: string[] = [];
+  const weekPacingGapMinutesBySubject = { ...emptyBySubject };
   const fillableGapDateKeys = Array.from(new Set(options.fillableGapDateKeys ?? [])).sort((left, right) =>
     left.localeCompare(right),
   );
+  const weekHasOpenCapacity = slackMinutes > 0;
 
   if (requiredMinutes > studyCapacityMinutes) {
     warnings.push(
@@ -585,23 +583,22 @@ export function buildWeeklyPlan(options: {
     const subjectAssigned = assignedMinutesBySubject[subjectId] ?? 0;
     const subjectRequired = (requiredHoursBySubject[subjectId] ?? 0) * 60;
     const weeklyDeficitMinutes = Math.max(subjectRequired - subjectAssigned, 0);
-    const unscheduledMinutes = Math.max(unscheduledMinutesBySubject[subjectId] ?? 0, 0);
+    const remainingAfterWeekMinutes = Math.max(remainingAfterWeekMinutesBySubject[subjectId] ?? 0, 0);
     const hardScopeSubject = zeroUnscheduledCoverageSubjectIds.includes(
       subjectId as (typeof zeroUnscheduledCoverageSubjectIds)[number],
     );
-    const effectiveGapMinutes = hardScopeSubject
-      ? unscheduledMinutes
-      : Math.max(weeklyDeficitMinutes, unscheduledMinutes);
-    coverageGapHoursBySubject[subjectId] = displayHoursFromMinutes(effectiveGapMinutes, {
-      floorNonZero: true,
-    });
-    hardCoverageSatisfiedBySubject[subjectId] = unscheduledMinutes <= 0;
+    weekPacingGapMinutesBySubject[subjectId] = weeklyDeficitMinutes;
 
-    if (hardScopeSubject && unscheduledMinutes > 0) {
-      underplannedSubjectIds.push(subjectId);
+    if (remainingAfterWeekMinutes > 0) {
+      weekCarryForwardSubjectIds.push(subjectId);
+    }
+
+    if (hardScopeSubject && remainingAfterWeekMinutes > 0) {
       const subject = options.subjects.find((candidate) => candidate.id === subjectId);
       warnings.push(
-        `${subject?.name ?? subjectId} still has ${displayHoursFromMinutes(unscheduledMinutes, { floorNonZero: true }).toFixed(1)}h truly unscheduled on the future horizon.`,
+        `${subject?.name ?? subjectId} still has ${displayHoursFromMinutes(remainingAfterWeekMinutes, {
+          floorNonZero: true,
+        }).toFixed(1)}h unplaced after this week and will carry into later weeks.`,
       );
     }
 
@@ -614,32 +611,32 @@ export function buildWeeklyPlan(options: {
 
     if (
       !hardScopeSubject &&
-      unscheduledMinutes > 0 &&
+      remainingAfterWeekMinutes > 0 &&
       weeklyDeficitMinutes > 0
     ) {
       const subject = options.subjects.find((candidate) => candidate.id === subjectId);
       warnings.push(
-        `${subject?.name ?? subjectId} still has ${displayHoursFromMinutes(unscheduledMinutes, { floorNonZero: true }).toFixed(1)}h unscheduled after this week's pacing and constraints.`,
+        `${subject?.name ?? subjectId} still carries ${displayHoursFromMinutes(remainingAfterWeekMinutes, {
+          floorNonZero: true,
+        }).toFixed(1)}h beyond this week after pacing and constraints.`,
       );
     }
   });
 
-  const coverageComplete = zeroUnscheduledCoverageSubjectIds.every(
-    (subjectId) => (unscheduledMinutesBySubject[subjectId] ?? 0) <= 0,
-  );
   const forcedCoverageMinutes = options.forcedCoverageMinutes ?? 0;
   const fallbackTierUsed = options.fallbackTierUsed ?? 0;
-  const overscheduledMinutes = overloadMinutes;
+  const weekOverloadMinutes = overloadMinutes;
+  const overscheduledMinutes = weekOverloadMinutes;
 
-  if (!coverageComplete && slackMinutes === 0) {
+  if (weekCarryForwardSubjectIds.length > 0 && !weekHasOpenCapacity) {
     warnings.push(
-      "Calendar constraints are exhausted for this week. Remaining hard-scope work will require later horizon capacity, stronger fallback tiers, or horizon extension.",
+      "Calendar constraints are exhausted for this week. Remaining work will carry into later weeks unless later horizon capacity absorbs it.",
     );
   }
 
-  if (underplannedSubjectIds.length > 0 && fillableGapDateKeys.length > 0) {
+  if (weekCarryForwardSubjectIds.length > 0 && fillableGapDateKeys.length > 0) {
     warnings.push(
-      `Open study capacity remains on ${fillableGapDateKeys.length} future day${fillableGapDateKeys.length === 1 ? "" : "s"} while hard-scope work is still unplaced.`,
+      `Open study capacity remains on ${fillableGapDateKeys.length} day${fillableGapDateKeys.length === 1 ? "" : "s"} this week while carry-forward work is still unplaced.`,
     );
   }
 
@@ -647,10 +644,14 @@ export function buildWeeklyPlan(options: {
   if (
     warnings.length >= 3 ||
     requiredMinutes > studyCapacityMinutes * 1.1 ||
-    underplannedSubjectIds.length >= 2
+    weekCarryForwardSubjectIds.length >= 2
   ) {
     riskFlag = "high";
-  } else if (warnings.length > 0 || requiredMinutes > studyCapacityMinutes * 0.95) {
+  } else if (
+    warnings.length > 0 ||
+    requiredMinutes > studyCapacityMinutes * 0.95 ||
+    weekOverloadMinutes > 0
+  ) {
     riskFlag = "medium";
   }
 
@@ -674,23 +675,23 @@ export function buildWeeklyPlan(options: {
       Object.entries(completedMinutesBySubject).map(([key, value]) => [key, roundToTenth(value / 60)]),
     ),
     remainingHoursBySubject,
-    hardCoverageSatisfiedBySubject,
-    underplannedSubjectIds,
+    remainingAfterWeekMinutesBySubject,
+    weekPacingGapMinutesBySubject,
+    weekCarryForwardSubjectIds,
     slackMinutes,
+    weekHasOpenCapacity,
     carryOverBlockIds: options.studyBlocks
       .filter((block) => block.status === "missed" || block.status === "rescheduled")
       .map((block) => block.id),
     feasibilityScore,
     riskFlag,
     feasibilityWarnings: warnings,
-    coverageGapHoursBySubject,
     scheduledToGoalHoursBySubject,
     fallbackTierUsed,
     forcedCoverageMinutes,
     usedSundayMinutes,
-    overloadMinutes,
+    weekOverloadMinutes,
     overscheduledMinutes,
-    coverageComplete,
     fillableGapDateKeys,
     effectiveReservedCommitmentDurations: [...(options.effectiveReservedCommitmentDurations ?? [])].sort(
       (left, right) =>
@@ -769,8 +770,17 @@ export function buildUnconfiguredWeeklyPlan(options: {
     remainingHoursBySubject: Object.fromEntries(
       subjectIds.map((subjectId) => [subjectId, deadlineTracks[subjectId]?.remainingHours ?? 0]),
     ),
-    coverageGapHoursBySubject: Object.fromEntries(
-      subjectIds.map((subjectId) => [subjectId, requiredHoursBySubject[subjectId] ?? 0]),
+    remainingAfterWeekMinutesBySubject: Object.fromEntries(
+      subjectIds.map((subjectId) => [
+        subjectId,
+        Math.max(Math.round((deadlineTracks[subjectId]?.remainingHours ?? 0) * 60), 0),
+      ]),
+    ),
+    weekPacingGapMinutesBySubject: Object.fromEntries(
+      subjectIds.map((subjectId) => [
+        subjectId,
+        Math.max(Math.round((requiredHoursBySubject[subjectId] ?? 0) * 60), 0),
+      ]),
     ),
     scheduledToGoalHoursBySubject: computeScheduledHoursBySubjectToGoal({
       subjects: options.subjects,
@@ -778,13 +788,11 @@ export function buildUnconfiguredWeeklyPlan(options: {
       topics: options.topics,
       plannedMinutesByTopic: {},
     }),
-    hardCoverageSatisfiedBySubject: Object.fromEntries(
-      subjectIds.map((subjectId) => [subjectId, false]),
-    ),
-    underplannedSubjectIds: zeroUnscheduledCoverageSubjectIds.filter(
+    weekCarryForwardSubjectIds: zeroUnscheduledCoverageSubjectIds.filter(
       (subjectId) => (requiredHoursBySubject[subjectId] ?? 0) > 0,
     ),
     slackMinutes: 0,
+    weekHasOpenCapacity: false,
     carryOverBlockIds: options.studyBlocks
       .filter((block) => block.status === "missed" || block.status === "rescheduled")
       .map((block) => block.id),
@@ -796,9 +804,8 @@ export function buildUnconfiguredWeeklyPlan(options: {
     fallbackTierUsed: 0,
     forcedCoverageMinutes: 0,
     usedSundayMinutes: 0,
-    overloadMinutes: 0,
+    weekOverloadMinutes: 0,
     overscheduledMinutes: 0,
-    coverageComplete: false,
     fillableGapDateKeys: [],
     effectiveReservedCommitmentDurations: [...(options.effectiveReservedCommitmentDurations ?? [])].sort(
       (left, right) =>

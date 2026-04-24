@@ -7,11 +7,12 @@ import {
   detectFutureFillableGap,
   getCalendarCompletionForecast,
   getCarryOverBlocks,
+  getHorizonCoverageState,
   getPlanningHierarchyMetrics,
+  getWeekPressureState,
   getSubjectProgress,
   getWeekBlocks,
   getWeekFillDiagnostics,
-  getWeeklyCoverageState,
   getWeeklyPlan,
 } from "@/lib/analytics/metrics";
 import type {
@@ -159,6 +160,20 @@ export function buildWeeklyReviewAiContext(options: {
     weeklyPlans: options.weeklyPlans,
     referenceDate,
   });
+  const completionForecasts = options.subjects
+    .filter((subject) =>
+      visibleCoreSubjectIds.includes(subject.id as (typeof visibleCoreSubjectIds)[number]),
+    )
+    .map((subject) =>
+      getCalendarCompletionForecast({
+        subject,
+        topics: options.topics,
+        goals: options.goals,
+        studyBlocks: options.studyBlocks,
+        weeklyPlans: options.weeklyPlans,
+        referenceDate,
+      }),
+    );
   const carryOverBlocks = getCarryOverBlocks(
     getWeekBlocks(options.studyBlocks, options.currentWeekStart),
   ).map((block) => ({
@@ -182,12 +197,13 @@ export function buildWeeklyReviewAiContext(options: {
       goals: options.goals,
       referenceDate,
     }),
-    weeklyCoverageState: getWeeklyCoverageState(weeklyPlan),
+    horizonCoverageState: getHorizonCoverageState(completionForecasts),
+    weekPressureState: getWeekPressureState(weeklyPlan),
     weeklyPlan: weeklyPlan
       ? {
           riskFlag: weeklyPlan.riskFlag,
           feasibilityWarnings: weeklyPlan.feasibilityWarnings,
-          underplannedSubjectIds: weeklyPlan.underplannedSubjectIds,
+          weekCarryForwardSubjectIds: weeklyPlan.weekCarryForwardSubjectIds,
           fillableGapDateKeys: weeklyPlan.fillableGapDateKeys,
           replanDiagnostics: weeklyPlan.replanDiagnostics ?? null,
         }
@@ -245,10 +261,12 @@ export function buildDiagnosisAiContext(options: {
           requiredHoursBySubject: weeklyPlan.requiredHoursBySubject,
           assignedHoursBySubject: weeklyPlan.assignedHoursBySubject,
           completedHoursBySubject: weeklyPlan.completedHoursBySubject,
-          hardCoverageSatisfiedBySubject: weeklyPlan.hardCoverageSatisfiedBySubject,
+          remainingAfterWeekMinutesBySubject: weeklyPlan.remainingAfterWeekMinutesBySubject,
+          weekPacingGapMinutesBySubject: weeklyPlan.weekPacingGapMinutesBySubject,
+          weekCarryForwardSubjectIds: weeklyPlan.weekCarryForwardSubjectIds,
           fallbackTierUsed: weeklyPlan.fallbackTierUsed,
           overscheduledMinutes: weeklyPlan.overscheduledMinutes,
-          overloadMinutes: weeklyPlan.overloadMinutes,
+          weekOverloadMinutes: weeklyPlan.weekOverloadMinutes,
         }
       : null,
     futureGap,

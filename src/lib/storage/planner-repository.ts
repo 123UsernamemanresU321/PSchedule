@@ -33,7 +33,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-04-21-zero-core-coverage-v53";
+const PLANNING_MODEL_VERSION = "2026-04-24-week-pressure-semantics-v54";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-08-olympiad-bplus-roadmap-v11";
@@ -561,25 +561,25 @@ function normalizeWeeklyPlan(
       ...emptyBySubject,
       ...weeklyPlan.remainingHoursBySubject,
     },
-    coverageGapHoursBySubject: {
+    remainingAfterWeekMinutesBySubject: {
       ...emptyBySubject,
-      ...weeklyPlan.coverageGapHoursBySubject,
+      ...weeklyPlan.remainingAfterWeekMinutesBySubject,
+    },
+    weekPacingGapMinutesBySubject: {
+      ...emptyBySubject,
+      ...weeklyPlan.weekPacingGapMinutesBySubject,
     },
     scheduledToGoalHoursBySubject: {
       ...emptyBySubject,
       ...weeklyPlan.scheduledToGoalHoursBySubject,
     },
-    hardCoverageSatisfiedBySubject: {
-      ...Object.fromEntries(subjectIds.map((subjectId) => [subjectId, false])),
-      ...weeklyPlan.hardCoverageSatisfiedBySubject,
-    },
-    underplannedSubjectIds: weeklyPlan.underplannedSubjectIds ?? [],
+    weekCarryForwardSubjectIds: weeklyPlan.weekCarryForwardSubjectIds ?? [],
     fallbackTierUsed: weeklyPlan.fallbackTierUsed ?? 0,
     forcedCoverageMinutes: weeklyPlan.forcedCoverageMinutes ?? 0,
     usedSundayMinutes: weeklyPlan.usedSundayMinutes ?? 0,
-    overloadMinutes: weeklyPlan.overloadMinutes ?? 0,
+    weekHasOpenCapacity: weeklyPlan.weekHasOpenCapacity ?? (weeklyPlan.slackMinutes ?? 0) > 0,
+    weekOverloadMinutes: weeklyPlan.weekOverloadMinutes ?? weeklyPlan.overscheduledMinutes ?? 0,
     overscheduledMinutes: weeklyPlan.overscheduledMinutes ?? 0,
-    coverageComplete: weeklyPlan.coverageComplete ?? false,
     fillableGapDateKeys: Array.from(new Set(weeklyPlan.fillableGapDateKeys ?? [])).sort((left, right) =>
       left.localeCompare(right),
     ),
@@ -727,7 +727,7 @@ export function getScopedReplanPrecheckState(options: {
     }
 
     return zeroUnscheduledCoverageSubjectIds.some(
-      (subjectId) => weeklyPlan.hardCoverageSatisfiedBySubject[subjectId] === false,
+      (subjectId) => (weeklyPlan.remainingAfterWeekMinutesBySubject[subjectId] ?? 0) > 0,
     );
   });
   const hardConstraintSubjectIds = options.snapshot.subjects

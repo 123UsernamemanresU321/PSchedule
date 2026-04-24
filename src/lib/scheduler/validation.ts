@@ -10,7 +10,6 @@ import {
   getOlympiadNumberTheoryEligibilityStatus,
   getOlympiadStageGateStatus,
 } from "@/lib/scheduler/olympiad-stage-gates";
-import { zeroUnscheduledCoverageSubjectIds } from "@/lib/constants/planner";
 import { startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import type { FixedEvent, Preferences, SickDay, StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
 
@@ -344,24 +343,24 @@ export function validateGeneratedHorizon(options: {
       return;
     }
 
-    Object.entries(plan.coverageGapHoursBySubject).forEach(([subjectId, gapHours]) => {
-      const isCoreCoverageSubject = zeroUnscheduledCoverageSubjectIds.includes(
-        subjectId as (typeof zeroUnscheduledCoverageSubjectIds)[number],
-      );
-      const hasGap = isCoreCoverageSubject
-        ? !plan.hardCoverageSatisfiedBySubject[subjectId]
-        : gapHours > 0.1;
+    Object.entries(plan.weekPacingGapMinutesBySubject).forEach(([subjectId, gapMinutes]) => {
+      const remainingAfterWeekMinutes = plan.remainingAfterWeekMinutesBySubject[subjectId] ?? 0;
+      const hasGap = remainingAfterWeekMinutes > 0 || gapMinutes > 0;
 
       if (!hasGap) {
         return;
       }
 
+      const displayedGapHours =
+        remainingAfterWeekMinutes > 0
+          ? remainingAfterWeekMinutes / 60
+          : gapMinutes / 60;
       issues.push({
         code: "unused-capacity-with-gap",
         severity: "warning",
         weekStart: plan.weekStart,
         subjectId,
-        message: `${subjectId} still has a ${gapHours.toFixed(1)}h coverage gap during ${plan.weekStart} even though ${plan.slackMinutes} minutes of capacity remain.`,
+        message: `${subjectId} still has ${displayedGapHours.toFixed(1)}h unresolved for ${plan.weekStart} even though ${plan.slackMinutes} minutes of study capacity remain.`,
       });
     });
   });

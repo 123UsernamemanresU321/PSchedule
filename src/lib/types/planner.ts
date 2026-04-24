@@ -198,11 +198,12 @@ export interface WeeklyPlan {
   assignedHoursBySubject: Record<string, number>;
   completedHoursBySubject: Record<string, number>;
   remainingHoursBySubject: Record<string, number>;
-  coverageGapHoursBySubject: Record<string, number>;
+  remainingAfterWeekMinutesBySubject: Record<string, number>;
+  weekPacingGapMinutesBySubject: Record<string, number>;
   scheduledToGoalHoursBySubject: Record<string, number>;
-  hardCoverageSatisfiedBySubject: Record<string, boolean>;
-  underplannedSubjectIds: string[];
+  weekCarryForwardSubjectIds: string[];
   slackMinutes: number;
+  weekHasOpenCapacity: boolean;
   carryOverBlockIds: string[];
   feasibilityScore: number;
   riskFlag: RiskFlag;
@@ -210,9 +211,8 @@ export interface WeeklyPlan {
   fallbackTierUsed: number;
   forcedCoverageMinutes: number;
   usedSundayMinutes: number;
-  overloadMinutes: number;
+  weekOverloadMinutes: number;
   overscheduledMinutes: number;
-  coverageComplete: boolean;
   fillableGapDateKeys: string[];
   effectiveReservedCommitmentDurations: EffectiveReservedCommitmentDuration[];
   excludedReservedCommitmentRuleIds: string[];
@@ -426,12 +426,12 @@ export interface HorizonRoadmapWeek {
   completedHours: number;
   remainingCoreHours: number;
   slackMinutes: number;
+  weekHasOpenCapacity: boolean;
   riskFlag: RiskFlag;
-  coverageComplete: boolean;
   forcedCoverageMinutes: number;
   usedSundayMinutes: number;
-  overloadMinutes: number;
-  underplannedSubjectIds: string[];
+  weekOverloadMinutes: number;
+  weekCarryForwardSubjectIds: string[];
 }
 
 export interface HorizonRoadmapSummary {

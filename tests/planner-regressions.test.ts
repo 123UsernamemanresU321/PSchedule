@@ -10,6 +10,7 @@ import {
   getCalendarCompletionForecast,
   getDashboardCoverageState,
   getDashboardHorizonMetrics,
+  getWeekPressureState,
   getSubjectProgress,
 } from "@/lib/analytics/metrics";
 import {
@@ -124,11 +125,12 @@ function createWeeklyPlan(overrides: Partial<WeeklyPlan> = {}): WeeklyPlan {
     assignedHoursBySubject: { "physics-hl": 2 },
     completedHoursBySubject: { "physics-hl": 0 },
     remainingHoursBySubject: { "physics-hl": 6 },
-    coverageGapHoursBySubject: { "physics-hl": 2 },
+    remainingAfterWeekMinutesBySubject: { "physics-hl": 120 },
+    weekPacingGapMinutesBySubject: { "physics-hl": 120 },
     scheduledToGoalHoursBySubject: { "physics-hl": 4 },
-    hardCoverageSatisfiedBySubject: { "physics-hl": false },
-    underplannedSubjectIds: ["physics-hl"],
+    weekCarryForwardSubjectIds: ["physics-hl"],
     slackMinutes: 120,
+    weekHasOpenCapacity: true,
     carryOverBlockIds: [],
     feasibilityScore: 60,
     riskFlag: "medium",
@@ -136,9 +138,8 @@ function createWeeklyPlan(overrides: Partial<WeeklyPlan> = {}): WeeklyPlan {
     fallbackTierUsed: 0,
     forcedCoverageMinutes: 0,
     usedSundayMinutes: 0,
-    overloadMinutes: 0,
+    weekOverloadMinutes: 0,
     overscheduledMinutes: 0,
-    coverageComplete: false,
     fillableGapDateKeys: [],
     effectiveReservedCommitmentDurations: [],
     excludedReservedCommitmentRuleIds: [],
@@ -870,6 +871,70 @@ test("calendar completion forecast treats blocks on the deadline day as on-track
   assert.equal(forecast.isOnTrack, true);
   assert.equal(forecast.isFullyScheduled, true);
   assert.equal(forecast.completionDate?.toISOString(), "2026-03-20T18:00:00.000Z");
+});
+
+test("week pressure state does not turn full horizon coverage into calendar impossibility", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-13T08:00:00"));
+  const subject = dataset.subjects.find((candidate) => candidate.id === "physics-hl");
+  const topic = dataset.topics.find((candidate) => candidate.subjectId === "physics-hl");
+
+  assert.ok(subject, "expected physics subject");
+  assert.ok(topic, "expected physics topic");
+
+  const scopedTopic = {
+    ...topic,
+    estHours: 2,
+    completedHours: 0,
+  };
+  const goal = {
+    id: "physics-week-pressure-goal",
+    title: "Physics week pressure goal",
+    subjectId: "physics-hl" as const,
+    deadline: "2026-03-20",
+    targetCompletion: 1,
+    priorityWeight: 1,
+    topicIds: [scopedTopic.id],
+  };
+  const weeklyPlan = createWeeklyPlan({
+    remainingAfterWeekMinutesBySubject: { "physics-hl": 120 },
+    weekPacingGapMinutesBySubject: { "physics-hl": 120 },
+    weekCarryForwardSubjectIds: ["physics-hl"],
+    weekHasOpenCapacity: false,
+  });
+  const forecast = getCalendarCompletionForecast({
+    subject,
+    topics: [scopedTopic],
+    goals: [goal],
+    studyBlocks: [
+      createStudyBlock({
+        id: "physics-covered-before-deadline",
+        subjectId: "physics-hl",
+        topicId: scopedTopic.id,
+        estimatedMinutes: 120,
+        start: "2026-03-18T08:00:00.000Z",
+        end: "2026-03-18T10:00:00.000Z",
+      }),
+    ],
+    weeklyPlans: [weeklyPlan],
+    referenceDate: new Date("2026-03-13T08:00:00"),
+  });
+
+  assert.equal(getWeekPressureState(weeklyPlan).label, "Week carries forward work");
+  assert.equal(forecast.isFullyScheduled, true);
+  assert.equal(forecast.isCalendarImpossible, false);
+});
+
+test("week pressure state reports overload without implying impossibility", () => {
+  const weeklyPlan = createWeeklyPlan({
+    remainingAfterWeekMinutesBySubject: { "physics-hl": 0 },
+    weekPacingGapMinutesBySubject: { "physics-hl": 0 },
+    weekCarryForwardSubjectIds: [],
+    weekHasOpenCapacity: false,
+    weekOverloadMinutes: 90,
+    overscheduledMinutes: 90,
+  });
+
+  assert.equal(getWeekPressureState(weeklyPlan).label, "Week over capacity");
 });
 
 test("seeded first-pass school milestones move to August 14, Olympiad phase 1 moves to July 31, and C++ stays unchanged", () => {

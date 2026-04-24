@@ -8,10 +8,7 @@ import {
   startOfMonth,
 } from "date-fns";
 
-import {
-  visibleCoreSubjectIds,
-  zeroUnscheduledCoverageSubjectIds,
-} from "@/lib/constants/planner";
+import { visibleCoreSubjectIds } from "@/lib/constants/planner";
 import {
   displayHoursFromMinutes,
   formatWeekRangeLabel,
@@ -243,11 +240,14 @@ export function countTrackStatus(weeklyPlan: WeeklyPlan | undefined) {
   return visibleCoreSubjectIds.reduce(
     (accumulator, subjectId) => {
       const required = weeklyPlan.requiredHoursBySubject[subjectId] ?? 0;
-      const gap = weeklyPlan.coverageGapHoursBySubject[subjectId] ?? 0;
-      const ratio = required > 0 ? Math.max(0, 1 - gap / Math.max(required, 0.25)) : 1;
-      const hasHardCoverageGap = !weeklyPlan.hardCoverageSatisfiedBySubject[subjectId];
+      const pacingGapHours = displayHoursFromMinutes(
+        weeklyPlan.weekPacingGapMinutesBySubject[subjectId] ?? 0,
+        { floorNonZero: true },
+      );
+      const ratio = required > 0 ? Math.max(0, 1 - pacingGapHours / Math.max(required, 0.25)) : 1;
+      const carriesForward = (weeklyPlan.remainingAfterWeekMinutesBySubject[subjectId] ?? 0) > 0;
 
-      if (!hasHardCoverageGap) {
+      if (!carriesForward && pacingGapHours <= 0) {
         accumulator.onTrack += 1;
       } else if (ratio >= 0.8) {
         accumulator.atRisk += 1;
@@ -265,24 +265,27 @@ export function countTrackStatus(weeklyPlan: WeeklyPlan | undefined) {
   );
 }
 
-export function getWeeklyCoverageState(weeklyPlan: WeeklyPlan | undefined) {
+export function getWeekPressureState(weeklyPlan: WeeklyPlan | undefined) {
   if (!weeklyPlan) {
-    return { label: "On target", tone: "success" as const };
+    return { label: "Week on pace", tone: "success" as const };
   }
 
-  if (!weeklyPlan.coverageComplete && weeklyPlan.slackMinutes === 0) {
-    return { label: "Calendar-impossible", tone: "danger" as const };
+  if (weeklyPlan.weekOverloadMinutes > 0) {
+    return { label: "Week over capacity", tone: "warning" as const };
   }
 
-  if (weeklyPlan.coverageComplete && weeklyPlan.overloadMinutes > 0) {
-    return { label: "Overloaded but covered", tone: "warning" as const };
+  if (weeklyPlan.weekCarryForwardSubjectIds.length > 0) {
+    return { label: "Week carries forward work", tone: "warning" as const };
   }
 
-  if (!weeklyPlan.coverageComplete || weeklyPlan.forcedCoverageMinutes > 0) {
-    return { label: "Catch-up", tone: "warning" as const };
+  const hasWeekPacingGap = Object.values(weeklyPlan.weekPacingGapMinutesBySubject).some(
+    (minutes) => minutes > 0,
+  );
+  if (hasWeekPacingGap || weeklyPlan.forcedCoverageMinutes > 0) {
+    return { label: "Week off pace", tone: "warning" as const };
   }
 
-  return { label: "On target", tone: "success" as const };
+  return { label: "Week on pace", tone: "success" as const };
 }
 
 export function getCarryOverBlocks(studyBlocks: StudyBlock[]) {
@@ -780,7 +783,7 @@ export function countHorizonTrackStatus(
   );
 }
 
-export function getDashboardCoverageState(
+export function getHorizonCoverageState(
   forecasts: Array<ReturnType<typeof getCalendarCompletionForecast>>,
 ) {
   const calendarImpossibleCount = forecasts.filter((forecast) => forecast.isCalendarImpossible).length;
@@ -808,6 +811,8 @@ export function getDashboardCoverageState(
     detail: "All tracked subjects currently finish by their active milestone deadlines.",
   };
 }
+
+export const getDashboardCoverageState = getHorizonCoverageState;
 
 export function getActiveWeekRange(studyBlocks: StudyBlock[]) {
   const first = studyBlocks[0];
@@ -934,19 +939,14 @@ export function getCalendarCompletionForecast(options: {
   const relevantWeeklyPlans = (options.weeklyPlans ?? [])
     .filter((plan) => plan.weekStart >= currentWeekStart && plan.weekStart <= deadlineWeekStart)
     .sort((left, right) => left.weekStart.localeCompare(right.weekStart));
-  const subjectStillUndercovered = relevantWeeklyPlans.some(
-    (plan) =>
-      zeroUnscheduledCoverageSubjectIds.includes(
-        options.subject.id as (typeof zeroUnscheduledCoverageSubjectIds)[number],
-      )
-        ? !plan.hardCoverageSatisfiedBySubject[options.subject.id]
-        : (plan.coverageGapHoursBySubject[options.subject.id] ?? 0) > 0.1,
+  const subjectCarriesForwardBeforeDeadline = relevantWeeklyPlans.some(
+    (plan) => (plan.remainingAfterWeekMinutesBySubject[options.subject.id] ?? 0) > 0,
   );
-  const hasUnusedCapacityBeforeDeadline = relevantWeeklyPlans.some((plan) => plan.slackMinutes > 0);
+  const hasUnusedCapacityBeforeDeadline = relevantWeeklyPlans.some((plan) => plan.weekHasOpenCapacity);
   const isCalendarImpossible =
     missingMinutes > 0 &&
     relevantWeeklyPlans.length > 0 &&
-    subjectStillUndercovered &&
+    subjectCarriesForwardBeforeDeadline &&
     !hasUnusedCapacityBeforeDeadline;
   const needsMoreBlocks = missingMinutes > 0 && !isCalendarImpossible;
 
@@ -1052,12 +1052,12 @@ export function getHorizonRoadmapSummary(
           .toFixed(1),
       ),
       slackMinutes: plan.slackMinutes,
+      weekHasOpenCapacity: plan.weekHasOpenCapacity,
       riskFlag: plan.riskFlag,
-      coverageComplete: plan.coverageComplete,
       forcedCoverageMinutes: plan.forcedCoverageMinutes,
       usedSundayMinutes: plan.usedSundayMinutes,
-      overloadMinutes: plan.overloadMinutes,
-      underplannedSubjectIds: plan.underplannedSubjectIds,
+      weekOverloadMinutes: plan.weekOverloadMinutes,
+      weekCarryForwardSubjectIds: plan.weekCarryForwardSubjectIds,
     })),
   };
 }
