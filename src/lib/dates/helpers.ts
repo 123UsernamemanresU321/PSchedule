@@ -6,7 +6,6 @@ import {
   endOfWeek,
   format,
   isSameMonth,
-  set,
   startOfWeek,
 } from "date-fns";
 
@@ -30,11 +29,16 @@ export function getAcademicDeadline(referenceDate = new Date()) {
 }
 
 export function toDateKey(date: Date) {
-  return format(date, "yyyy-MM-dd");
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function fromDateKey(dateKey: string) {
-  const [year, month, day] = dateKey.split("-").map(Number);
+  const year = Number(dateKey.slice(0, 4));
+  const month = Number(dateKey.slice(5, 7));
+  const day = Number(dateKey.slice(8, 10));
   return new Date(year, month - 1, day, 0, 0, 0, 0);
 }
 
@@ -56,13 +60,9 @@ export function formatWeekRangeLabel(weekStart: Date) {
 }
 
 export function createDateAtTime(day: Date, time: string) {
-  const [hours, minutes] = time.split(":").map(Number);
-  return set(day, {
-    hours,
-    minutes,
-    seconds: 0,
-    milliseconds: 0,
-  });
+  const hours = Number(time.slice(0, 2));
+  const minutes = Number(time.slice(3, 5));
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), hours, minutes, 0, 0);
 }
 
 export function minutesBetween(start: Date, end: Date) {

@@ -1216,6 +1216,12 @@ function buildFutureFocusedReserveMinutesBySubject(options: {
     });
   }
 
+  const reserveMinutesBySubject = recordFromKeys(subjectIds, () => 0);
+
+  if (futureFocusedSubjectIds.size === 0) {
+    return reserveMinutesBySubject;
+  }
+
   const remainingTasks = buildTaskCandidates({
     topics: options.topics,
     existingPlannedBlocks: options.existingPlannedBlocks,
@@ -1238,8 +1244,6 @@ function buildFutureFocusedReserveMinutesBySubject(options: {
 
     remainingRequiredMinutesBySubject[task.subjectId] += task.remainingMinutes;
   });
-
-  const reserveMinutesBySubject = recordFromKeys(subjectIds, () => 0);
 
   for (
     let futureWeek = addDays(options.currentWeek, 7);
@@ -1746,6 +1750,28 @@ function allocateTasksToSlots(options: {
       ),
       ...refreshedTasks,
     ];
+  }
+
+  function applyScheduledTaskCoverage(task: TaskCandidate, durationMinutes: number) {
+    if (!task.topicId) {
+      task.remainingMinutes = Math.max(0, task.remainingMinutes - durationMinutes);
+      return task.remainingMinutes < MIN_ALLOCATABLE_MINUTES;
+    }
+
+    let topicStillOpen = false;
+
+    workingTasks.forEach((candidate) => {
+      if (candidate.topicId !== task.topicId) {
+        return;
+      }
+
+      candidate.remainingMinutes = Math.max(0, candidate.remainingMinutes - durationMinutes);
+      if (candidate.remainingMinutes >= MIN_ALLOCATABLE_MINUTES) {
+        topicStillOpen = true;
+      }
+    });
+
+    return !topicStillOpen;
   }
 
   function getFocusedAssignedMinutes(dateKey: string) {
@@ -2341,7 +2367,6 @@ function allocateTasksToSlots(options: {
       remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES &&
       (consumedStudyMinutes < effectiveCapacityMinutes || mustFillEndOfDaySlot)
     ) {
-      syncWorkingTasks();
       const usedToday = dailyMinutes[slot.dateKey] ?? 0;
       const unmetTemplateRequirements = getUnmetTemplateRequirements(slot.dateKey);
       const activeTemplateRequirement = unmetTemplateRequirements[0] ?? null;
@@ -2673,7 +2698,10 @@ function allocateTasksToSlots(options: {
       });
 
       scheduledBlocks.push(block);
-      winner.task.remainingMinutes -= winner.blockOption.durationMinutes;
+      const topicCompletedByPlacement = applyScheduledTaskCoverage(
+        winner.task,
+        winner.blockOption.durationMinutes,
+      );
       dailyMinutes[slot.dateKey] =
         (dailyMinutes[slot.dateKey] ?? 0) + winner.blockOption.durationMinutes;
       if (winner.blockOption.intensity === "heavy") {
@@ -2720,10 +2748,10 @@ function allocateTasksToSlots(options: {
         trailingTailMinutes < MIN_ALLOCATABLE_MINUTES
       ) {
         extendScheduledStudyBlock(block, trailingTailMinutes);
-        winner.task.remainingMinutes = Math.max(
-          0,
-          winner.task.remainingMinutes - trailingTailMinutes,
-        );
+        applyScheduledTaskCoverage(winner.task, trailingTailMinutes);
+        if (topicCompletedByPlacement && winner.task.subjectId) {
+          syncWorkingTasks([winner.task.subjectId]);
+        }
         cursor = addMinutes(
           cursor,
           winner.blockOption.durationMinutes + trailingTailMinutes,
@@ -2742,6 +2770,10 @@ function allocateTasksToSlots(options: {
           winner.blockOption.durationMinutes -
           breakAfterBlock,
       );
+
+      if (topicCompletedByPlacement && winner.task.subjectId) {
+        syncWorkingTasks([winner.task.subjectId]);
+      }
     }
   });
 

@@ -15,6 +15,7 @@ import type { CompletionLog, StudyBlock, StudyLayer, TaskCandidate, Topic } from
 
 const MIN_ALLOCATABLE_MINUTES = 30;
 const MATHS_AA_SL_HL_FRONTIER_TOPIC_ID = "maths-topic5-aa-integration";
+const DATE_KEY_START_CACHE = new Map<string, Date>();
 
 const PAPER_CODE_SUBJECT_PREFIXES: Record<string, string> = {
   "physics-hl": "PHY",
@@ -95,6 +96,26 @@ function isStrictMathsAaHlTopic(topic: Topic) {
   return (
     topic.subjectId === "maths-aa-hl" &&
     topic.sourceMaterials.some((material) => material.label === "Hodder AA HL 2019")
+  );
+}
+
+function getCachedDateKeyStart(dateKey: string) {
+  const cached = DATE_KEY_START_CACHE.get(dateKey);
+  if (cached) {
+    return cached;
+  }
+
+  const parsed = fromDateKey(dateKey);
+  DATE_KEY_START_CACHE.set(dateKey, parsed);
+  return parsed;
+}
+
+function isSchedulableCoverageStatus(status: StudyBlock["status"]) {
+  return (
+    status === "planned" ||
+    status === "rescheduled" ||
+    status === "done" ||
+    status === "partial"
   );
 }
 
@@ -260,28 +281,71 @@ function createReviewCandidate(
   };
 }
 
-function getLatestScheduledBlockByTopic(existingPlannedBlocks: StudyBlock[]) {
-  return existingPlannedBlocks.reduce<Record<string, StudyBlock>>((accumulator, block) => {
-    if (!block.topicId || block.status === "missed") {
-      return accumulator;
+function buildExistingBlockCandidateState(
+  existingPlannedBlocks: StudyBlock[],
+  options: { topicIdByBlockIds?: Set<string> | null } = {},
+) {
+  const latestScheduledBlockByTopic: Record<string, StudyBlock> = {};
+  const topicIdByBlockIds = options.topicIdByBlockIds;
+  const topicIdByBlockId = topicIdByBlockIds?.size ? new Map<string, string>() : null;
+  const topicIdsWithCompletedStudyHistory = new Set<string>();
+  const plannedMinutesByTopic: Record<string, number> = {};
+  const existingReviewMinutesByTopic: Record<string, number> = {};
+  let hasCompletedOlympiadAttempt = false;
+
+  existingPlannedBlocks.forEach((block) => {
+    if (!block.topicId) {
+      return;
     }
 
-    const current = accumulator[block.topicId];
-    if (!current || new Date(block.end).getTime() > new Date(current.end).getTime()) {
-      accumulator[block.topicId] = block;
+    if (topicIdByBlockIds?.has(block.id)) {
+      topicIdByBlockId?.set(block.id, block.topicId);
     }
 
-    return accumulator;
-  }, {});
+    if (block.status !== "missed") {
+      const current = latestScheduledBlockByTopic[block.topicId];
+      if (!current || block.end > current.end) {
+        latestScheduledBlockByTopic[block.topicId] = block;
+      }
+    }
+
+    if (block.status === "done" || block.status === "partial") {
+      topicIdsWithCompletedStudyHistory.add(block.topicId);
+      if (block.subjectId === "olympiad") {
+        hasCompletedOlympiadAttempt = true;
+      }
+    }
+
+    if (!isSchedulableCoverageStatus(block.status)) {
+      return;
+    }
+
+    plannedMinutesByTopic[block.topicId] =
+      (plannedMinutesByTopic[block.topicId] ?? 0) + block.estimatedMinutes;
+
+    if (block.blockType === "review") {
+      existingReviewMinutesByTopic[block.topicId] =
+        (existingReviewMinutesByTopic[block.topicId] ?? 0) + block.estimatedMinutes;
+    }
+  });
+
+  return {
+    latestScheduledBlockByTopic,
+    topicIdByBlockId: topicIdByBlockId ?? new Map<string, string>(),
+    topicIdsWithCompletedStudyHistory,
+    plannedMinutesByTopic,
+    existingReviewMinutesByTopic,
+    hasCompletedOlympiadAttempt,
+  };
 }
 
 function getTopicIdsWithStudyHistory(
   topics: Topic[],
-  existingPlannedBlocks: StudyBlock[],
+  topicIdsWithCompletedStudyHistory: Set<string>,
+  topicIdByBlockId: Map<string, string>,
   completionLogs: CompletionLog[],
 ) {
   const topicIdsWithStudyHistory = new Set<string>();
-  const topicIdByBlockId = new Map<string, string>();
 
   topics.forEach((topic) => {
     if (
@@ -293,16 +357,8 @@ function getTopicIdsWithStudyHistory(
     }
   });
 
-  existingPlannedBlocks.forEach((block) => {
-    if (!block.topicId) {
-      return;
-    }
-
-    topicIdByBlockId.set(block.id, block.topicId);
-
-    if (block.status === "done" || block.status === "partial") {
-      topicIdsWithStudyHistory.add(block.topicId);
-    }
+  topicIdsWithCompletedStudyHistory.forEach((topicId) => {
+    topicIdsWithStudyHistory.add(topicId);
   });
 
   completionLogs.forEach((log) => {
@@ -328,7 +384,9 @@ function resolveTopicTimingWindow(
   topicById: Map<string, Topic>,
   options?: { allowAvailabilityPullForward?: boolean },
 ) {
-  const roadmapAvailableAt = topic.availableFrom ? fromDateKey(topic.availableFrom) : null;
+  const roadmapAvailableAt = topic.availableFrom
+    ? getCachedDateKeyStart(topic.availableFrom)
+    : null;
   let availableAt: Date | null = roadmapAvailableAt;
   let reviewDue = topic.reviewDue;
 
@@ -374,47 +432,49 @@ function resolveTopicTimingWindow(
     }
   }
 
-  const stageGateStatus = getOlympiadStageGateStatus({
-    topic,
-    topics,
-    blocks: existingPlannedBlocks,
-  });
+  if (topic.subjectId === "olympiad") {
+    const stageGateStatus = getOlympiadStageGateStatus({
+      topic,
+      topics,
+      blocks: existingPlannedBlocks,
+    });
 
-  if (stageGateStatus.blocked) {
-    return {
-      blocked: true,
-      availableAt: null,
-      latestAt: null,
-      reviewDue,
-    };
-  }
-
-  if (stageGateStatus.availableAt) {
-    const stageGateAvailableAt = stageGateStatus.availableAt;
-
-    if (!availableAt || stageGateAvailableAt.getTime() > availableAt.getTime()) {
-      availableAt = stageGateAvailableAt;
+    if (stageGateStatus.blocked) {
+      return {
+        blocked: true,
+        availableAt: null,
+        latestAt: null,
+        reviewDue,
+      };
     }
-  }
 
-  const ntFrontierStatus = getOlympiadNumberTheoryEligibilityStatus({
-    topic,
-    topics,
-    blocks: existingPlannedBlocks,
-  });
+    if (stageGateStatus.availableAt) {
+      const stageGateAvailableAt = stageGateStatus.availableAt;
 
-  if (ntFrontierStatus.blocked) {
-    return {
-      blocked: true,
-      availableAt: null,
-      latestAt: null,
-      reviewDue,
-    };
-  }
+      if (!availableAt || stageGateAvailableAt.getTime() > availableAt.getTime()) {
+        availableAt = stageGateAvailableAt;
+      }
+    }
 
-  if (ntFrontierStatus.availableAt) {
-    if (!availableAt || ntFrontierStatus.availableAt.getTime() > availableAt.getTime()) {
-      availableAt = ntFrontierStatus.availableAt;
+    const ntFrontierStatus = getOlympiadNumberTheoryEligibilityStatus({
+      topic,
+      topics,
+      blocks: existingPlannedBlocks,
+    });
+
+    if (ntFrontierStatus.blocked) {
+      return {
+        blocked: true,
+        availableAt: null,
+        latestAt: null,
+        reviewDue,
+      };
+    }
+
+    if (ntFrontierStatus.availableAt) {
+      if (!availableAt || ntFrontierStatus.availableAt.getTime() > availableAt.getTime()) {
+        availableAt = ntFrontierStatus.availableAt;
+      }
     }
   }
 
@@ -514,39 +574,34 @@ export function buildTaskCandidates(options: {
   } = options;
   const planningWeekEnd = endOfPlannerWeek(referenceDate);
   const weekEnd = addDays(endOfPlannerWeek(referenceDate), 3);
-  const latestScheduledBlockByTopic = getLatestScheduledBlockByTopic(existingPlannedBlocks);
+  const completionLogStudyBlockIds = completionLogs.length
+    ? new Set(
+        completionLogs
+          .filter((log) => log.outcome === "done" || log.outcome === "partial")
+          .map((log) => log.studyBlockId),
+      )
+    : null;
+  const existingBlockState = buildExistingBlockCandidateState(existingPlannedBlocks, {
+    topicIdByBlockIds: completionLogStudyBlockIds,
+  });
+  const {
+    latestScheduledBlockByTopic,
+    plannedMinutesByTopic,
+    existingReviewMinutesByTopic,
+    hasCompletedOlympiadAttempt,
+  } = existingBlockState;
   const topicById = new Map(topics.map((topic) => [topic.id, topic]));
+  const availabilityOverrideSubjectIdSet = new Set(availabilityOverrideSubjectIds);
   const topicIdsWithStudyHistory = getTopicIdsWithStudyHistory(
     topics,
-    existingPlannedBlocks,
+    existingBlockState.topicIdsWithCompletedStudyHistory,
+    existingBlockState.topicIdByBlockId,
     completionLogs,
   );
-  const plannedMinutesByTopic = existingPlannedBlocks.reduce<Record<string, number>>(
-    (accumulator, block) => {
-      if (!block.topicId || !["planned", "rescheduled", "done", "partial"].includes(block.status)) {
-        return accumulator;
-      }
-
-      accumulator[block.topicId] = (accumulator[block.topicId] ?? 0) + block.estimatedMinutes;
-      return accumulator;
-    },
-    {},
-  );
-  const existingReviewMinutesByTopic = existingPlannedBlocks.reduce<Record<string, number>>(
-    (accumulator, block) => {
-      if (
-        !block.topicId ||
-        !["planned", "rescheduled", "done", "partial"].includes(block.status) ||
-        block.blockType !== "review"
-      ) {
-        return accumulator;
-      }
-
-      accumulator[block.topicId] = (accumulator[block.topicId] ?? 0) + block.estimatedMinutes;
-      return accumulator;
-    },
-    {},
-  );
+  const timingWindowByTopicId = new Map<
+    string,
+    ReturnType<typeof resolveTopicTimingWindow>
+  >();
   const activeTopicsBySubject = topics.reduce<Record<string, Topic[]>>((accumulator, topic) => {
     const timingWindow = resolveTopicTimingWindow(
       topic,
@@ -556,9 +611,10 @@ export function buildTaskCandidates(options: {
       topics,
       topicById,
       {
-        allowAvailabilityPullForward: availabilityOverrideSubjectIds.includes(topic.subjectId),
+        allowAvailabilityPullForward: availabilityOverrideSubjectIdSet.has(topic.subjectId),
       },
     );
+    timingWindowByTopicId.set(topic.id, timingWindow);
 
     if (timingWindow.blocked || (timingWindow.availableAt && timingWindow.availableAt > planningWeekEnd)) {
       return accumulator;
@@ -575,22 +631,27 @@ export function buildTaskCandidates(options: {
 
     const current = accumulator[topic.subjectId] ?? [];
     current.push(topic);
-    accumulator[topic.subjectId] = current.sort((left, right) => left.order - right.order);
+    accumulator[topic.subjectId] = current;
     return accumulator;
   }, {});
 
+  Object.values(activeTopicsBySubject).forEach((subjectTopics) => {
+    subjectTopics.sort((left, right) => left.order - right.order);
+  });
+
   const blockedByEarlierTopicsById = Object.values(activeTopicsBySubject).reduce<Record<string, number>>(
     (accumulator, subjectTopics) => {
-      subjectTopics.forEach((topic, index) => {
-        const unmetEarlierTopics = subjectTopics.slice(0, index).filter((earlierTopic) => {
-          const plannedHours = (plannedMinutesByTopic[earlierTopic.id] ?? 0) / 60;
-          const coveredRatio =
-            Math.min(earlierTopic.completedHours + plannedHours, earlierTopic.estHours) /
-            Math.max(earlierTopic.estHours, 0.25);
-          return coveredRatio < 0.5;
-        });
+      let unmetEarlierTopicCount = 0;
+      subjectTopics.forEach((topic) => {
+        accumulator[topic.id] = unmetEarlierTopicCount;
+        const plannedHours = (plannedMinutesByTopic[topic.id] ?? 0) / 60;
+        const coveredRatio =
+          Math.min(topic.completedHours + plannedHours, topic.estHours) /
+          Math.max(topic.estHours, 0.25);
 
-        accumulator[topic.id] = unmetEarlierTopics.length;
+        if (coveredRatio < 0.5) {
+          unmetEarlierTopicCount += 1;
+        }
       });
       return accumulator;
     },
@@ -598,17 +659,19 @@ export function buildTaskCandidates(options: {
   );
 
   const topicCandidates = topics.flatMap<TaskCandidate>((topic) => {
-    const timingWindow = resolveTopicTimingWindow(
-      topic,
-      latestScheduledBlockByTopic,
-      existingPlannedBlocks,
-      plannedMinutesByTopic,
-      topics,
-      topicById,
-      {
-        allowAvailabilityPullForward: availabilityOverrideSubjectIds.includes(topic.subjectId),
-      },
-    );
+    const timingWindow =
+      timingWindowByTopicId.get(topic.id) ??
+      resolveTopicTimingWindow(
+        topic,
+        latestScheduledBlockByTopic,
+        existingPlannedBlocks,
+        plannedMinutesByTopic,
+        topics,
+        topicById,
+        {
+          allowAvailabilityPullForward: availabilityOverrideSubjectIdSet.has(topic.subjectId),
+        },
+      );
 
     if (timingWindow.blocked || (timingWindow.availableAt && timingWindow.availableAt > planningWeekEnd)) {
       return [];
@@ -692,47 +755,49 @@ export function buildTaskCandidates(options: {
     return candidates;
   });
 
-  const rewriteCandidates = getOlympiadRewriteObligations({
-    topics,
-    studyBlocks: existingPlannedBlocks,
-    completionLogs,
-  })
-    .filter((obligation) => !obligation.scheduledBlock)
-    .map<TaskCandidate>((obligation) => ({
-      id: `olympiad-rewrite-${obligation.sourceStudyBlockId}`,
-      subjectId: "olympiad",
-      topicId: null,
-      title: buildOlympiadRewriteTitle(obligation.sourceTitle),
-      sessionSummary:
-        "Write one final clean proof version, fix logical gaps, and compress the argument to contest quality within 48 hours.",
-      paperCode: obligation.sourcePaperCode,
-      unitTitle: obligation.sourceUnitTitle,
-      sourceMaterials: obligation.sourceMaterials,
-      remainingMinutes: obligation.durationMinutes,
-      sessionMode: "flexible",
-      exactSessionMinutes: null,
-      availableAt: obligation.availableAt,
-      latestAt:
-        new Date(obligation.dueAt).getTime() > referenceDate.getTime()
-          ? obligation.dueAt
-          : null,
-      difficulty: 4,
-      mastery: 2,
-      order: Number.MAX_SAFE_INTEGER,
-      blockedByEarlierTopics: 0,
-      reviewDue: obligation.dueAt,
-      deadline: obligation.dueAt,
-      lastStudiedAt: obligation.availableAt,
-      preferredBlockTypes:
-        obligation.durationMinutes > 45 ? ["drill", "review"] : ["review", "drill"],
-      intensity: obligation.durationMinutes > 45 ? "moderate" : "light",
-      kind: "review",
-      studyLayer: "correction",
-      olympiadStrand: obligation.strand,
-      followUpKind: "olympiad-rewrite",
-      followUpSourceStudyBlockId: obligation.sourceStudyBlockId,
-      followUpDueAt: obligation.dueAt,
-    }));
+  const rewriteCandidates = hasCompletedOlympiadAttempt
+    ? getOlympiadRewriteObligations({
+        topics,
+        studyBlocks: existingPlannedBlocks,
+        completionLogs,
+      })
+        .filter((obligation) => !obligation.scheduledBlock)
+        .map<TaskCandidate>((obligation) => ({
+          id: `olympiad-rewrite-${obligation.sourceStudyBlockId}`,
+          subjectId: "olympiad",
+          topicId: null,
+          title: buildOlympiadRewriteTitle(obligation.sourceTitle),
+          sessionSummary:
+            "Write one final clean proof version, fix logical gaps, and compress the argument to contest quality within 48 hours.",
+          paperCode: obligation.sourcePaperCode,
+          unitTitle: obligation.sourceUnitTitle,
+          sourceMaterials: obligation.sourceMaterials,
+          remainingMinutes: obligation.durationMinutes,
+          sessionMode: "flexible",
+          exactSessionMinutes: null,
+          availableAt: obligation.availableAt,
+          latestAt:
+            new Date(obligation.dueAt).getTime() > referenceDate.getTime()
+              ? obligation.dueAt
+              : null,
+          difficulty: 4,
+          mastery: 2,
+          order: Number.MAX_SAFE_INTEGER,
+          blockedByEarlierTopics: 0,
+          reviewDue: obligation.dueAt,
+          deadline: obligation.dueAt,
+          lastStudiedAt: obligation.availableAt,
+          preferredBlockTypes:
+            obligation.durationMinutes > 45 ? ["drill", "review"] : ["review", "drill"],
+          intensity: obligation.durationMinutes > 45 ? "moderate" : "light",
+          kind: "review",
+          studyLayer: "correction",
+          olympiadStrand: obligation.strand,
+          followUpKind: "olympiad-rewrite",
+          followUpSourceStudyBlockId: obligation.sourceStudyBlockId,
+          followUpDueAt: obligation.dueAt,
+        }))
+    : [];
 
   return [...topicCandidates, ...rewriteCandidates];
 }
@@ -747,19 +812,11 @@ export function getAssignableTaskCandidatesForBlock(options: {
   const existingPlannedBlocks = options.existingPlannedBlocks ?? [];
   const blockStart = new Date(options.block.start);
   const blockDurationMinutes = options.block.estimatedMinutes;
-  const latestScheduledBlockByTopic = getLatestScheduledBlockByTopic(existingPlannedBlocks);
+  const {
+    latestScheduledBlockByTopic,
+    plannedMinutesByTopic,
+  } = buildExistingBlockCandidateState(existingPlannedBlocks);
   const topicById = new Map(options.topics.map((topic) => [topic.id, topic]));
-  const plannedMinutesByTopic = existingPlannedBlocks.reduce<Record<string, number>>(
-    (accumulator, block) => {
-      if (!block.topicId || !["planned", "rescheduled", "done", "partial"].includes(block.status)) {
-        return accumulator;
-      }
-
-      accumulator[block.topicId] = (accumulator[block.topicId] ?? 0) + block.estimatedMinutes;
-      return accumulator;
-    },
-    {},
-  );
 
   return options.topics.flatMap<TaskCandidate>((topic) => {
     const timingWindow = resolveTopicTimingWindow(
