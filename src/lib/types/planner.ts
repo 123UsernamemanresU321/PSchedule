@@ -24,6 +24,7 @@ export type EnergyLevel = (typeof energyLevelValues)[number];
 export type RiskFlag = (typeof riskFlagValues)[number];
 export type ResourceType = (typeof resourceTypeValues)[number];
 export type StudyLayer = "learning" | "application" | "exam_sim" | "correction";
+export type SyllabusLevel = "sl" | "hl" | "mixed";
 export type SickDaySeverity = "light" | "moderate" | "severe";
 export type StudyBlockCreationSource = "planner" | "manual";
 export type PlannerReplanScope = "week_local" | "tail_from_week" | "full_horizon";
@@ -42,6 +43,19 @@ export interface TopicResource {
   type: ResourceType;
   label: string;
   details: string;
+}
+
+export interface TopicSubtopicTag {
+  label: string;
+  syllabusLevel: SyllabusLevel;
+  guideRef?: string | null;
+}
+
+export interface TopicGuideReference {
+  guide: string;
+  section: string;
+  syllabusLevel: SyllabusLevel;
+  officialTeachingHours?: number | null;
 }
 
 export interface Goal {
@@ -75,6 +89,12 @@ export interface Topic {
   unitTitle: string;
   title: string;
   subtopics: string[];
+  syllabusLevel?: SyllabusLevel | null;
+  subtopicTags?: TopicSubtopicTag[];
+  guideRefs?: TopicGuideReference[];
+  guideSummary?: string | null;
+  officialTeachingHours?: number | null;
+  selfStudyTargetHours?: number | null;
   availableFrom?: string | null;
   dependsOnTopicId?: string | null;
   sequenceGroup?: string | null;

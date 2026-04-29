@@ -19,6 +19,21 @@ export const topicResourceSchema = z.object({
   details: z.string(),
 });
 
+export const syllabusLevelSchema = z.enum(["sl", "hl", "mixed"]);
+
+export const topicSubtopicTagSchema = z.object({
+  label: z.string(),
+  syllabusLevel: syllabusLevelSchema,
+  guideRef: z.string().nullable().optional().default(null),
+});
+
+export const topicGuideReferenceSchema = z.object({
+  guide: z.string(),
+  section: z.string(),
+  syllabusLevel: syllabusLevelSchema,
+  officialTeachingHours: z.number().nullable().optional().default(null),
+});
+
 export const goalSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -50,6 +65,12 @@ export const topicSchema = z.object({
   unitTitle: z.string(),
   title: z.string(),
   subtopics: z.array(z.string()),
+  syllabusLevel: syllabusLevelSchema.nullable().optional().default(null),
+  subtopicTags: z.array(topicSubtopicTagSchema).optional().default([]),
+  guideRefs: z.array(topicGuideReferenceSchema).optional().default([]),
+  guideSummary: z.string().nullable().optional().default(null),
+  officialTeachingHours: z.number().nullable().optional().default(null),
+  selfStudyTargetHours: z.number().nullable().optional().default(null),
   availableFrom: z.string().nullable().optional(),
   dependsOnTopicId: z.string().nullable().optional().default(null),
   sequenceGroup: z.string().nullable().optional().default(null),

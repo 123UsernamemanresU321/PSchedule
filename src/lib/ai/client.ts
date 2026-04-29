@@ -1,6 +1,7 @@
 import type { z } from "zod";
 
 import {
+  aiBlockPlanResponseSchema,
   aiBlockBriefResponseSchema,
   aiDiagnosisResponseSchema,
   aiParseEventResponseSchema,
@@ -166,6 +167,15 @@ export function fetchAiBlockBrief(token: string, body: unknown) {
     body,
     token,
     schema: aiBlockBriefResponseSchema,
+  });
+}
+
+export function fetchAiBlockPlan(token: string, body: unknown) {
+  return postAiJson({
+    path: "/api/ai/block-plan",
+    body,
+    token,
+    schema: aiBlockPlanResponseSchema,
   });
 }
 

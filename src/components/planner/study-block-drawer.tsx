@@ -4,24 +4,29 @@ import { useState } from "react";
 import { Clock3, Layers3, RefreshCw, X } from "lucide-react";
 import { format } from "date-fns";
 
+import { AiBlockPlanCard } from "@/components/ai/ai-block-plan-card";
 import { AiBlockBriefCard } from "@/components/ai/ai-block-brief-card";
 import { StudyBlockEditorDialog } from "@/components/planner/study-block-editor-dialog";
 import { SubjectBadge } from "@/components/planner/subject-badge";
+import { SyllabusLevelBadge } from "@/components/planner/syllabus-level-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { buildBlockBriefContext } from "@/lib/ai/context";
+import { buildBlockBriefContext, buildBlockPlanContext } from "@/lib/ai/context";
 import { blockTypeLabels, studyBlockStatusLabels } from "@/lib/constants/planner";
 import { usePlannerStore } from "@/lib/store/planner-store";
-import type { StudyBlock, Subject, Topic } from "@/lib/types/planner";
+import type { CompletionLog, Goal, StudyBlock, Subject, Topic, WeeklyPlan } from "@/lib/types/planner";
 
 export function StudyBlockDrawer() {
   const selectedStudyBlockId = usePlannerStore((state) => state.selectedStudyBlockId);
   const studyBlocks = usePlannerStore((state) => state.studyBlocks);
   const subjects = usePlannerStore((state) => state.subjects);
   const topics = usePlannerStore((state) => state.topics);
+  const goals = usePlannerStore((state) => state.goals);
+  const completionLogs = usePlannerStore((state) => state.completionLogs);
+  const weeklyPlans = usePlannerStore((state) => state.weeklyPlans);
   const selectStudyBlock = usePlannerStore((state) => state.selectStudyBlock);
   const updateStudyBlockStatus = usePlannerStore((state) => state.updateStudyBlockStatus);
   const requestMorePractice = usePlannerStore((state) => state.requestMorePractice);
@@ -45,7 +50,10 @@ export function StudyBlockDrawer() {
       topic={topic}
       subjects={subjects}
       topics={topics}
+      goals={goals}
       studyBlocks={studyBlocks}
+      completionLogs={completionLogs}
+      weeklyPlans={weeklyPlans}
       onClose={() => selectStudyBlock(null)}
       onStatusUpdate={updateStudyBlockStatus}
       onMorePractice={requestMorePractice}
@@ -60,7 +68,10 @@ function StudyBlockDrawerPanel({
   topic,
   subjects,
   topics,
+  goals,
   studyBlocks,
+  completionLogs,
+  weeklyPlans,
   onClose,
   onStatusUpdate,
   onMorePractice,
@@ -71,7 +82,10 @@ function StudyBlockDrawerPanel({
   topic: Topic | null | undefined;
   subjects: Subject[];
   topics: Topic[];
+  goals: Goal[];
   studyBlocks: StudyBlock[];
+  completionLogs: CompletionLog[];
+  weeklyPlans: WeeklyPlan[];
   onClose: () => void;
   onStatusUpdate: ReturnType<typeof usePlannerStore.getState>["updateStudyBlockStatus"];
   onMorePractice: ReturnType<typeof usePlannerStore.getState>["requestMorePractice"];
@@ -121,6 +135,17 @@ function StudyBlockDrawerPanel({
     subject,
     studyBlocks,
   });
+  const aiPlanContext = buildBlockPlanContext({
+    block,
+    topic,
+    subject,
+    subjects,
+    topics,
+    goals,
+    studyBlocks,
+    completionLogs,
+    weeklyPlans,
+  });
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end overflow-hidden bg-black/55 backdrop-blur-sm">
@@ -134,7 +159,10 @@ function StudyBlockDrawerPanel({
         <div className="flex items-center justify-between border-b border-white/8 px-6 py-5">
           <div className="space-y-2">
             {subject ? (
-              <SubjectBadge subjectId={subject.id} label={subject.shortName} />
+              <div className="flex flex-wrap items-center gap-2">
+                <SubjectBadge subjectId={subject.id} label={subject.shortName} />
+                <SyllabusLevelBadge level={topic?.syllabusLevel} />
+              </div>
             ) : (
               <Badge variant="muted">Recovery</Badge>
             )}
@@ -228,6 +256,15 @@ function StudyBlockDrawerPanel({
               <CardTitle className="text-base">Source materials</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              {topic?.guideSummary ? (
+                <div className="rounded-sm border border-primary/20 bg-primary/8 px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-medium text-foreground">Guide-backed focus</p>
+                    <SyllabusLevelBadge level={topic.syllabusLevel} className="px-2 py-0.5 text-[10px]" />
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{topic.guideSummary}</p>
+                </div>
+              ) : null}
               {block.sourceMaterials.length ? (
                 block.sourceMaterials.map((material) => (
                   <div
@@ -247,6 +284,7 @@ function StudyBlockDrawerPanel({
           </Card>
 
           <AiBlockBriefCard context={aiBriefContext} />
+          <AiBlockPlanCard context={aiPlanContext} />
 
           {canEditSchedule ? (
             <Card>

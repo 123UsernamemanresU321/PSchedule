@@ -72,6 +72,8 @@ import {
   getAssignableTaskCandidatesForBlock,
 } from "@/lib/scheduler/task-candidates";
 import { validateGeneratedHorizon } from "@/lib/scheduler/validation";
+import { buildBlockPlanContext } from "@/lib/ai/context";
+import { aiBlockPlanResponseSchema } from "@/lib/ai/contracts";
 import type { Preferences, StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
 
 function createStudyBlock(overrides: Partial<StudyBlock> = {}): StudyBlock {
@@ -258,6 +260,146 @@ test("paired paper reviews retain their dependency scheduling window", () => {
   assert.equal(reviewCandidate?.paperCode, "PHY-W08-P2");
   assert.equal(reviewCandidate?.availableAt?.slice(0, 10), "2026-09-22");
   assert.equal(reviewCandidate?.latestAt?.slice(0, 10), "2026-09-29");
+});
+
+test("seeded guide metadata tags Maths HL and retunes first-pass self-study hours", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-29T08:00:00"));
+  const firstPassTopicsBySubject = (subjectId: string) =>
+    dataset.topics.filter(
+      (topic) =>
+        topic.subjectId === subjectId &&
+        !topic.unitId.includes("past-papers") &&
+        topic.sessionMode !== "exam",
+    );
+  const firstPassTotal = (subjectId: string) =>
+    firstPassTopicsBySubject(subjectId).reduce((total, topic) => total + topic.estHours, 0);
+  const slMathsTopic = dataset.topics.find((topic) => topic.id === "maths-topic5-aa-integration");
+  const hlMathsTopic = dataset.topics.find((topic) => topic.id === "maths-topic1-counting-binomial");
+  const mixedPhysicsTopic = dataset.topics.find((topic) => topic.id === "physics-a2-forces-momentum");
+  const hlPhysicsTopic = dataset.topics.find((topic) => topic.id === "physics-a4-rigid-body-mechanics");
+  const slChemistryTopic = dataset.topics.find((topic) => topic.id === "chem-structure-1-5-ideal-gases");
+  const ahlChemistryTopic = dataset.topics.find((topic) => topic.id === "chem-reactivity-1-4-entropy");
+
+  assert.equal(slMathsTopic?.syllabusLevel, "sl");
+  assert.equal(hlMathsTopic?.syllabusLevel, "hl");
+  assert.equal(mixedPhysicsTopic?.syllabusLevel, "mixed");
+  assert.equal(hlPhysicsTopic?.syllabusLevel, "hl");
+  assert.equal(slChemistryTopic?.syllabusLevel, "sl");
+  assert.equal(ahlChemistryTopic?.syllabusLevel, "hl");
+  assert.ok(hlMathsTopic?.guideSummary?.includes("HL/AHL"));
+  assert.ok((hlMathsTopic?.subtopicTags ?? []).every((tag) => tag.syllabusLevel === "hl"));
+  assert.ok(firstPassTotal("maths-aa-hl") >= 150);
+  assert.ok(firstPassTotal("physics-hl") >= 110);
+  assert.ok(firstPassTotal("chemistry-hl") >= 110);
+});
+
+test("AI block plan context includes guide metadata, schedule continuity, and pace targets", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-29T08:00:00"));
+  const subject = dataset.subjects.find((candidate) => candidate.id === "maths-aa-hl") ?? null;
+  const topic = dataset.topics.find((candidate) => candidate.id === "maths-topic1-counting-binomial");
+  assert.ok(topic, "expected guide-backed Maths HL topic");
+
+  const selectedBlock = createStudyBlock({
+    id: "maths-selected",
+    subjectId: "maths-aa-hl",
+    topicId: topic.id,
+    title: topic.title,
+    unitTitle: topic.unitTitle,
+    date: "2026-08-18",
+    start: "2026-08-18T14:00:00.000Z",
+    end: "2026-08-18T15:30:00.000Z",
+    estimatedMinutes: 90,
+    studyLayer: "learning",
+  });
+  const priorBlock = createStudyBlock({
+    id: "maths-prior",
+    subjectId: "maths-aa-hl",
+    topicId: topic.id,
+    title: "Prior HL setup",
+    unitTitle: topic.unitTitle,
+    date: "2026-08-17",
+    start: "2026-08-17T14:00:00.000Z",
+    end: "2026-08-17T15:00:00.000Z",
+    estimatedMinutes: 60,
+    actualMinutes: 55,
+    status: "done",
+    notes: "Finished definitions and basic counting examples.",
+  });
+  const futureBlock = createStudyBlock({
+    id: "maths-future",
+    subjectId: "maths-aa-hl",
+    topicId: topic.id,
+    title: "Future HL practice",
+    unitTitle: topic.unitTitle,
+    date: "2026-08-19",
+    start: "2026-08-19T14:00:00.000Z",
+    end: "2026-08-19T15:30:00.000Z",
+    estimatedMinutes: 90,
+  });
+  const context = buildBlockPlanContext({
+    block: selectedBlock,
+    topic,
+    subject,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    goals: dataset.goals,
+    studyBlocks: [priorBlock, selectedBlock, futureBlock],
+    completionLogs: [
+      {
+        id: "log-1",
+        studyBlockId: priorBlock.id,
+        outcome: "done",
+        actualMinutes: 55,
+        perceivedDifficulty: 3,
+        notes: "Needs more binomial coefficient fluency.",
+        recordedAt: "2026-08-17T15:05:00.000Z",
+      },
+    ],
+    weeklyPlans: [createWeeklyPlan({ weekStart: "2026-08-17", assignedHoursBySubject: { "maths-aa-hl": 4 } })],
+    referenceDate: new Date("2026-08-18T10:00:00"),
+  }) as {
+    topic: { syllabusLevel: string; guideSummary: string | null };
+    sameSubjectBlocks: { before: unknown[]; after: unknown[] };
+    sameTopicBlocks: { before: unknown[]; after: unknown[] };
+    pace: {
+      futureSameTopicScheduledMinutes: number;
+      minimumProgressThisBlockMinutes: number | null;
+    };
+  };
+
+  assert.equal(context.topic.syllabusLevel, "hl");
+  assert.ok(context.topic.guideSummary?.includes("HL/AHL"));
+  assert.equal(context.sameSubjectBlocks.before.length, 1);
+  assert.equal(context.sameSubjectBlocks.after.length, 1);
+  assert.equal(context.sameTopicBlocks.before.length, 1);
+  assert.equal(context.sameTopicBlocks.after.length, 1);
+  assert.equal(context.pace.futureSameTopicScheduledMinutes, 90);
+  assert.ok((context.pace.minimumProgressThisBlockMinutes ?? 0) <= selectedBlock.estimatedMinutes);
+});
+
+test("AI block plan response schema requires the full lesson-plan contract", () => {
+  assert.doesNotThrow(() =>
+    aiBlockPlanResponseSchema.parse({
+      lessonGoal: "Finish the targeted subsection and produce evidence of correct application.",
+      minimumProgressTarget: "Complete the core examples and at least three topic questions.",
+      stretchProgressTarget: "Add two mixed questions if the minimum target is clean.",
+      timeBudget: [{ label: "Learn", minutes: 35, purpose: "Work through the section actively." }],
+      stepByStepPlan: [
+        {
+          title: "Active concept pass",
+          minutes: 35,
+          instructions: "Read only to unblock the first worked example, then solve.",
+          successCheck: "You can explain the method without notes.",
+        },
+      ],
+      guideFocus: ["Use the compact guide context only."],
+      beforeAfterContextUsed: ["Future same-topic practice is already scheduled."],
+      successEvidence: ["Completed questions are marked and corrected."],
+      ifStuckFallback: "Switch to one solved example, then retry a similar question.",
+      warnings: [],
+      confidence: "medium",
+    }),
+  );
 });
 
 test("dedicated past-paper review topics do not spawn extra review-of-review candidates", () => {

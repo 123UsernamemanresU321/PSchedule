@@ -171,6 +171,37 @@ export const aiBlockBriefResponseSchema = z.object({
   postBlockReflectionPrompt: z.string(),
 });
 
+export const aiBlockPlanRequestSchema = z.object({
+  context: aiContextSchema,
+});
+
+export const aiBlockPlanStepSchema = z.object({
+  title: z.string(),
+  minutes: z.number().min(0),
+  instructions: z.string(),
+  successCheck: z.string(),
+});
+
+export const aiBlockPlanTimeBudgetItemSchema = z.object({
+  label: z.string(),
+  minutes: z.number().min(0),
+  purpose: z.string(),
+});
+
+export const aiBlockPlanResponseSchema = z.object({
+  lessonGoal: z.string(),
+  minimumProgressTarget: z.string(),
+  stretchProgressTarget: z.string(),
+  timeBudget: z.array(aiBlockPlanTimeBudgetItemSchema).max(8),
+  stepByStepPlan: z.array(aiBlockPlanStepSchema).max(10),
+  guideFocus: z.array(z.string()).max(8),
+  beforeAfterContextUsed: z.array(z.string()).max(8),
+  successEvidence: z.array(z.string()).max(8),
+  ifStuckFallback: z.string(),
+  warnings: z.array(z.string()).max(6),
+  confidence: aiConfidenceSchema,
+});
+
 export const aiProposalSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -235,6 +266,8 @@ export type AiParseEventRequest = z.infer<typeof aiParseEventRequestSchema>;
 export type AiParseEventResponse = z.infer<typeof aiParseEventResponseSchema>;
 export type AiBlockBriefRequest = z.infer<typeof aiBlockBriefRequestSchema>;
 export type AiBlockBriefResponse = z.infer<typeof aiBlockBriefResponseSchema>;
+export type AiBlockPlanRequest = z.infer<typeof aiBlockPlanRequestSchema>;
+export type AiBlockPlanResponse = z.infer<typeof aiBlockPlanResponseSchema>;
 export type AiProposeActionsRequest = z.infer<typeof aiProposeActionsRequestSchema>;
 export type AiProposeActionsResponse = z.infer<typeof aiProposeActionsResponseSchema>;
 export type AiWhatIfRequest = z.infer<typeof aiWhatIfRequestSchema>;

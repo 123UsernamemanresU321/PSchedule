@@ -334,12 +334,255 @@ export function buildBlockBriefContext(options: {
       ? {
           title: options.topic.title,
           unitTitle: options.topic.unitTitle,
+          syllabusLevel: options.topic.syllabusLevel ?? null,
+          subtopicTags: options.topic.subtopicTags ?? [],
+          guideRefs: options.topic.guideRefs ?? [],
+          guideSummary: options.topic.guideSummary ?? null,
+          selfStudyTargetHours: options.topic.selfStudyTargetHours ?? null,
           difficulty: options.topic.difficulty,
           mastery: options.topic.mastery,
           subtopics: options.topic.subtopics,
         }
       : null,
     upcomingRelatedBlocks,
+  };
+}
+
+function compactStudyBlock(
+  block: StudyBlock,
+  topicsById: Map<string, Topic>,
+  completionLogsByBlockId: Map<string, CompletionLog>,
+) {
+  const topic = block.topicId ? topicsById.get(block.topicId) : null;
+  const completionLog = completionLogsByBlockId.get(block.id);
+
+  return {
+    id: block.id,
+    title: block.title,
+    date: block.date,
+    start: block.start,
+    end: block.end,
+    subjectId: block.subjectId,
+    topicId: block.topicId,
+    topicTitle: topic?.title ?? null,
+    unitId: topic?.unitId ?? block.unitTitle ?? null,
+    unitTitle: topic?.unitTitle ?? block.unitTitle,
+    studyLayer: block.studyLayer ?? null,
+    blockType: block.blockType,
+    status: block.status,
+    estimatedMinutes: block.estimatedMinutes,
+    actualMinutes: block.actualMinutes,
+    notes: ["done", "partial", "missed"].includes(block.status) ? block.notes : "",
+    completionLog: completionLog
+      ? {
+          outcome: completionLog.outcome,
+          actualMinutes: completionLog.actualMinutes,
+          perceivedDifficulty: completionLog.perceivedDifficulty,
+          notes: completionLog.notes,
+          recordedAt: completionLog.recordedAt,
+        }
+      : null,
+  };
+}
+
+function minutesBetween(start: string, end: string) {
+  return Math.max(0, Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000));
+}
+
+export function buildBlockPlanContext(options: {
+  block: StudyBlock;
+  topic: Topic | null | undefined;
+  subject: Subject | null;
+  topics: Topic[];
+  subjects: Subject[];
+  goals: Goal[];
+  studyBlocks: StudyBlock[];
+  completionLogs: CompletionLog[];
+  weeklyPlans: WeeklyPlan[];
+  referenceDate?: Date;
+}) {
+  const referenceDate = options.referenceDate ?? new Date();
+  const selectedBlockStart = new Date(options.block.start).getTime();
+  const selectedBlockEnd = new Date(options.block.end).getTime();
+  const topicsById = new Map(options.topics.map((topic) => [topic.id, topic]));
+  const completionLogsByBlockId = new Map(
+    options.completionLogs.map((completionLog) => [completionLog.studyBlockId, completionLog]),
+  );
+  const sameSubjectBlocks = options.studyBlocks
+    .filter((block) => block.subjectId && block.subjectId === options.block.subjectId)
+    .sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime());
+  const beforeSameSubjectBlocks = sameSubjectBlocks
+    .filter((block) => block.id !== options.block.id && new Date(block.end).getTime() <= selectedBlockStart)
+    .map((block) => compactStudyBlock(block, topicsById, completionLogsByBlockId));
+  const afterSameSubjectBlocks = sameSubjectBlocks
+    .filter((block) => block.id !== options.block.id && new Date(block.start).getTime() >= selectedBlockEnd)
+    .map((block) => compactStudyBlock(block, topicsById, completionLogsByBlockId));
+  const sameUnitBlocks = sameSubjectBlocks.filter((block) => {
+    const topic = block.topicId ? topicsById.get(block.topicId) : null;
+    return !!options.topic?.unitId && topic?.unitId === options.topic.unitId;
+  });
+  const sameTopicBlocks = sameSubjectBlocks.filter(
+    (block) => !!options.block.topicId && block.topicId === options.block.topicId,
+  );
+  const futureSameTopicMinutes = sameTopicBlocks
+    .filter((block) => block.id !== options.block.id && new Date(block.start).getTime() >= selectedBlockEnd)
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+  const pastSameTopicCompletedMinutes = sameTopicBlocks
+    .filter((block) => block.id !== options.block.id && new Date(block.end).getTime() <= selectedBlockStart)
+    .reduce((total, block) => {
+      if (block.status === "done") {
+        return total + (block.actualMinutes ?? block.estimatedMinutes);
+      }
+      if (block.status === "partial") {
+        return total + Math.max(0, block.actualMinutes ?? 0);
+      }
+      return total;
+    }, 0);
+  const topicTotalMinutes = options.topic ? Math.round(options.topic.estHours * 60) : null;
+  const topicCompletedMinutes = options.topic ? Math.round(options.topic.completedHours * 60) : null;
+  const topicRemainingMinutes =
+    topicTotalMinutes !== null && topicCompletedMinutes !== null
+      ? Math.max(0, topicTotalMinutes - topicCompletedMinutes)
+      : null;
+  const blockDurationMinutes =
+    options.block.estimatedMinutes || minutesBetween(options.block.start, options.block.end);
+  const minimumProgressThisBlockMinutes =
+    topicRemainingMinutes === null
+      ? null
+      : Math.min(
+          blockDurationMinutes,
+          Math.max(0, topicRemainingMinutes - futureSameTopicMinutes),
+        );
+  const stretchProgressThisBlockMinutes =
+    topicRemainingMinutes === null ? null : Math.min(blockDurationMinutes, topicRemainingMinutes);
+  const subjectGoal = options.subject
+    ? options.goals
+        .filter((goal) => goal.subjectId === options.subject?.id)
+        .sort((left, right) => new Date(left.deadline).getTime() - new Date(right.deadline).getTime())[0] ?? null
+    : null;
+  const weeklyPlan = getWeeklyPlan(
+    options.weeklyPlans,
+    toDateKey(startOfPlannerWeek(new Date(options.block.start))),
+  );
+
+  return {
+    generatedAt: new Date().toISOString(),
+    referenceDate: referenceDate.toISOString(),
+    selectedBlock: {
+      id: options.block.id,
+      title: options.block.title,
+      date: options.block.date,
+      start: options.block.start,
+      end: options.block.end,
+      durationMinutes: blockDurationMinutes,
+      studyLayer: options.block.studyLayer ?? null,
+      blockType: options.block.blockType,
+      intensity: options.block.intensity,
+      sessionSummary: options.block.sessionSummary,
+      generatedReason: options.block.generatedReason,
+      sourceMaterials: options.block.sourceMaterials,
+    },
+    subject: options.subject
+      ? {
+          id: options.subject.id,
+          label: options.subject.shortName,
+          name: options.subject.name,
+          description: options.subject.description,
+          deadline: options.subject.deadline,
+        }
+      : null,
+    topic: options.topic
+      ? {
+          id: options.topic.id,
+          title: options.topic.title,
+          unitId: options.topic.unitId,
+          unitTitle: options.topic.unitTitle,
+          syllabusLevel: options.topic.syllabusLevel ?? null,
+          subtopics: options.topic.subtopics,
+          subtopicTags: options.topic.subtopicTags ?? [],
+          guideRefs: options.topic.guideRefs ?? [],
+          guideSummary: options.topic.guideSummary ?? null,
+          officialTeachingHours: options.topic.officialTeachingHours ?? null,
+          selfStudyTargetHours: options.topic.selfStudyTargetHours ?? null,
+          difficulty: options.topic.difficulty,
+          mastery: options.topic.mastery,
+          estHours: options.topic.estHours,
+          completedHours: options.topic.completedHours,
+          sourceMaterials: options.topic.sourceMaterials,
+          dependsOnTopicId: options.topic.dependsOnTopicId ?? null,
+        }
+      : null,
+    activeDeadline: subjectGoal
+      ? {
+          title: subjectGoal.title,
+          deadline: subjectGoal.deadline,
+          targetCompletion: subjectGoal.targetCompletion,
+        }
+      : null,
+    pace: {
+      topicTotalMinutes,
+      topicCompletedMinutes,
+      topicRemainingMinutes,
+      pastSameTopicCompletedMinutes,
+      futureSameTopicScheduledMinutes: futureSameTopicMinutes,
+      minimumProgressThisBlockMinutes,
+      stretchProgressThisBlockMinutes,
+      remainingAfterMinimumMinutes:
+        topicRemainingMinutes === null || minimumProgressThisBlockMinutes === null
+          ? null
+          : Math.max(0, topicRemainingMinutes - minimumProgressThisBlockMinutes),
+      selectedWeekAssignedHours:
+        options.block.subjectId && weeklyPlan
+          ? weeklyPlan.assignedHoursBySubject[options.block.subjectId] ?? 0
+          : null,
+      selectedWeekCarryForward:
+        options.block.subjectId && weeklyPlan
+          ? weeklyPlan.weekCarryForwardSubjectIds.includes(options.block.subjectId)
+          : false,
+    },
+    sameSubjectBlocks: {
+      before: beforeSameSubjectBlocks,
+      after: afterSameSubjectBlocks,
+    },
+    sameUnitBlocks: {
+      before: sameUnitBlocks
+        .filter((block) => block.id !== options.block.id && new Date(block.end).getTime() <= selectedBlockStart)
+        .map((block) => compactStudyBlock(block, topicsById, completionLogsByBlockId)),
+      after: sameUnitBlocks
+        .filter((block) => block.id !== options.block.id && new Date(block.start).getTime() >= selectedBlockEnd)
+        .map((block) => compactStudyBlock(block, topicsById, completionLogsByBlockId)),
+    },
+    sameTopicBlocks: {
+      before: sameTopicBlocks
+        .filter((block) => block.id !== options.block.id && new Date(block.end).getTime() <= selectedBlockStart)
+        .map((block) => compactStudyBlock(block, topicsById, completionLogsByBlockId)),
+      after: sameTopicBlocks
+        .filter((block) => block.id !== options.block.id && new Date(block.start).getTime() >= selectedBlockEnd)
+        .map((block) => compactStudyBlock(block, topicsById, completionLogsByBlockId)),
+    },
+    priorCompletionLogs: options.completionLogs
+      .filter((completionLog) => {
+        const block = options.studyBlocks.find((candidate) => candidate.id === completionLog.studyBlockId);
+        return (
+          !!block &&
+          block.subjectId === options.block.subjectId &&
+          new Date(block.end).getTime() <= selectedBlockStart
+        );
+      })
+      .map((completionLog) => ({
+        outcome: completionLog.outcome,
+        actualMinutes: completionLog.actualMinutes,
+        perceivedDifficulty: completionLog.perceivedDifficulty,
+        notes: completionLog.notes,
+        recordedAt: completionLog.recordedAt,
+      })),
+    guardrails: [
+      "Use only this compact planner and guide context.",
+      "Do not assign full timed IB papers before the planner has scheduled them.",
+      "Do not plan correction/error-log work for content that has no prior learning or attempt evidence.",
+      "Do not over-plan material that already has future same-topic blocks.",
+      "If guide metadata is missing, state the uncertainty in warnings instead of inventing details.",
+    ],
   };
 }
 

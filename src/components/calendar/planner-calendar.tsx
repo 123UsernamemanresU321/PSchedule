@@ -7,6 +7,7 @@ import { BedDouble, BookOpen, CalendarX2, CheckCircle2, Coffee, Crosshair, Lock,
 import { addDays, differenceInMinutes, format } from "date-fns";
 
 import { SubjectBadge, getSubjectAccentStyles } from "@/components/planner/subject-badge";
+import { getSyllabusLevelLabel } from "@/components/planner/syllabus-level-badge";
 import { Badge } from "@/components/ui/badge";
 import { studyBlockStatusLabels } from "@/lib/constants/planner";
 import { toDateKey } from "@/lib/dates/helpers";
@@ -26,6 +27,7 @@ import type {
   SickDay,
   StudyBlock,
   Subject,
+  Topic,
 } from "@/lib/types/planner";
 
 function blockFallsInVisibleWeek(block: StudyBlock, weekStart: string) {
@@ -126,6 +128,7 @@ interface PlannerCalendarProps {
   preferences: Preferences;
   studyBlocks: StudyBlock[];
   subjects: Subject[];
+  topics: Topic[];
   onCreateEvent: (selection: { start: string; end: string; allDay: boolean }) => void;
   onEditFixedEvent: (options: {
     event: FixedEvent;
@@ -157,6 +160,7 @@ export function PlannerCalendar({
   preferences,
   studyBlocks,
   subjects,
+  topics,
   onCreateEvent,
   onEditFixedEvent,
   onSelectStudyBlock,
@@ -167,6 +171,7 @@ export function PlannerCalendar({
   onManageFocusWeek,
 }: PlannerCalendarProps) {
   const subjectMap = new Map(subjects.map((subject) => [subject.id, subject]));
+  const topicMap = new Map(topics.map((topic) => [topic.id, topic]));
   const visibleWeekStart = fromDateKey(weekStart);
   const visibleWeekEnd = addDays(visibleWeekStart, 7);
   const visibleFocusedWeek =
@@ -759,6 +764,8 @@ export function PlannerCalendar({
 
           const block = eventInfo.event.extendedProps.block as StudyBlock;
           const subject = block.subjectId ? subjectMap.get(block.subjectId) : null;
+          const topic = block.topicId ? topicMap.get(block.topicId) : null;
+          const syllabusLevelLabel = getSyllabusLevelLabel(topic?.syllabusLevel);
           const statusBadge = (
             <Badge
               variant={getStudyBlockStatusVariant(block.status)}
@@ -796,6 +803,10 @@ export function PlannerCalendar({
                     <p className="truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
                       {block.paperCode}
                     </p>
+                  ) : syllabusLevelLabel ? (
+                    <span className="rounded-full border border-white/10 bg-white/8 px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] text-foreground/75">
+                      {syllabusLevelLabel}
+                    </span>
                   ) : (
                     <span />
                   )}
@@ -830,6 +841,10 @@ export function PlannerCalendar({
                   {block.paperCode ? (
                     <span className="truncate rounded-full border border-white/10 bg-white/6 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-foreground/85">
                       {block.paperCode}
+                    </span>
+                  ) : syllabusLevelLabel ? (
+                    <span className="truncate rounded-full border border-white/10 bg-white/6 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-foreground/85">
+                      {syllabusLevelLabel}
                     </span>
                   ) : null}
                 </div>

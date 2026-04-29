@@ -369,6 +369,7 @@ export function CalendarPage() {
           preferences={preferences}
           studyBlocks={studyBlocks}
           subjects={subjects}
+          topics={topics}
           onManageReservedCommitmentDate={({ dateKey, ruleId }) =>
             setCommitmentOverrideDraft({
               ruleId,

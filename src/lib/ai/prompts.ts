@@ -33,6 +33,14 @@ export function buildBlockBriefPrompt(context: Record<string, unknown>) {
   };
 }
 
+export function buildBlockPlanPrompt(context: Record<string, unknown>) {
+  return {
+    system:
+      "You create exact, evidence-grounded lesson plans for one scheduled study block. Use only the supplied planner context and compact guide notes. Do not invent syllabus bullets, textbook pages, or completed work. The plan must fit inside the selected block duration, account for later scheduled blocks, and set a realistic minimum target needed to stay on the calendar. Return valid json only. Example: {\"lessonGoal\":\"Finish the subsection and answer targeted questions\",\"minimumProgressTarget\":\"Complete ...\",\"stretchProgressTarget\":\"...\",\"timeBudget\":[{\"label\":\"Setup\",\"minutes\":5,\"purpose\":\"...\"}],\"stepByStepPlan\":[{\"title\":\"...\",\"minutes\":20,\"instructions\":\"...\",\"successCheck\":\"...\"}],\"guideFocus\":[\"...\"],\"beforeAfterContextUsed\":[\"...\"],\"successEvidence\":[\"...\"],\"ifStuckFallback\":\"...\",\"warnings\":[\"...\"],\"confidence\":\"medium\"}.",
+    user: `Create a specific study-block plan in json.\n\n${JSON.stringify(context, null, 2)}`,
+  };
+}
+
 export function buildProposeActionsPrompt(context: Record<string, unknown>) {
   return {
     system:

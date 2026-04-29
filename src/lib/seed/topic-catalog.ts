@@ -1,4 +1,11 @@
-import type { BlockType, SubjectId, TopicResource } from "@/lib/types/planner";
+import type {
+  BlockType,
+  SubjectId,
+  SyllabusLevel,
+  TopicGuideReference,
+  TopicResource,
+  TopicSubtopicTag,
+} from "@/lib/types/planner";
 import { buildOlympiadBPlusBlueprints } from "@/lib/seed/olympiad-bplus";
 
 export interface SeedTopicBlueprint {
@@ -8,6 +15,12 @@ export interface SeedTopicBlueprint {
   unitTitle: string;
   title: string;
   subtopics: string[];
+  syllabusLevel?: SyllabusLevel | null;
+  subtopicTags?: TopicSubtopicTag[];
+  guideRefs?: TopicGuideReference[];
+  guideSummary?: string | null;
+  officialTeachingHours?: number | null;
+  selfStudyTargetHours?: number | null;
   availableFrom?: string | null;
   dependsOnTopicId?: string | null;
   sequenceGroup?: string | null;
@@ -34,6 +47,210 @@ const pastPaper = (label: string, details: string) => resource("past_paper", lab
 const video = (label: string, details: string) => resource("video", label, details);
 const pppChapter = (details: string) =>
   textbook("Programming: Principles and Practice Using C++ (3e)", details);
+
+const firstPassSelfStudyTargetHours: Partial<Record<SubjectId, number>> = {
+  "maths-aa-hl": 150,
+  "physics-hl": 110,
+  "chemistry-hl": 110,
+};
+
+const officialGuideSyllabusHours: Partial<Record<SubjectId, number>> = {
+  "maths-aa-hl": 210,
+  "physics-hl": 180,
+  "chemistry-hl": 180,
+};
+
+const subjectGuideLabels: Partial<Record<SubjectId, string>> = {
+  "maths-aa-hl": "Mathematics: Analysis and Approaches Guide 2021",
+  "physics-hl": "Physics Guide 2025",
+  "chemistry-hl": "Chemistry Guide 2025",
+};
+
+// The guides expose broad official teaching-hour totals. For self-study planning,
+// keep the seeded section proportions and scale them to the chosen target totals.
+const physicsHlOnlyTopicIds = new Set([
+  "physics-a4-rigid-body-mechanics",
+  "physics-a5-relativity",
+  "physics-b4-thermodynamics",
+  "physics-d4-induction",
+  "physics-e2-quantum-physics",
+]);
+
+function roundUpToQuarterHour(hours: number) {
+  return Math.ceil(hours * 4 - 1e-9) / 4;
+}
+
+function shouldRetuneFirstPassTopic(blueprint: SeedTopicBlueprint) {
+  return (
+    !!firstPassSelfStudyTargetHours[blueprint.subjectId] &&
+    !blueprint.unitId.includes("past-papers") &&
+    blueprint.sessionMode !== "exam"
+  );
+}
+
+function getResourceText(blueprint: SeedTopicBlueprint) {
+  return `${blueprint.title} ${blueprint.unitTitle} ${blueprint.sourceMaterials
+    .map((material) => `${material.label} ${material.details}`)
+    .join(" ")}`;
+}
+
+function inferSyllabusLevel(blueprint: SeedTopicBlueprint): SyllabusLevel | null {
+  const text = getResourceText(blueprint);
+
+  if (blueprint.subjectId === "maths-aa-hl") {
+    if (
+      blueprint.sourceMaterials.some((material) => material.label.includes("Hodder AA HL")) ||
+      blueprint.unitId.includes("past-papers")
+    ) {
+      return "hl";
+    }
+
+    return "sl";
+  }
+
+  if (blueprint.subjectId === "physics-hl") {
+    if (physicsHlOnlyTopicIds.has(blueprint.id) || /hl-only/i.test(text)) {
+      return "hl";
+    }
+
+    if (
+      /\bplus HL\b|HL expectations|HL elements|HL treatment|Additional higher level|HL-linked/i.test(
+        text,
+      )
+    ) {
+      return "mixed";
+    }
+
+    return "sl";
+  }
+
+  if (blueprint.subjectId === "chemistry-hl") {
+    if (/\bAHL\b/i.test(text)) {
+      return "hl";
+    }
+
+    if (/Additional higher level|plus HL|HL elements/i.test(text)) {
+      return "mixed";
+    }
+
+    return "sl";
+  }
+
+  return null;
+}
+
+function buildSubtopicTags(
+  blueprint: SeedTopicBlueprint,
+  syllabusLevel: SyllabusLevel | null,
+): TopicSubtopicTag[] {
+  if (!syllabusLevel) {
+    return [];
+  }
+
+  return blueprint.subtopics.map((label) => ({
+    label,
+    syllabusLevel,
+    guideRef: subjectGuideLabels[blueprint.subjectId] ?? null,
+  }));
+}
+
+function buildGuideRefs(
+  blueprint: SeedTopicBlueprint,
+  syllabusLevel: SyllabusLevel | null,
+  officialTeachingHours: number | null,
+): TopicGuideReference[] {
+  if (!syllabusLevel) {
+    return [];
+  }
+
+  const guideMaterials = blueprint.sourceMaterials.filter((material) =>
+    material.label.toLowerCase().includes("guide"),
+  );
+  const fallbackGuide = subjectGuideLabels[blueprint.subjectId];
+  const materials = guideMaterials.length
+    ? guideMaterials
+    : fallbackGuide
+      ? [guide(fallbackGuide, blueprint.unitTitle)]
+      : [];
+
+  return materials.map((material) => ({
+    guide: material.label,
+    section: material.details,
+    syllabusLevel,
+    officialTeachingHours,
+  }));
+}
+
+function buildGuideSummary(
+  blueprint: SeedTopicBlueprint,
+  syllabusLevel: SyllabusLevel | null,
+  officialTeachingHours: number | null,
+  selfStudyTargetHours: number | null,
+) {
+  if (!syllabusLevel) {
+    return null;
+  }
+
+  const guideDetails =
+    blueprint.sourceMaterials.find((material) => material.label.toLowerCase().includes("guide"))
+      ?.details ?? blueprint.unitTitle;
+  const levelLabel =
+    syllabusLevel === "hl" ? "HL/AHL" : syllabusLevel === "mixed" ? "Mixed SL/HL" : "SL/core";
+  const hourText = selfStudyTargetHours
+    ? ` Self-study target for this planner section is ${selfStudyTargetHours}h.`
+    : "";
+  const officialText = officialTeachingHours
+    ? ` Guide-weighted official teaching estimate is ${officialTeachingHours}h.`
+    : "";
+
+  return `${levelLabel} guide context: ${guideDetails}. Focus bullets: ${blueprint.subtopics.join("; ")}.${officialText}${hourText}`;
+}
+
+function annotateAndRetuneGuideMetadata(blueprints: SeedTopicBlueprint[]) {
+  const firstPassTotals = blueprints.reduce<Partial<Record<SubjectId, number>>>(
+    (totals, blueprint) => {
+      if (!shouldRetuneFirstPassTopic(blueprint)) {
+        return totals;
+      }
+
+      totals[blueprint.subjectId] = (totals[blueprint.subjectId] ?? 0) + blueprint.estHours;
+      return totals;
+    },
+    {},
+  );
+
+  return blueprints.map((blueprint) => {
+    const shouldRetune = shouldRetuneFirstPassTopic(blueprint);
+    const currentTotal = firstPassTotals[blueprint.subjectId] ?? 0;
+    const targetTotal = firstPassSelfStudyTargetHours[blueprint.subjectId] ?? null;
+    const officialTotal = officialGuideSyllabusHours[blueprint.subjectId] ?? null;
+    const guideScale = currentTotal > 0 && targetTotal ? targetTotal / currentTotal : 1;
+    const officialScale = currentTotal > 0 && officialTotal ? officialTotal / currentTotal : null;
+    const nextEstHours = shouldRetune
+      ? Math.max(blueprint.estHours, roundUpToQuarterHour(blueprint.estHours * guideScale))
+      : blueprint.estHours;
+    const syllabusLevel = inferSyllabusLevel(blueprint);
+    const officialTeachingHours =
+      shouldRetune && officialScale ? roundUpToQuarterHour(blueprint.estHours * officialScale) : null;
+    const selfStudyTargetHours = shouldRetune ? nextEstHours : null;
+
+    return {
+      ...blueprint,
+      estHours: nextEstHours,
+      syllabusLevel,
+      subtopicTags: buildSubtopicTags(blueprint, syllabusLevel),
+      guideRefs: buildGuideRefs(blueprint, syllabusLevel, officialTeachingHours),
+      guideSummary: buildGuideSummary(
+        blueprint,
+        syllabusLevel,
+        officialTeachingHours,
+        selfStudyTargetHours,
+      ),
+      officialTeachingHours,
+      selfStudyTargetHours,
+    };
+  });
+}
 function buildRotatingPaperCycleWeeks() {
   const weeks: Array<{ label: string; availableFrom: string }> = [];
   let cursor = new Date("2026-08-17T00:00:00");
@@ -1743,7 +1960,7 @@ const programmingTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
   },
 ], "Follow the seeded C++ book chapter order strictly before moving to the next topic.");
 
-export const seedTopicBlueprints: SeedTopicBlueprint[] = [
+export const seedTopicBlueprints: SeedTopicBlueprint[] = annotateAndRetuneGuideMetadata([
   ...physicsTopicBlueprints,
   ...mathsTopicBlueprints,
   ...chemistryTopicBlueprints,
@@ -1754,4 +1971,4 @@ export const seedTopicBlueprints: SeedTopicBlueprint[] = [
   ...frenchTopicBlueprints,
   ...geographyTopicBlueprints,
   ...programmingTopicBlueprints,
-];
+]);

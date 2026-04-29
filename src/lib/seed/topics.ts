@@ -1,30 +1,10 @@
 import type { Topic } from "@/lib/types/planner";
-import { seedTopicBlueprints } from "@/lib/seed/topic-catalog";
+import { seedTopicBlueprints, type SeedTopicBlueprint } from "@/lib/seed/topic-catalog";
 
 function topicFactory() {
   let order = 0;
 
-  return function createTopic(blueprint: {
-    id: string;
-    subjectId: Topic["subjectId"];
-    unitId: string;
-    unitTitle: string;
-    title: string;
-    subtopics: string[];
-    availableFrom?: string | null;
-    dependsOnTopicId?: string | null;
-    sequenceGroup?: string | null;
-    sequenceStage?: Topic["sequenceStage"];
-    minDaysAfterDependency?: number | null;
-    maxDaysAfterDependency?: number | null;
-    sessionMode?: Topic["sessionMode"];
-    exactSessionMinutes?: number | null;
-    estHours: number;
-    difficulty: Topic["difficulty"];
-    preferredBlockTypes: Topic["preferredBlockTypes"];
-    sourceMaterials: Topic["sourceMaterials"];
-    notes?: string;
-  }): Topic {
+  return function createTopic(blueprint: SeedTopicBlueprint): Topic {
     order += 1;
     return {
       id: blueprint.id,
@@ -33,6 +13,12 @@ function topicFactory() {
       unitTitle: blueprint.unitTitle,
       title: blueprint.title,
       subtopics: blueprint.subtopics,
+      syllabusLevel: blueprint.syllabusLevel ?? null,
+      subtopicTags: blueprint.subtopicTags ?? [],
+      guideRefs: blueprint.guideRefs ?? [],
+      guideSummary: blueprint.guideSummary ?? null,
+      officialTeachingHours: blueprint.officialTeachingHours ?? null,
+      selfStudyTargetHours: blueprint.selfStudyTargetHours ?? null,
       availableFrom: blueprint.availableFrom ?? null,
       dependsOnTopicId: blueprint.dependsOnTopicId ?? null,
       sequenceGroup: blueprint.sequenceGroup ?? null,

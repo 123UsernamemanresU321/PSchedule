@@ -5,6 +5,7 @@ import { ChevronDown } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { SubjectBadge } from "@/components/planner/subject-badge";
+import { SyllabusLevelBadge } from "@/components/planner/syllabus-level-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -258,10 +259,38 @@ export function SubjectsPage() {
                               className="grid gap-3 rounded-sm border border-white/6 bg-white/4 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_220px_220px_120px]"
                             >
                               <div>
-                                <p className="font-medium text-foreground">{topic.title}</p>
-                                <p className="mt-1 text-sm text-muted-foreground">
-                                  {topic.subtopics.join(" • ")}
-                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="font-medium text-foreground">{topic.title}</p>
+                                  <SyllabusLevelBadge
+                                    level={topic.syllabusLevel}
+                                    className="px-2 py-0.5 text-[10px]"
+                                  />
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-1.5 text-sm text-muted-foreground">
+                                  {(topic.subtopicTags?.length
+                                    ? topic.subtopicTags
+                                    : topic.subtopics.map((label) => ({
+                                        label,
+                                        syllabusLevel: topic.syllabusLevel ?? null,
+                                      }))
+                                  ).map((subtopic) => (
+                                    <span
+                                      key={subtopic.label}
+                                      className="rounded-full border border-white/8 bg-white/5 px-2 py-0.5"
+                                    >
+                                      {subtopic.label}
+                                      {subtopic.syllabusLevel ? (
+                                        <span className="ml-1 text-[10px] uppercase tracking-[0.12em] text-foreground/70">
+                                          {subtopic.syllabusLevel === "hl"
+                                            ? "HL"
+                                            : subtopic.syllabusLevel === "mixed"
+                                              ? "Mixed"
+                                              : "SL"}
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                  ))}
+                                </div>
                               </div>
                               <div className="text-sm text-muted-foreground">
                                 <p>{unscheduledHours.toFixed(1)}h still unscheduled</p>
