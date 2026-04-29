@@ -6,6 +6,7 @@ import type {
   TopicResource,
   TopicSubtopicTag,
 } from "@/lib/types/planner";
+import { toDateKey } from "@/lib/dates/helpers";
 import { buildOlympiadBPlusBlueprints } from "@/lib/seed/olympiad-bplus";
 
 export interface SeedTopicBlueprint {
@@ -260,7 +261,7 @@ function buildRotatingPaperCycleWeeks() {
   while (cursor.getTime() <= end.getTime()) {
     weeks.push({
       label: `Week ${index}`,
-      availableFrom: cursor.toISOString().slice(0, 10),
+      availableFrom: toDateKey(cursor),
     });
     cursor = new Date(cursor.getTime() + 7 * 24 * 60 * 60 * 1000);
     index += 1;
@@ -307,7 +308,7 @@ function buildFrenchMaintenanceBlueprints(): SeedTopicBlueprint[] {
               "Use the new words in short phrases or sentences.",
               "Do a quick recall pass without notes.",
             ],
-        availableFrom: cursor.toISOString().slice(0, 10),
+        availableFrom: toDateKey(cursor),
         estHours: 0.5,
         difficulty: 2,
         preferredBlockTypes: ["drill", "review"],
@@ -360,7 +361,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
     {
       subjectId: "maths-aa-hl" as const,
       unitIdPrefix: "maths-aa-past-papers",
-      unitTitle: "Maths AA HL - Saturday Paper Cycle",
+      unitTitle: "Maths AA HL - Weekly Paper Practice",
       titlePrefix: "Maths AA HL",
       paperIdSuffix: "paper-1",
       paperLabel: "Paper 1",
@@ -373,7 +374,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
     {
       subjectId: "physics-hl" as const,
       unitIdPrefix: "physics-past-papers",
-      unitTitle: "Physics HL - Saturday Paper Cycle",
+      unitTitle: "Physics HL - Weekly Paper Practice",
       titlePrefix: "Physics HL",
       paperIdSuffix: "paper-2",
       paperLabel: "Paper 2",
@@ -386,7 +387,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
     {
       subjectId: "chemistry-hl" as const,
       unitIdPrefix: "chemistry-past-papers",
-      unitTitle: "Chemistry HL - Saturday Paper Cycle",
+      unitTitle: "Chemistry HL - Weekly Paper Practice",
       titlePrefix: "Chemistry HL",
       paperIdSuffix: "paper-2",
       paperLabel: "Paper 2",
@@ -398,8 +399,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
     },
   ] as const;
 
-  return rotatingPaperCycleWeeks.flatMap((week, index) => {
-    const cycleEntry = cycle[index % cycle.length];
+  return rotatingPaperCycleWeeks.flatMap((week, index) => cycle.flatMap((cycleEntry) => {
     const weekNumber = index + 1;
     const practiceTopicId = `${cycleEntry.unitIdPrefix}-week-${weekNumber}-${cycleEntry.paperIdSuffix}`;
 
@@ -462,7 +462,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
         ],
       },
     ];
-  });
+  }));
 }
 
 export const legacySeedTopicIds = [

@@ -27,10 +27,6 @@ export interface SchoolTermWeekTemplate {
   lightReviewOnlyDateKeys: string[];
 }
 
-function isIbAnchorSubject(subjectId: SubjectId | null | undefined): subjectId is (typeof IB_ANCHOR_SUBJECT_IDS)[number] {
-  return !!subjectId && IB_ANCHOR_SUBJECT_IDS.includes(subjectId as (typeof IB_ANCHOR_SUBJECT_IDS)[number]);
-}
-
 export function getWeekdayAnchorSubject(day: Date) {
   switch (day.getDay()) {
     case 1:
@@ -64,23 +60,26 @@ function isTopicAlreadyCovered(topic: Topic, blocks: StudyBlock[]) {
   );
 }
 
-function findOldestPendingPaperTopic(options: {
+function findOldestPendingPaperTopics(options: {
   weekStart: Date;
   topics: Topic[];
   existingPlannedBlocks: StudyBlock[];
 }) {
   const weekStartKey = toDateKey(startOfPlannerWeek(options.weekStart));
 
-  return options.topics
-    .filter((topic) => isIbAnchorSubject(topic.subjectId))
-    .filter((topic) => isPastPaperTopic(topic))
-    .filter((topic) => (topic.availableFrom ?? weekStartKey) <= weekStartKey)
-    .filter((topic) => !isTopicAlreadyCovered(topic, options.existingPlannedBlocks))
-    .sort(
-      (left, right) =>
-        (left.availableFrom ?? "").localeCompare(right.availableFrom ?? "") ||
-        left.order - right.order,
-    )[0] ?? null;
+  return IB_ANCHOR_SUBJECT_IDS.map(
+    (subjectId) =>
+      options.topics
+        .filter((topic) => topic.subjectId === subjectId)
+        .filter((topic) => isPastPaperTopic(topic))
+        .filter((topic) => (topic.availableFrom ?? weekStartKey) <= weekStartKey)
+        .filter((topic) => !isTopicAlreadyCovered(topic, options.existingPlannedBlocks))
+        .sort(
+          (left, right) =>
+            (left.availableFrom ?? "").localeCompare(right.availableFrom ?? "") ||
+            left.order - right.order,
+        )[0] ?? null,
+  ).filter((topic): topic is Topic => !!topic);
 }
 
 export function buildSchoolTermWeekTemplate(options: {
@@ -160,42 +159,45 @@ export function buildSchoolTermWeekTemplate(options: {
 
   const saturday = days.find((day) => day.getDay() === 6);
   const sunday = days.find((day) => day.getDay() === 0);
-  const pendingPaperTopic =
+  const pendingPaperTopics =
     saturday && sunday
-      ? findOldestPendingPaperTopic({
+      ? findOldestPendingPaperTopics({
           weekStart,
           topics: options.topics,
           existingPlannedBlocks: options.existingPlannedBlocks,
         })
-      : null;
+      : [];
 
-  if (pendingPaperTopic && saturday && sunday) {
+  if (pendingPaperTopics.length > 0 && saturday && sunday) {
     const saturdayKey = toDateKey(saturday);
     const sundayKey = toDateKey(sunday);
-    const reviewTopic =
-      options.topics.find((topic) => topic.dependsOnTopicId === pendingPaperTopic.id) ?? null;
 
-    requirements.push({
-      id: `${saturdayKey}-paper-cycle-exam`,
-      allowedDateKeys: [saturdayKey, sundayKey],
-      subjectId: pendingPaperTopic.subjectId,
-      studyLayers: ["exam_sim"],
-      minimumMinutes: pendingPaperTopic.exactSessionMinutes ?? 120,
-      exactTopicId: pendingPaperTopic.id,
-      allowOverflowDayCap: true,
-    });
+    pendingPaperTopics.forEach((pendingPaperTopic) => {
+      const reviewTopic =
+        options.topics.find((topic) => topic.dependsOnTopicId === pendingPaperTopic.id) ?? null;
 
-    if (reviewTopic) {
       requirements.push({
-        id: `${saturdayKey}-paper-cycle-correction`,
+        id: `${saturdayKey}-${pendingPaperTopic.id}-exam`,
         allowedDateKeys: [saturdayKey, sundayKey],
-        subjectId: reviewTopic.subjectId,
-        studyLayers: ["correction"],
-        minimumMinutes: Math.round(reviewTopic.estHours * 60),
-        exactTopicId: reviewTopic.id,
+        subjectId: pendingPaperTopic.subjectId,
+        studyLayers: ["exam_sim"],
+        minimumMinutes: pendingPaperTopic.exactSessionMinutes ?? 120,
+        exactTopicId: pendingPaperTopic.id,
         allowOverflowDayCap: true,
       });
-    }
+
+      if (reviewTopic) {
+        requirements.push({
+          id: `${saturdayKey}-${pendingPaperTopic.id}-correction`,
+          allowedDateKeys: [saturdayKey, sundayKey],
+          subjectId: reviewTopic.subjectId,
+          studyLayers: ["correction"],
+          minimumMinutes: Math.round(reviewTopic.estHours * 60),
+          exactTopicId: reviewTopic.id,
+          allowOverflowDayCap: true,
+        });
+      }
+    });
   }
 
   return {

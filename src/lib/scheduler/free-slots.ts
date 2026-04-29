@@ -328,6 +328,22 @@ function shiftRecoveryInterval(options: {
   );
   const preferredWindowEnd = createDateAtTime(options.day, scheduleProfile.dailyStudyWindow.end);
   const absoluteLatestEnd = createDateAtTime(options.day, "23:00");
+  const compactedBeforePreferredTime = compactMovableRecoveryGapBeforeInterval({
+    day: options.day,
+    interval: options.interval,
+    durationMinutes,
+    busyIntervals: mergedBusyIntervals,
+    preferences: options.preferences,
+    sickDays: options.sickDays,
+  });
+
+  if (
+    compactedBeforePreferredTime.start.getTime() !== options.interval.start.getTime() ||
+    compactedBeforePreferredTime.end.getTime() !== options.interval.end.getTime()
+  ) {
+    return compactedBeforePreferredTime;
+  }
+
   let candidateStart = options.interval.start;
   let candidateEnd = options.interval.end;
 

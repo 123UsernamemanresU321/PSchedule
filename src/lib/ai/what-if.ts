@@ -210,6 +210,7 @@ export function simulateWhatIf(options: {
   const { snapshot: adjustedSnapshot, parsedChanges } = applyChanges(options.snapshot, options.changes);
   const regenerated = generateStudyPlanHorizon({
     startWeek: startOfPlannerWeek(fromDateKey(currentWeekStart)),
+    referenceDate,
     goals: adjustedSnapshot.goals,
     subjects: adjustedSnapshot.subjects,
     topics: adjustedSnapshot.topics,

@@ -1,6 +1,6 @@
 import { addDays } from "date-fns";
 
-import { endOfPlannerWeek, fromDateKey } from "@/lib/dates/helpers";
+import { endOfPlannerWeek, fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import {
   getOlympiadNumberTheoryEligibilityStatus,
   getOlympiadStageGateStatus,
@@ -116,6 +116,33 @@ function isSchedulableCoverageStatus(status: StudyBlock["status"]) {
     status === "rescheduled" ||
     status === "done" ||
     status === "partial"
+  );
+}
+
+function isFrenchGrammarTuneUpTopic(topic: Pick<Topic, "subjectId" | "title">) {
+  return topic.subjectId === "french-b-sl" && topic.title.toLowerCase().includes("grammar tune-up");
+}
+
+function getScheduledFrenchGrammarTuneUpTopicIdsForWeek(options: {
+  existingPlannedBlocks: StudyBlock[];
+  topicById: Map<string, Topic>;
+  weekStartKey: string;
+}) {
+  return new Set(
+    options.existingPlannedBlocks
+      .filter((block) => !!block.topicId && isSchedulableCoverageStatus(block.status))
+      .filter((block) => {
+        if (block.weekStart === options.weekStartKey) {
+          return true;
+        }
+
+        return toDateKey(startOfPlannerWeek(new Date(block.start))) === options.weekStartKey;
+      })
+      .filter((block) => {
+        const topic = options.topicById.get(block.topicId!);
+        return !!topic && isFrenchGrammarTuneUpTopic(topic);
+      })
+      .map((block) => block.topicId!),
   );
 }
 
@@ -283,10 +310,11 @@ function createReviewCandidate(
 
 function buildExistingBlockCandidateState(
   existingPlannedBlocks: StudyBlock[],
-  options: { topicIdByBlockIds?: Set<string> | null } = {},
+  options: { topicIdByBlockIds?: Set<string> | null; referenceDate?: Date } = {},
 ) {
   const latestScheduledBlockByTopic: Record<string, StudyBlock> = {};
   const topicIdByBlockIds = options.topicIdByBlockIds;
+  const referenceTime = options.referenceDate?.getTime() ?? null;
   const topicIdByBlockId = topicIdByBlockIds?.size ? new Map<string, string>() : null;
   const topicIdsWithCompletedStudyHistory = new Set<string>();
   const plannedMinutesByTopic: Record<string, number> = {};
@@ -302,14 +330,22 @@ function buildExistingBlockCandidateState(
       topicIdByBlockId?.set(block.id, block.topicId);
     }
 
+    const isCompletedEvidence = block.status === "done" || block.status === "partial";
+    const isStalePlannedCoverage =
+      referenceTime != null &&
+      !isCompletedEvidence &&
+      new Date(block.end).getTime() <= referenceTime;
+
     if (block.status !== "missed") {
-      const current = latestScheduledBlockByTopic[block.topicId];
-      if (!current || block.end > current.end) {
-        latestScheduledBlockByTopic[block.topicId] = block;
+      if (!isStalePlannedCoverage) {
+        const current = latestScheduledBlockByTopic[block.topicId];
+        if (!current || block.end > current.end) {
+          latestScheduledBlockByTopic[block.topicId] = block;
+        }
       }
     }
 
-    if (block.status === "done" || block.status === "partial") {
+    if (isCompletedEvidence) {
       topicIdsWithCompletedStudyHistory.add(block.topicId);
       if (block.subjectId === "olympiad") {
         hasCompletedOlympiadAttempt = true;
@@ -317,6 +353,10 @@ function buildExistingBlockCandidateState(
     }
 
     if (!isSchedulableCoverageStatus(block.status)) {
+      return;
+    }
+
+    if (isStalePlannedCoverage) {
       return;
     }
 
@@ -561,6 +601,7 @@ export function buildTaskCandidates(options: {
   existingPlannedBlocks?: StudyBlock[];
   completionLogs?: CompletionLog[];
   referenceDate?: Date;
+  coverageReferenceDate?: Date;
   subjectDeadlinesById?: Record<string, string>;
   availabilityOverrideSubjectIds?: string[];
 }) {
@@ -569,6 +610,7 @@ export function buildTaskCandidates(options: {
     existingPlannedBlocks = [],
     completionLogs = [],
     referenceDate = new Date(),
+    coverageReferenceDate = referenceDate,
     subjectDeadlinesById = {},
     availabilityOverrideSubjectIds = [],
   } = options;
@@ -583,6 +625,7 @@ export function buildTaskCandidates(options: {
     : null;
   const existingBlockState = buildExistingBlockCandidateState(existingPlannedBlocks, {
     topicIdByBlockIds: completionLogStudyBlockIds,
+    referenceDate: coverageReferenceDate,
   });
   const {
     latestScheduledBlockByTopic,
@@ -591,6 +634,13 @@ export function buildTaskCandidates(options: {
     hasCompletedOlympiadAttempt,
   } = existingBlockState;
   const topicById = new Map(topics.map((topic) => [topic.id, topic]));
+  const plannerWeekStartKey = toDateKey(startOfPlannerWeek(referenceDate));
+  const scheduledFrenchGrammarTuneUpTopicIds =
+    getScheduledFrenchGrammarTuneUpTopicIdsForWeek({
+      existingPlannedBlocks,
+      topicById,
+      weekStartKey: plannerWeekStartKey,
+    });
   const availabilityOverrideSubjectIdSet = new Set(availabilityOverrideSubjectIds);
   const topicIdsWithStudyHistory = getTopicIdsWithStudyHistory(
     topics,
@@ -603,6 +653,14 @@ export function buildTaskCandidates(options: {
     ReturnType<typeof resolveTopicTimingWindow>
   >();
   const activeTopicsBySubject = topics.reduce<Record<string, Topic[]>>((accumulator, topic) => {
+    if (
+      isFrenchGrammarTuneUpTopic(topic) &&
+      scheduledFrenchGrammarTuneUpTopicIds.size >= 2 &&
+      !scheduledFrenchGrammarTuneUpTopicIds.has(topic.id)
+    ) {
+      return accumulator;
+    }
+
     const timingWindow = resolveTopicTimingWindow(
       topic,
       latestScheduledBlockByTopic,
@@ -659,6 +717,14 @@ export function buildTaskCandidates(options: {
   );
 
   const topicCandidates = topics.flatMap<TaskCandidate>((topic) => {
+    if (
+      isFrenchGrammarTuneUpTopic(topic) &&
+      scheduledFrenchGrammarTuneUpTopicIds.size >= 2 &&
+      !scheduledFrenchGrammarTuneUpTopicIds.has(topic.id)
+    ) {
+      return [];
+    }
+
     const timingWindow =
       timingWindowByTopicId.get(topic.id) ??
       resolveTopicTimingWindow(
@@ -815,7 +881,7 @@ export function getAssignableTaskCandidatesForBlock(options: {
   const {
     latestScheduledBlockByTopic,
     plannedMinutesByTopic,
-  } = buildExistingBlockCandidateState(existingPlannedBlocks);
+  } = buildExistingBlockCandidateState(existingPlannedBlocks, { referenceDate: blockStart });
   const topicById = new Map(options.topics.map((topic) => [topic.id, topic]));
 
   return options.topics.flatMap<TaskCandidate>((topic) => {
@@ -842,10 +908,6 @@ export function getAssignableTaskCandidatesForBlock(options: {
     }
 
     if (timingWindow.availableAt && new Date(timingWindow.availableAt).getTime() > blockStart.getTime()) {
-      return [];
-    }
-
-    if (timingWindow.latestAt && new Date(timingWindow.latestAt).getTime() < blockStart.getTime()) {
       return [];
     }
 

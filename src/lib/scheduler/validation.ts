@@ -111,7 +111,10 @@ export function validateGeneratedHorizon(options: {
         options.preferences!,
         options.fixedEvents!,
         options.sickDays ?? [],
-        [],
+        options.studyBlocks.filter((block) => {
+          const blockWeekStart = block.weekStart || toDateKey(startOfPlannerWeek(new Date(block.start)));
+          return blockWeekStart === weekStartKey;
+        }),
         false,
         undefined,
         reservedCommitments,
