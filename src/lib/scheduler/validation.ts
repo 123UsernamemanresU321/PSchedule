@@ -112,6 +112,9 @@ export function validateGeneratedHorizon(options: {
         options.fixedEvents!,
         options.sickDays ?? [],
         [],
+        false,
+        undefined,
+        reservedCommitments,
       );
       const plannerControlledWindows = [
         ...reservedCommitments.map((window) => ({

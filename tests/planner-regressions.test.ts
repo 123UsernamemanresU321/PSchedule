@@ -5897,7 +5897,7 @@ test("school-term homework still appears when term dates are configured but scho
     "expected automatic homework to stay on Sunday during an active school term",
   );
   assert.equal(new Date(homeworkCommitment!.start).getHours(), 15);
-  assert.equal(new Date(homeworkCommitment!.start).getMinutes(), 30);
+  assert.equal(new Date(homeworkCommitment!.start).getMinutes(), 0);
   assert.equal(
     Math.round(
       (new Date(homeworkCommitment!.end).getTime() - new Date(homeworkCommitment!.start).getTime()) /
@@ -5974,6 +5974,146 @@ test("marked no-school weekdays are treated as non-school days during active ter
       requirement.allowedDateKeys.includes("2026-04-15"),
     ),
     "expected weekday school-term requirements to remain for non-overridden weekdays",
+  );
+});
+
+test("school-term homework and piano compact together unless an explicit time override exists", () => {
+  const seedPreferences = buildSeedPreferences();
+  const homeworkRule = seedPreferences.reservedCommitmentRules.find(
+    (rule) => rule.id === "term-homework",
+  );
+  const pianoRule = seedPreferences.reservedCommitmentRules.find(
+    (rule) => rule.id === "piano-practice",
+  );
+  const weekStart = new Date("2026-04-13T00:00:00.000Z");
+  const preferences = withConfiguredSchoolTerm(seedPreferences, {
+    enabled: false,
+    start: "08:00",
+    end: "15:00",
+  });
+
+  assert.ok(homeworkRule, "expected seeded homework rule");
+  assert.ok(pianoRule, "expected seeded piano rule");
+
+  const commitments = expandReservedCommitmentWindowsForWeek(weekStart, preferences, [], [], []);
+  const homework = commitments.find(
+    (commitment) => commitment.ruleId === "term-homework" && commitment.dateKey === "2026-04-14",
+  );
+  const piano = commitments.find(
+    (commitment) => commitment.ruleId === "piano-practice" && commitment.dateKey === "2026-04-14",
+  );
+
+  assert.equal(
+    homework?.start,
+    createDateAtTime(fromDateKey("2026-04-14"), "15:00").toISOString(),
+  );
+  assert.equal(piano?.start, homework?.end);
+
+  const explicitPianoPreferences = {
+    ...preferences,
+    reservedCommitmentRules: preferences.reservedCommitmentRules.map((rule) =>
+      rule.id === "piano-practice"
+        ? {
+            ...rule,
+            timeOverrides: {
+              ...rule.timeOverrides,
+              "2026-04-14": { start: "18:00" },
+            },
+          }
+        : rule,
+    ),
+  };
+  const explicitCommitments = expandReservedCommitmentWindowsForWeek(
+    weekStart,
+    explicitPianoPreferences,
+    [],
+    [],
+    [],
+  );
+  const explicitPiano = explicitCommitments.find(
+    (commitment) => commitment.ruleId === "piano-practice" && commitment.dateKey === "2026-04-14",
+  );
+
+  assert.equal(
+    explicitPiano?.start,
+    createDateAtTime(fromDateKey("2026-04-14"), "18:00").toISOString(),
+  );
+
+  const explicitHomeworkPreferences = {
+    ...preferences,
+    reservedCommitmentRules: preferences.reservedCommitmentRules.map((rule) =>
+      rule.id === "term-homework"
+        ? {
+            ...rule,
+            timeOverrides: {
+              ...rule.timeOverrides,
+              "2026-04-14": { start: "15:30" },
+            },
+          }
+        : rule,
+    ),
+  };
+  const explicitHomeworkCommitments = expandReservedCommitmentWindowsForWeek(
+    weekStart,
+    explicitHomeworkPreferences,
+    [],
+    [],
+    [],
+  );
+  const explicitHomework = explicitHomeworkCommitments.find(
+    (commitment) => commitment.ruleId === "term-homework" && commitment.dateKey === "2026-04-14",
+  );
+
+  assert.equal(
+    explicitHomework?.start,
+    createDateAtTime(fromDateKey("2026-04-14"), "15:30").toISOString(),
+  );
+});
+
+test("movable dinner reset absorbs small gaps after adjacent planned work", () => {
+  const seedPreferences = buildSeedPreferences();
+  const preferences = normalizePreferences({
+    ...seedPreferences,
+    schoolSchedule: {
+      ...seedPreferences.schoolSchedule,
+      enabled: false,
+      terms: [],
+    },
+    holidaySchedule: {
+      ...seedPreferences.holidaySchedule,
+      enabled: true,
+    },
+  });
+  const weekStart = new Date("2026-04-13T00:00:00.000Z");
+  const windows = expandLockedRecoveryWindowsForWeek(
+    weekStart,
+    preferences,
+    [],
+    [],
+    [],
+    false,
+    undefined,
+    [
+      {
+        id: "piano-practice:2026-04-14:1",
+        ruleId: "piano-practice",
+        dateKey: "2026-04-14",
+        title: "Piano",
+        label: "Piano",
+        start: createDateAtTime(fromDateKey("2026-04-14"), "18:00").toISOString(),
+        end: createDateAtTime(fromDateKey("2026-04-14"), "19:00").toISOString(),
+      },
+    ],
+  );
+  const dinner = windows.find((window) => window.label === "Dinner reset" && window.dateKey === "2026-04-14");
+
+  assert.equal(
+    dinner?.start,
+    createDateAtTime(fromDateKey("2026-04-14"), "19:00").toISOString(),
+  );
+  assert.equal(
+    dinner?.end,
+    createDateAtTime(fromDateKey("2026-04-14"), "19:45").toISOString(),
   );
 });
 
@@ -6475,6 +6615,14 @@ test("fixed events do not carve out an extra pre-event buffer from the free slot
 test("the allocator does not force a gap when a busy boundary is immediately next", () => {
   assert.equal(getInlineBreakMinutes(90, 60, 15), 0);
   assert.equal(getInlineBreakMinutes(120, 60, 15), 15);
+  assert.equal(getInlineBreakMinutes(180, 120, 0), 0);
+});
+
+test("seed preferences disable automatic study breaks by default", () => {
+  const preferences = buildSeedPreferences();
+
+  assert.equal(preferences.breaksEnabled, false);
+  assert.equal(preferences.minBreakMinutes, 0);
 });
 
 test("english is no longer auto-seeded for study and french is only light grammar/vocab maintenance", () => {

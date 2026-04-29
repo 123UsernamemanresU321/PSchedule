@@ -254,6 +254,59 @@ function buildStudyBlockIntervals(day: Date, studyBlocks: StudyBlock[]) {
     .map((block) => createInterval(new Date(block.start), new Date(block.end)));
 }
 
+function buildReservedCommitmentIntervals(day: Date, commitments: ReservedCommitmentOccurrence[]) {
+  return commitments
+    .filter((commitment) => commitment.dateKey === toDateKey(day))
+    .map((commitment) => createInterval(new Date(commitment.start), new Date(commitment.end)));
+}
+
+function compactMovableRecoveryGapBeforeInterval(options: {
+  day: Date;
+  interval: TimeInterval;
+  durationMinutes: number;
+  busyIntervals: TimeInterval[];
+  preferences: Preferences;
+  sickDays?: SickDay[];
+}) {
+  const mergedBusyIntervals = mergeIntervals(options.busyIntervals);
+  const previousBusyInterval = [...mergedBusyIntervals]
+    .reverse()
+    .find((interval) => interval.end <= options.interval.start);
+
+  if (!previousBusyInterval) {
+    return options.interval;
+  }
+
+  const gapMinutes = minutesBetween(previousBusyInterval.end, options.interval.start);
+  if (gapMinutes <= 0 || gapMinutes >= MIN_ALLOCATABLE_MINUTES) {
+    return options.interval;
+  }
+
+  const scheduleProfile = resolveDailyScheduleProfile(
+    options.day,
+    options.preferences,
+    options.sickDays,
+  );
+  const dayWindowStart = createDateAtTime(options.day, scheduleProfile.dailyStudyWindow.start);
+  const absoluteLatestEnd = createDateAtTime(options.day, "23:00");
+  const candidateStart = new Date(previousBusyInterval.end);
+  const candidateEnd = addMinutes(candidateStart, options.durationMinutes);
+
+  if (candidateStart < dayWindowStart || candidateEnd > absoluteLatestEnd) {
+    return options.interval;
+  }
+
+  const overlapsBusyInterval = mergedBusyIntervals.some(
+    (busyInterval) => candidateStart < busyInterval.end && candidateEnd > busyInterval.start,
+  );
+
+  if (overlapsBusyInterval) {
+    return options.interval;
+  }
+
+  return createInterval(candidateStart, candidateEnd);
+}
+
 function shiftRecoveryInterval(options: {
   day: Date;
   interval: TimeInterval;
@@ -288,7 +341,14 @@ function shiftRecoveryInterval(options: {
   });
 
   if (candidateEnd <= preferredWindowEnd || candidateEnd <= absoluteLatestEnd) {
-    return createInterval(candidateStart, candidateEnd);
+    return compactMovableRecoveryGapBeforeInterval({
+      day: options.day,
+      interval: createInterval(candidateStart, candidateEnd),
+      durationMinutes,
+      busyIntervals: mergedBusyIntervals,
+      preferences: options.preferences,
+      sickDays: options.sickDays,
+    });
   }
 
   return options.interval;
@@ -356,11 +416,16 @@ function resolveRecoveryWindowsForDay(options: {
   preferences: Preferences;
   sickDays?: SickDay[];
   blockedStudyBlocks?: StudyBlock[];
+  blockedReservedCommitments?: ReservedCommitmentOccurrence[];
   skipMovableRecovery?: boolean;
 }) {
   const resolvedIntervals: Array<TimeInterval & { label: string; movable: boolean }> = [];
   const eventIntervals = buildEventIntervals(options.day, options.fixedEvents, options.preferences);
   const studyBlockIntervals = buildStudyBlockIntervals(options.day, options.blockedStudyBlocks ?? []);
+  const reservedCommitmentIntervals = buildReservedCommitmentIntervals(
+    options.day,
+    options.blockedReservedCommitments ?? [],
+  );
 
   options.preferences.lockedRecoveryWindows
     .filter((window) => window.days.includes(options.day.getDay()))
@@ -386,6 +451,7 @@ function resolveRecoveryWindowsForDay(options: {
         busyIntervals: [
           ...eventIntervals,
           ...studyBlockIntervals,
+          ...reservedCommitmentIntervals,
           ...resolvedIntervals,
         ],
         preferences: options.preferences,
@@ -423,9 +489,12 @@ function resolveReservedCommitmentStart(options: {
   preferences: Preferences;
   rule: Preferences["reservedCommitmentRules"][number];
   inSchoolTerm: boolean;
+  priorCommitmentIntervals: Array<TimeInterval & { ruleId: string }>;
+  hardBusyIntervals: TimeInterval[];
 }) {
   const dateKey = toDateKey(options.day);
   const overriddenStart = options.rule.timeOverrides?.[dateKey]?.start;
+  const preferredStart = createDateAtTime(options.day, options.rule.preferredStart);
 
   if (overriddenStart) {
     return createDateAtTime(options.day, overriddenStart);
@@ -436,10 +505,27 @@ function resolveReservedCommitmentStart(options: {
     options.inSchoolTerm &&
     options.preferences.schoolSchedule.weekdays.includes(options.day.getDay())
   ) {
-    return addMinutes(createDateAtTime(options.day, options.preferences.schoolSchedule.end), 30);
+    return createDateAtTime(options.day, options.preferences.schoolSchedule.end);
   }
 
-  return createDateAtTime(options.day, options.rule.preferredStart);
+  if (options.rule.id === "piano-practice") {
+    const latestHomeworkEnd = options.priorCommitmentIntervals
+      .filter((interval) => interval.ruleId === "term-homework")
+      .filter((interval) => interval.end <= preferredStart)
+      .sort((left, right) => right.end.getTime() - left.end.getTime())[0]?.end;
+
+    if (latestHomeworkEnd) {
+      const hardBoundaryBetweenHomeworkAndPiano = options.hardBusyIntervals.some(
+        (interval) => latestHomeworkEnd < interval.end && preferredStart > interval.start,
+      );
+
+      if (!hardBoundaryBetweenHomeworkAndPiano) {
+        return latestHomeworkEnd;
+      }
+    }
+  }
+
+  return preferredStart;
 }
 
 function placeReservedCommitmentIntervals(options: {
@@ -537,7 +623,7 @@ export function expandReservedCommitmentWindowsForWeek(
       blockedStudyBlocks: [],
       skipMovableRecovery: false,
     }).map((window) => createInterval(window.start, window.end));
-    const resolvedIntervals: TimeInterval[] = [];
+    const resolvedIntervals: Array<TimeInterval & { ruleId: string }> = [];
     const prioritizedRules = preferences.reservedCommitmentRules
       .map((rule, index) => ({
         rule,
@@ -580,24 +666,32 @@ export function expandReservedCommitmentWindowsForWeek(
         return [];
       }
 
+      const hardBusyIntervals = [...dayFixedEventIntervals, ...dayRecoveryIntervals];
       const start = resolveReservedCommitmentStart({
         day,
         preferences,
         rule,
         inSchoolTerm,
+        priorCommitmentIntervals: resolvedIntervals,
+        hardBusyIntervals,
       });
       const commitmentSegments = placeReservedCommitmentIntervals({
         day,
         start,
         durationMinutes,
-        busyIntervals: [...dayFixedEventIntervals, ...dayRecoveryIntervals, ...resolvedIntervals],
+        busyIntervals: [...hardBusyIntervals, ...resolvedIntervals],
       });
 
       if (!commitmentSegments.length) {
         return [];
       }
 
-      resolvedIntervals.push(...commitmentSegments);
+      resolvedIntervals.push(
+        ...commitmentSegments.map((segment) => ({
+          ...segment,
+          ruleId: rule.id,
+        })),
+      );
 
       const validSegments = planningStart
         ? commitmentSegments.filter((segment) => segment.end.getTime() > planningStart.getTime())
@@ -624,6 +718,7 @@ export function expandLockedRecoveryWindowsForWeek(
   blockedStudyBlocks: StudyBlock[] = [],
   skipMovableRecovery = false,
   planningStart?: Date,
+  blockedReservedCommitments: ReservedCommitmentOccurrence[] = [],
 ): RecoveryWindowOccurrence[] {
   const expandedFixedEvents = expandPlannerFixedEventsForWeek(weekStart, fixedEvents, preferences);
 
@@ -634,6 +729,7 @@ export function expandLockedRecoveryWindowsForWeek(
       preferences,
       sickDays,
       blockedStudyBlocks,
+      blockedReservedCommitments,
       skipMovableRecovery,
     }).map((window) => ({
       id: `${window.label}-${toDateKey(day)}`,
@@ -711,6 +807,7 @@ export function calculateFreeSlots(options: {
     blockedStudyBlocks,
     options.skipMovableRecovery ?? false,
     planningStart,
+    reservedCommitments,
   );
 
   const slots: CalendarSlot[] = [];

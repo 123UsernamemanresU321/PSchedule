@@ -33,11 +33,11 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-04-24-week-pressure-semantics-v54";
+const PLANNING_MODEL_VERSION = "2026-04-29-tight-packing-v55";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-08-olympiad-bplus-roadmap-v11";
-const PREFERENCE_DEFAULTS_VERSION = "2026-04-13-priority-homework-defaults-v2";
+const PREFERENCE_DEFAULTS_VERSION = "2026-04-29-tight-packing-no-breaks-v3";
 const EXTENDED_GOALS_VERSION = "2026-03-19-post-syllabus-papers-v8";
 const LANGUAGE_MAINTENANCE_VERSION = "2026-04-21-languages-v2";
 const SEED_TOPIC_ORDERING_VERSION = "2026-04-13-maths-book-order-v4";
@@ -556,7 +556,11 @@ async function migrateLegacyPreferenceDefaults(snapshot: PlannerSnapshot) {
     return snapshot;
   }
 
-  const normalizedPreferences = normalizePreferences(snapshot.preferences);
+  const normalizedPreferences = {
+    ...normalizePreferences(snapshot.preferences),
+    breaksEnabled: false,
+    minBreakMinutes: 0,
+  };
 
   await db.transaction("rw", [db.preferences, db.meta], async () => {
     await db.preferences.put(normalizedPreferences);

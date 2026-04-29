@@ -800,7 +800,7 @@ export function SettingsPage() {
                   <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Enable breaks</label>
                   <div className="h-10 flex items-center">
                     <Switch
-                      checked={form.breaksEnabled ?? true}
+                      checked={form.breaksEnabled ?? false}
                       onCheckedChange={(checked) =>
                         setForm({
                           ...form,

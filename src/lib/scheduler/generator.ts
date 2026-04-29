@@ -1648,7 +1648,7 @@ function allocateTasksToSlots(options: {
     options.preferences.maxHeavySessionsPerDay +
     (needsIntensityRamp ? 1 : 0) +
     (options.heavySessionBoost ?? 0);
-  const breaksEnabled = options.preferences.breaksEnabled ?? true;
+  const breaksEnabled = options.preferences.breaksEnabled ?? false;
   const minBreakMinutes = breaksEnabled
     ? (options.minBreakMinutes ?? options.preferences.minBreakMinutes)
     : 0;
@@ -2700,7 +2700,7 @@ function allocateTasksToSlots(options: {
       }
       consumedStudyMinutes += winner.blockOption.durationMinutes;
       const requiredBreakMinutes =
-        winner.task.sessionMode === "exam"
+        breaksEnabled && winner.task.sessionMode === "exam"
           ? Math.max(minBreakMinutes, 30)
           : 0;
       const breakAfterBlock = getInlineBreakMinutes(

@@ -172,12 +172,23 @@ export function PlannerCalendar({
   const visibleFocusedWeek =
     focusedWeeks.find((focusedWeek) => focusedWeek.weekStart === weekStart) ?? null;
   const expandedFixedEvents = expandPlannerFixedEventsForWeek(visibleWeekStart, fixedEvents, preferences);
+  const reservedCommitments = expandReservedCommitmentWindowsForWeek(
+    visibleWeekStart,
+    preferences,
+    fixedEvents,
+    sickDays,
+    excludedReservedCommitmentRuleIds,
+    effectiveReservedCommitmentDurations,
+  );
   const recoveryWindows = expandLockedRecoveryWindowsForWeek(
     visibleWeekStart,
     preferences,
     fixedEvents,
     sickDays,
     studyBlocks.filter((block) => blockFallsInVisibleWeek(block, weekStart)),
+    false,
+    undefined,
+    reservedCommitments,
   );
   const visibleRecoveryWindows = recoveryWindows.filter((window) => {
     if (window.label !== "Lunch break") {
@@ -197,14 +208,6 @@ export function PlannerCalendar({
       return lunchStart < eventEnd && lunchEnd > eventStart;
     });
   });
-  const reservedCommitments = expandReservedCommitmentWindowsForWeek(
-    visibleWeekStart,
-    preferences,
-    fixedEvents,
-    sickDays,
-    excludedReservedCommitmentRuleIds,
-    effectiveReservedCommitmentDurations,
-  );
   const sickDayEvents = Array.from({ length: 7 }, (_, index) => addDays(visibleWeekStart, index)).flatMap((day) => {
     const severity = getActiveSickDaySeverity(day, sickDays);
     if (!severity) {
@@ -290,7 +293,7 @@ export function PlannerCalendar({
       end: new Date(event.end),
     })),
   ];
-  const breakEvents = (preferences.breaksEnabled ?? true)
+  const breakEvents = (preferences.breaksEnabled ?? false)
     ? buildVisibleBreakEvents({
         studyBlocks,
         weekStart,
