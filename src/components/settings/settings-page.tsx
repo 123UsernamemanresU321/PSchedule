@@ -54,6 +54,7 @@ export function SettingsPage() {
   const deleteSickDay = usePlannerStore((state) => state.deleteSickDay);
   const updatePreferences = usePlannerStore((state) => state.updatePreferences);
   const exportToJson = usePlannerStore((state) => state.exportToJson);
+  const exportUserDataToJson = usePlannerStore((state) => state.exportUserDataToJson);
   const importFromJson = usePlannerStore((state) => state.importFromJson);
   const [form, setForm] = useState<Preferences | null>(() =>
     preferences ? normalizePreferences(preferences) : null,
@@ -165,13 +166,30 @@ export function SettingsPage() {
                 const url = URL.createObjectURL(blob);
                 const anchor = document.createElement("a");
                 anchor.href = url;
-                anchor.download = createExportFilename();
+                anchor.download = createExportFilename("full");
                 anchor.click();
                 URL.revokeObjectURL(url);
               }}
             >
               <Download className="h-4 w-4" />
               Export JSON
+            </Button>
+            <Button
+              variant="outline"
+              title="Exports settings, goals, topics, fixed events, focus/sick days, and completed history only. It excludes generated weekly plans and future auto-generated study blocks."
+              onClick={async () => {
+                const json = await exportUserDataToJson();
+                const blob = new Blob([json], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = createExportFilename("user-data");
+                anchor.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              <Download className="h-4 w-4" />
+              Export user data
             </Button>
             <input
               ref={fileInputRef}

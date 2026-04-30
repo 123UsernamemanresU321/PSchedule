@@ -361,6 +361,7 @@ export interface Preferences {
 
 export interface PlannerExportPayload {
   version: number;
+  exportKind?: "full" | "user-data";
   exportedAt: string;
   goals: Goal[];
   subjects: Subject[];

@@ -22,6 +22,7 @@ import {
   deleteSickDayById as deleteSickDayRecordById,
   excludeFixedEventOccurrence,
   exportPlannerData,
+  exportPlannerUserData,
   getCurrentWeekKey,
   importPlannerData,
   initializePlannerDatabase,
@@ -147,6 +148,7 @@ interface PlannerState {
     notes?: string;
   }) => Promise<void>;
   exportToJson: () => Promise<string>;
+  exportUserDataToJson: () => Promise<string>;
   importFromJson: (rawJson: string) => Promise<void>;
   selectStudyBlock: (id: string | null) => void;
 }
@@ -1474,6 +1476,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
   exportToJson: async () => {
     const payload = await exportPlannerData();
+    return JSON.stringify(payload, null, 2);
+  },
+  exportUserDataToJson: async () => {
+    const payload = await exportPlannerUserData();
     return JSON.stringify(payload, null, 2);
   },
   importFromJson: async (rawJson) => {

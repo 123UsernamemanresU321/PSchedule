@@ -423,6 +423,7 @@ export const preferencesSchema = z.object({
 
 export const plannerExportSchema = z.object({
   version: z.number(),
+  exportKind: z.enum(["full", "user-data"]).optional().default("full"),
   exportedAt: z.string(),
   goals: z.array(goalSchema),
   subjects: z.array(subjectSchema),
