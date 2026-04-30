@@ -33,14 +33,14 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-04-29-guide-ai-plan-v56";
+const PLANNING_MODEL_VERSION = "2026-04-30-olympiad-french-maths-v57";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
-const OLYMPIAD_ROADMAP_VERSION = "2026-04-08-olympiad-bplus-roadmap-v11";
+const OLYMPIAD_ROADMAP_VERSION = "2026-04-30-olympiad-final-june-v12";
 const PREFERENCE_DEFAULTS_VERSION = "2026-04-29-tight-packing-no-breaks-v3";
-const EXTENDED_GOALS_VERSION = "2026-03-19-post-syllabus-papers-v8";
-const LANGUAGE_MAINTENANCE_VERSION = "2026-04-21-languages-v2";
-const SEED_TOPIC_ORDERING_VERSION = "2026-04-29-guide-metadata-v5";
+const EXTENDED_GOALS_VERSION = "2026-04-30-paper-frontiers-v9";
+const LANGUAGE_MAINTENANCE_VERSION = "2026-04-30-french-grammar-cap-v3";
+const SEED_TOPIC_ORDERING_VERSION = "2026-04-30-paper-frontiers-v6";
 const LEGACY_OLYMPIAD_DEFAULT_PRIORITY = 0.85;
 const LEGACY_CPP_BOOK_DEFAULT_PRIORITY = 0.45;
 const MIN_HEALTHY_SCHEDULED_COVERAGE_RATIO = 0.999;

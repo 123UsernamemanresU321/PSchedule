@@ -35,7 +35,6 @@ function getOlympiadTopicsUpTo(deadline: string) {
 
 export function buildSeedSubjects(referenceDate = new Date()): Subject[] {
   const deadline = format(getAcademicDeadline(referenceDate), "yyyy-MM-dd");
-  const olympiadSelectionPeakDeadline = `${referenceDate.getFullYear() + 1}-04-06`;
   const paperPracticeDeadline = `${referenceDate.getFullYear() + 1}${FINAL_PAPER_PRACTICE_DEADLINE_SUFFIX}`;
 
   return [
@@ -90,7 +89,7 @@ export function buildSeedSubjects(referenceDate = new Date()): Subject[] {
       examMode: "olympiad",
       colorToken: "subject-olympiad",
       gradientClassName: "from-subject-olympiad/25 via-subject-olympiad/10 to-transparent",
-      deadline: olympiadSelectionPeakDeadline,
+      deadline: paperPracticeDeadline,
     },
     {
       id: "cpp-book",
@@ -153,7 +152,6 @@ export function buildSeedGoals(referenceDate = new Date()): Goal[] {
   const olympiadPhaseOneDeadline = `${referenceDate.getFullYear()}-07-31`;
   const olympiadPhaseTwoDeadline = `${referenceDate.getFullYear()}-09-30`;
   const olympiadCampDeadline = `${referenceDate.getFullYear()}-11-30`;
-  const olympiadSelectionPeakDeadline = `${referenceDate.getFullYear() + 1}-04-06`;
   const paperPracticeDeadline = `${referenceDate.getFullYear() + 1}${FINAL_PAPER_PRACTICE_DEADLINE_SUFFIX}`;
   const physicsSyllabusTargetCompletion = buildSyllabusTargetCompletion("physics-hl");
   const mathsSyllabusTargetCompletion = buildSyllabusTargetCompletion("maths-aa-hl");
@@ -161,7 +159,7 @@ export function buildSeedGoals(referenceDate = new Date()): Goal[] {
   const olympiadPhaseOneTopicIds = getOlympiadTopicsUpTo(olympiadPhaseOneDeadline);
   const olympiadPhaseTwoTopicIds = getOlympiadTopicsUpTo(olympiadPhaseTwoDeadline);
   const olympiadCampTopicIds = getOlympiadTopicsUpTo(olympiadCampDeadline);
-  const olympiadSelectionPeakTopicIds = getOlympiadTopicsUpTo(olympiadSelectionPeakDeadline);
+  const olympiadFinalTopicIds = getOlympiadTopicsUpTo(paperPracticeDeadline);
 
   return [
     {
@@ -241,12 +239,12 @@ export function buildSeedGoals(referenceDate = new Date()): Goal[] {
     },
     {
       id: "goal-olympiad-phase-4",
-      title: `Finish the Olympiad selection-peak conversion phase by ${olympiadSelectionPeakDeadline}`,
+      title: `Finish the full Olympiad Prep roadmap by ${paperPracticeDeadline}`,
       subjectId: "olympiad",
-      deadline: olympiadSelectionPeakDeadline,
+      deadline: paperPracticeDeadline,
       targetCompletion: 1,
       priorityWeight: 0.9,
-      topicIds: olympiadSelectionPeakTopicIds,
+      topicIds: olympiadFinalTopicIds,
     },
     {
       id: "goal-cpp-book",

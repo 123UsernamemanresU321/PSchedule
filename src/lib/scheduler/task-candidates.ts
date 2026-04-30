@@ -123,27 +123,24 @@ function isFrenchGrammarTuneUpTopic(topic: Pick<Topic, "subjectId" | "title">) {
   return topic.subjectId === "french-b-sl" && topic.title.toLowerCase().includes("grammar tune-up");
 }
 
-function getScheduledFrenchGrammarTuneUpTopicIdsForWeek(options: {
+function getScheduledFrenchGrammarTuneUpSessionCountForWeek(options: {
   existingPlannedBlocks: StudyBlock[];
   topicById: Map<string, Topic>;
   weekStartKey: string;
 }) {
-  return new Set(
-    options.existingPlannedBlocks
-      .filter((block) => !!block.topicId && isSchedulableCoverageStatus(block.status))
-      .filter((block) => {
-        if (block.weekStart === options.weekStartKey) {
-          return true;
-        }
+  return options.existingPlannedBlocks
+    .filter((block) => !!block.topicId && isSchedulableCoverageStatus(block.status))
+    .filter((block) => {
+      if (block.weekStart === options.weekStartKey) {
+        return true;
+      }
 
-        return toDateKey(startOfPlannerWeek(new Date(block.start))) === options.weekStartKey;
-      })
-      .filter((block) => {
-        const topic = options.topicById.get(block.topicId!);
-        return !!topic && isFrenchGrammarTuneUpTopic(topic);
-      })
-      .map((block) => block.topicId!),
-  );
+      return toDateKey(startOfPlannerWeek(new Date(block.start))) === options.weekStartKey;
+    })
+    .filter((block) => {
+      const topic = options.topicById.get(block.topicId!);
+      return !!topic && isFrenchGrammarTuneUpTopic(topic);
+    }).length;
 }
 
 function getTaskStudyLayer(options: {
@@ -635,8 +632,8 @@ export function buildTaskCandidates(options: {
   } = existingBlockState;
   const topicById = new Map(topics.map((topic) => [topic.id, topic]));
   const plannerWeekStartKey = toDateKey(startOfPlannerWeek(referenceDate));
-  const scheduledFrenchGrammarTuneUpTopicIds =
-    getScheduledFrenchGrammarTuneUpTopicIdsForWeek({
+  const scheduledFrenchGrammarTuneUpSessionCount =
+    getScheduledFrenchGrammarTuneUpSessionCountForWeek({
       existingPlannedBlocks,
       topicById,
       weekStartKey: plannerWeekStartKey,
@@ -655,8 +652,7 @@ export function buildTaskCandidates(options: {
   const activeTopicsBySubject = topics.reduce<Record<string, Topic[]>>((accumulator, topic) => {
     if (
       isFrenchGrammarTuneUpTopic(topic) &&
-      scheduledFrenchGrammarTuneUpTopicIds.size >= 2 &&
-      !scheduledFrenchGrammarTuneUpTopicIds.has(topic.id)
+      scheduledFrenchGrammarTuneUpSessionCount >= 2
     ) {
       return accumulator;
     }
@@ -719,8 +715,7 @@ export function buildTaskCandidates(options: {
   const topicCandidates = topics.flatMap<TaskCandidate>((topic) => {
     if (
       isFrenchGrammarTuneUpTopic(topic) &&
-      scheduledFrenchGrammarTuneUpTopicIds.size >= 2 &&
-      !scheduledFrenchGrammarTuneUpTopicIds.has(topic.id)
+      scheduledFrenchGrammarTuneUpSessionCount >= 2
     ) {
       return [];
     }

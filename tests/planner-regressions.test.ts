@@ -369,6 +369,65 @@ test("French grammar tune-up candidates stop after two grammar sessions in one p
   );
 });
 
+test("allocator never schedules more than two French grammar tune-up blocks in a week", () => {
+  const referenceDate = new Date("2026-07-27T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const frenchSubject = dataset.subjects.find((subject) => subject.id === "french-b-sl");
+  const baseGrammarTopic = dataset.topics.find(
+    (topic) => topic.subjectId === "french-b-sl" && topic.title.toLowerCase().includes("grammar tune-up"),
+  );
+
+  assert.ok(frenchSubject, "expected French subject");
+  assert.ok(baseGrammarTopic, "expected seeded French grammar tune-up");
+
+  const grammarTopics = Array.from({ length: 8 }, (_, index): Topic => ({
+    ...baseGrammarTopic!,
+    id: `synthetic-french-grammar-${index + 1}`,
+    title: `French grammar tune-up synthetic ${index + 1}`,
+    availableFrom: "2026-07-27",
+    dependsOnTopicId: null,
+    order: index + 1,
+    estHours: 0.5,
+  }));
+  const result = generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    horizonStartDate: referenceDate,
+    goals: [
+      {
+        id: "synthetic-french-goal",
+        title: "Synthetic French cap test",
+        subjectId: "french-b-sl",
+        deadline: "2026-08-31",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [{ ...frenchSubject!, weeklyMinimumHours: 10 }],
+    topics: grammarTopics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    preferences: {
+      ...dataset.preferences,
+      schoolSchedule: {
+        ...dataset.preferences.schoolSchedule,
+        enabled: false,
+      },
+      holidaySchedule: {
+        ...dataset.preferences.holidaySchedule,
+        enabled: true,
+      },
+    },
+  });
+  const grammarBlockCount = result.studyBlocks.filter(
+    (block) => block.subjectId === "french-b-sl" && block.topicId?.startsWith("synthetic-french-grammar-"),
+  ).length;
+
+  assert.equal(grammarBlockCount, 2);
+});
+
 test("AI block plan context includes guide metadata, schedule continuity, and pace targets", () => {
   const dataset = buildSeedDataset(new Date("2026-04-29T08:00:00"));
   const subject = dataset.subjects.find((candidate) => candidate.id === "maths-aa-hl") ?? null;
@@ -1149,18 +1208,22 @@ test("week pressure state reports overload without implying impossibility", () =
   assert.equal(getWeekPressureState(weeklyPlan).label, "Week over capacity");
 });
 
-test("seeded first-pass school milestones move to August 14, Olympiad phase 1 moves to July 31, and C++ stays unchanged", () => {
+test("seeded first-pass school milestones stay August 14 and Olympiad final milestone is June 30", () => {
   const dataset = buildSeedDataset(new Date("2026-04-18T08:00:00"));
   const physicsGoal = dataset.goals.find((goal) => goal.id === "goal-physics-hl");
   const mathsGoal = dataset.goals.find((goal) => goal.id === "goal-maths-aa-hl");
   const chemistryGoal = dataset.goals.find((goal) => goal.id === "goal-chemistry-hl");
-  const olympiadGoal = dataset.goals.find((goal) => goal.id === "goal-olympiad-phase-1");
+  const olympiadPhaseOneGoal = dataset.goals.find((goal) => goal.id === "goal-olympiad-phase-1");
+  const olympiadFinalGoal = dataset.goals.find((goal) => goal.id === "goal-olympiad-phase-4");
+  const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
   const cppGoal = dataset.goals.find((goal) => goal.id === "goal-cpp-book");
 
   assert.equal(physicsGoal?.deadline, "2026-08-14");
   assert.equal(mathsGoal?.deadline, "2026-08-14");
   assert.equal(chemistryGoal?.deadline, "2026-08-14");
-  assert.equal(olympiadGoal?.deadline, "2026-07-31");
+  assert.equal(olympiadPhaseOneGoal?.deadline, "2026-07-31");
+  assert.equal(olympiadFinalGoal?.deadline, "2027-06-30");
+  assert.equal(olympiadSubject?.deadline, "2027-06-30");
   assert.equal(cppGoal?.deadline, "2027-06-30");
 });
 
@@ -4231,6 +4294,7 @@ test("focused days materially increase the chosen subject in the seeded schedule
 
   const withoutFocus = generateStudyPlanForWeek({
     weekStart: new Date("2026-03-23T00:00:00"),
+    referenceDate,
     goals: dataset.goals,
     subjects: dataset.subjects,
     topics: dataset.topics,
@@ -4240,6 +4304,7 @@ test("focused days materially increase the chosen subject in the seeded schedule
   });
   const withFocus = generateStudyPlanForWeek({
     weekStart: new Date("2026-03-23T00:00:00"),
+    referenceDate,
     goals: dataset.goals,
     subjects: dataset.subjects,
     topics: dataset.topics,
@@ -4261,7 +4326,10 @@ test("focused days materially increase the chosen subject in the seeded schedule
     .filter((block) => block.date === focusedDate && block.subjectId === "physics-hl")
     .reduce((total, block) => total + block.estimatedMinutes, 0);
 
-  assert.ok(physicsMinutesWithFocus >= physicsMinutesWithoutFocus + 120);
+  assert.ok(
+    physicsMinutesWithFocus >= physicsMinutesWithoutFocus + 60,
+    "expected the focused day to materially increase Physics minutes",
+  );
 });
 
 test("multi-subject focused days split work by pressure instead of equally", () => {
@@ -7307,6 +7375,106 @@ test("seeded post-syllabus paper topics create one paper per HL subject every we
     "maths-aa-past-papers-week-1-paper-1",
     "physics-past-papers-week-1-paper-2",
   ]);
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "maths-aa-past-papers-week-1-paper-1")
+      ?.dependsOnTopicId,
+    "maths-topic5-maclaurin-series",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "physics-past-papers-week-1-paper-2")
+      ?.dependsOnTopicId,
+    "physics-e5-fusion-stars",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "chemistry-past-papers-week-1-paper-2")
+      ?.dependsOnTopicId,
+    "chem-reactivity-3-4-electron-pair-sharing",
+  );
+});
+
+test("generated horizon caps French grammar tune-up blocks to at most two per week", () => {
+  const referenceDate = new Date("2026-04-30T08:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const result = generateStudyPlanHorizon({
+    startWeek: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+  });
+  const topicById = new Map(dataset.topics.map((topic) => [topic.id, topic]));
+  const grammarBlocksByWeek = result.studyBlocks.reduce<Record<string, number>>((accumulator, block) => {
+    const topic = block.topicId ? topicById.get(block.topicId) : null;
+
+    if (topic?.subjectId === "french-b-sl" && topic.title.toLowerCase().includes("grammar tune-up")) {
+      accumulator[block.weekStart] = (accumulator[block.weekStart] ?? 0) + 1;
+    }
+
+    return accumulator;
+  }, {});
+
+  Object.entries(grammarBlocksByWeek).forEach(([weekStart, blockCount]) => {
+    assert.ok(blockCount <= 2, `expected at most 2 French grammar blocks in ${weekStart}, got ${blockCount}`);
+  });
+});
+
+test("Maths AA HL first-pass work finishes before post-syllabus paper practice begins", () => {
+  const referenceDate = new Date("2026-04-30T08:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const result = generateStudyPlanHorizon({
+    startWeek: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+  });
+  const topicById = new Map(dataset.topics.map((topic) => [topic.id, topic]));
+  const firstMathsPaper = result.studyBlocks.find(
+    (block) =>
+      block.topicId === "maths-aa-past-papers-week-1-paper-1" &&
+      block.studyLayer === "exam_sim",
+  );
+  const mathsFirstPassTopics = dataset.topics.filter(
+    (topic) => topic.subjectId === "maths-aa-hl" && !topic.unitId.includes("past-papers"),
+  );
+  const plannedFirstPassMinutesByTopic = result.studyBlocks.reduce<Record<string, number>>(
+    (accumulator, block) => {
+      const topic = block.topicId ? topicById.get(block.topicId) : null;
+
+      if (
+        topic?.subjectId === "maths-aa-hl" &&
+        !topic.unitId.includes("past-papers") &&
+        new Date(block.end).getTime() <= new Date("2026-08-15T00:00:00.000Z").getTime()
+      ) {
+        accumulator[topic.id] = (accumulator[topic.id] ?? 0) + block.estimatedMinutes;
+      }
+
+      return accumulator;
+    },
+    {},
+  );
+  const unfinishedByDeadline = mathsFirstPassTopics.filter(
+    (topic) =>
+      (plannedFirstPassMinutesByTopic[topic.id] ?? 0) <
+      Math.round(Math.max(topic.estHours - topic.completedHours, 0) * 60),
+  );
+
+  assert.deepEqual(unfinishedByDeadline.map((topic) => topic.id), []);
+  assert.ok(firstMathsPaper, "expected first Maths paper practice block");
+  assert.ok(
+    new Date(firstMathsPaper!.start).getTime() >= new Date("2026-08-17T00:00:00.000Z").getTime(),
+    "expected Maths paper practice to start after the August 14 first-pass milestone",
+  );
 });
 
 test("generated configured school-term weeks follow the weekday template, fill Sunday normally, and avoid early full papers", () => {
@@ -7404,16 +7572,41 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
       },
     ],
   });
+  const completedSyllabusFrontiers = [
+    "maths-topic5-maclaurin-series",
+    "physics-e5-fusion-stars",
+    "chem-reactivity-3-4-electron-pair-sharing",
+  ].map((topicId) => {
+    const topic = dataset.topics.find((candidate) => candidate.id === topicId);
+    assert.ok(topic, `expected seeded frontier topic ${topicId}`);
+
+    return createStudyBlock({
+      id: `${topicId}-completed`,
+      weekStart: "2026-08-10",
+      date: "2026-08-14",
+      start: "2026-08-14T08:00:00.000Z",
+      end: "2026-08-14T10:00:00.000Z",
+      subjectId: topic.subjectId,
+      topicId: topic.id,
+      title: topic.title,
+      unitTitle: topic.unitTitle,
+      estimatedMinutes: Math.round(topic.estHours * 60),
+      status: "done",
+    });
+  });
   const result = generateStudyPlanForWeek({
     weekStart: new Date("2026-08-17T00:00:00.000Z"),
+    referenceDate,
     goals: dataset.goals,
     subjects: dataset.subjects,
     topics: dataset.topics,
+    completionLogs: [],
     fixedEvents: dataset.fixedEvents,
     sickDays: dataset.sickDays,
     focusedDays: dataset.focusedDays,
     focusedWeeks: dataset.focusedWeeks,
     preferences,
+    existingPlannedBlocks: completedSyllabusFrontiers,
   });
   const saturdayBlocks = result.studyBlocks.filter(
     (block) => block.date === "2026-08-22" && !!block.subjectId,

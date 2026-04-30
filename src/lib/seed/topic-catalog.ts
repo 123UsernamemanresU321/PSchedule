@@ -67,6 +67,12 @@ const subjectGuideLabels: Partial<Record<SubjectId, string>> = {
   "chemistry-hl": "Chemistry Guide 2025",
 };
 
+const firstPassFrontierTopicIds: Partial<Record<SubjectId, string>> = {
+  "maths-aa-hl": "maths-topic5-maclaurin-series",
+  "physics-hl": "physics-e5-fusion-stars",
+  "chemistry-hl": "chem-reactivity-3-4-electron-pair-sharing",
+};
+
 // The guides expose broad official teaching-hour totals. For self-study planning,
 // keep the seeded section proportions and scale them to the chosen target totals.
 const physicsHlOnlyTopicIds = new Set([
@@ -416,6 +422,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
           "Log the recurring mistakes before the paired correction block.",
         ],
         availableFrom: week.availableFrom,
+        dependsOnTopicId: firstPassFrontierTopicIds[cycleEntry.subjectId] ?? null,
         sessionMode: "exam",
         exactSessionMinutes: cycleEntry.durationMinutes,
         estHours: cycleEntry.durationMinutes / 60,
