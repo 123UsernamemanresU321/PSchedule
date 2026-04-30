@@ -41,6 +41,7 @@ const PREFERENCE_DEFAULTS_VERSION = "2026-04-29-tight-packing-no-breaks-v3";
 const EXTENDED_GOALS_VERSION = "2026-04-30-paper-frontiers-v9";
 const LANGUAGE_MAINTENANCE_VERSION = "2026-04-30-french-grammar-cap-v3";
 const SEED_TOPIC_ORDERING_VERSION = "2026-04-30-paper-frontiers-v6";
+const STALE_PLANNING_MODEL_VERSION = "stale";
 const LEGACY_OLYMPIAD_DEFAULT_PRIORITY = 0.85;
 const LEGACY_CPP_BOOK_DEFAULT_PRIORITY = 0.45;
 const MIN_HEALTHY_SCHEDULED_COVERAGE_RATIO = 0.999;
@@ -1208,7 +1209,7 @@ async function migrateCppBookGoal(snapshot: PlannerSnapshot, referenceDate: Date
 
   await db.transaction(
     "rw",
-    [db.subjects, db.goals, db.topics, db.preferences],
+    [db.subjects, db.goals, db.topics, db.preferences, db.meta],
     async () => {
       if (!hasSubject) {
         await db.subjects.put(seededSubject);
@@ -1223,11 +1224,11 @@ async function migrateCppBookGoal(snapshot: PlannerSnapshot, referenceDate: Date
       }
 
       await db.preferences.put(normalizePreferences(snapshot.preferences));
+      await db.meta.put({ key: "planning-model-version", value: STALE_PLANNING_MODEL_VERSION });
     },
   );
 
-  const migratedSnapshot = await loadPlannerSnapshot();
-  return refreshPlanningModel(migratedSnapshot, referenceDate);
+  return loadPlannerSnapshot();
 }
 
 function mergeSeedTopicProgress<T extends PlannerSnapshot["topics"][number]>(
@@ -1597,6 +1598,7 @@ export async function syncOlympiadRoadmapToSeed(snapshot: PlannerSnapshot, refer
         .delete();
     }
     await db.meta.put({ key: "olympiad-roadmap-version", value: OLYMPIAD_ROADMAP_VERSION });
+    await db.meta.put({ key: "planning-model-version", value: STALE_PLANNING_MODEL_VERSION });
   });
 
   return loadPlannerSnapshot();
@@ -1608,7 +1610,7 @@ async function migrateOlympiadRoadmap(snapshot: PlannerSnapshot, referenceDate: 
     return snapshot;
   }
   const migratedSnapshot = await syncOlympiadRoadmapToSeed(snapshot, referenceDate);
-  return refreshPlanningModel(migratedSnapshot, referenceDate);
+  return migratedSnapshot;
 }
 
 async function syncExtendedGoalSubjects(snapshot: PlannerSnapshot, referenceDate: Date) {
@@ -1664,10 +1666,10 @@ async function syncExtendedGoalSubjects(snapshot: PlannerSnapshot, referenceDate
     }
 
     await db.meta.put({ key: "extended-goals-version", value: EXTENDED_GOALS_VERSION });
+    await db.meta.put({ key: "planning-model-version", value: STALE_PLANNING_MODEL_VERSION });
   });
 
-  const migratedSnapshot = await loadPlannerSnapshot();
-  return refreshPlanningModel(migratedSnapshot, referenceDate);
+  return loadPlannerSnapshot();
 }
 
 async function syncLanguageMaintenanceSubjects(snapshot: PlannerSnapshot, referenceDate: Date) {
@@ -1715,10 +1717,10 @@ async function syncLanguageMaintenanceSubjects(snapshot: PlannerSnapshot, refere
       key: "language-maintenance-version",
       value: LANGUAGE_MAINTENANCE_VERSION,
     });
+    await db.meta.put({ key: "planning-model-version", value: STALE_PLANNING_MODEL_VERSION });
   });
 
-  const migratedSnapshot = await loadPlannerSnapshot();
-  return refreshPlanningModel(migratedSnapshot, referenceDate);
+  return loadPlannerSnapshot();
 }
 
 async function syncSeedOrderedSubjects(snapshot: PlannerSnapshot, referenceDate: Date) {
@@ -1766,10 +1768,10 @@ async function syncSeedOrderedSubjects(snapshot: PlannerSnapshot, referenceDate:
       key: "seed-topic-ordering-version",
       value: SEED_TOPIC_ORDERING_VERSION,
     });
+    await db.meta.put({ key: "planning-model-version", value: STALE_PLANNING_MODEL_VERSION });
   });
 
-  const migratedSnapshot = await loadPlannerSnapshot();
-  return refreshPlanningModel(migratedSnapshot, referenceDate);
+  return loadPlannerSnapshot();
 }
 
 async function writeSeedDataset(seed: SeedDataset) {
@@ -1989,7 +1991,11 @@ export async function replacePlanningHorizon(
     db.studyBlocks,
     db.weeklyPlans,
     async () => {
-      await db.studyBlocks
+      const existingHorizonBlocks = await db.studyBlocks
+        .where("weekStart")
+        .aboveOrEqual(horizonStartWeek)
+        .toArray();
+      const deletableBlockIds = existingHorizonBlocks
         .filter(
           (block) =>
             new Date(block.start).getTime() >= horizonStartDate.getTime() &&
@@ -2003,7 +2009,11 @@ export async function replacePlanningHorizon(
                   })
             ),
         )
-        .delete();
+        .map((block) => block.id);
+
+      if (deletableBlockIds.length) {
+        await db.studyBlocks.bulkDelete(deletableBlockIds);
+      }
       await db.weeklyPlans
         .where("weekStart")
         .aboveOrEqual(horizonStartWeek)
