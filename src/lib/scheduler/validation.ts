@@ -44,7 +44,10 @@ export function validateGeneratedHorizon(options: {
   const weeklyPlanByWeekStart = new Map(
     options.weeklyPlans.map((weeklyPlan) => [weeklyPlan.weekStart, weeklyPlan]),
   );
-  const blocksByDate = options.studyBlocks.reduce<Record<string, StudyBlock[]>>((accumulator, block) => {
+  const blocksToValidateForOverlap = referenceDate
+    ? options.studyBlocks.filter((block) => new Date(block.end).getTime() > referenceDate.getTime())
+    : options.studyBlocks;
+  const blocksByDate = blocksToValidateForOverlap.reduce<Record<string, StudyBlock[]>>((accumulator, block) => {
     const current = accumulator[block.date] ?? [];
     current.push(block);
     accumulator[block.date] = current;

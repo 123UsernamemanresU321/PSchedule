@@ -3879,6 +3879,40 @@ test("validation flags study blocks that overlap fixed events or planner-control
   );
 });
 
+test("validation ignores historical study-block overlaps before the repair reference time", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const historicalDay = new Date("2026-03-20T00:00:00");
+  const pastOverlapA = createStudyBlock({
+    id: "past-overlap-a",
+    weekStart: "2026-03-16",
+    date: "2026-03-20",
+    start: createDateAtTime(historicalDay, "10:00").toISOString(),
+    end: createDateAtTime(historicalDay, "11:00").toISOString(),
+  });
+  const pastOverlapB = createStudyBlock({
+    id: "past-overlap-b",
+    weekStart: "2026-03-16",
+    date: "2026-03-20",
+    start: createDateAtTime(historicalDay, "10:30").toISOString(),
+    end: createDateAtTime(historicalDay, "11:30").toISOString(),
+  });
+  const issues = validateGeneratedHorizon({
+    studyBlocks: [pastOverlapA, pastOverlapB],
+    topics: dataset.topics,
+    weeklyPlans: [createWeeklyPlan({ weekStart: "2026-03-16" })],
+    fixedEvents: dataset.fixedEvents,
+    preferences: dataset.preferences,
+    sickDays: dataset.sickDays,
+    referenceDate,
+  });
+
+  assert.deepEqual(
+    issues.filter((issue) => issue.code === "overlap"),
+    [],
+  );
+});
+
 test("collapsed coverage repair state also flags illegal future overlaps", () => {
   const referenceDate = new Date("2026-03-23T08:00:00");
   const dataset = buildSeedDataset(referenceDate);
@@ -7110,6 +7144,35 @@ test("dinner still blocks study slots even in skip movable recovery passes", () 
     slots[1]?.end.toISOString(),
     createDateAtTime(fromDateKey("2026-03-24"), "21:30").toISOString(),
   );
+});
+
+test("movable dinner compaction does not mutate the fixed lunch recovery window", () => {
+  const preferences = buildSeedPreferences();
+  const weekStart = new Date("2026-04-27T00:00:00");
+  const day = new Date("2026-05-01T00:00:00");
+  const studyBlocks = [
+    createStudyBlock({
+      id: "afternoon-study",
+      weekStart: "2026-04-27",
+      date: "2026-05-01",
+      start: createDateAtTime(day, "13:30").toISOString(),
+      end: createDateAtTime(day, "17:30").toISOString(),
+    }),
+  ];
+
+  const recoveryWindows = expandLockedRecoveryWindowsForWeek(
+    weekStart,
+    preferences,
+    [],
+    [],
+    studyBlocks,
+  );
+  const lunch = recoveryWindows.find(
+    (window) => window.dateKey === "2026-05-01" && window.label === "Lunch break",
+  );
+
+  assert.equal(lunch?.start, createDateAtTime(day, "12:00").toISOString());
+  assert.equal(lunch?.end, createDateAtTime(day, "13:30").toISOString());
 });
 
 test("fixed events do not carve out an extra pre-event buffer from the free slots", () => {

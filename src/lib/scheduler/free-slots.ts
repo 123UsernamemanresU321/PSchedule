@@ -72,8 +72,10 @@ function mergeIntervals(intervals: TimeInterval[]) {
     return [];
   }
 
-  const sorted = [...intervals].sort((left, right) => left.start.getTime() - right.start.getTime());
-  const merged: TimeInterval[] = [sorted[0]];
+  const sorted = intervals
+    .map((interval) => ({ start: new Date(interval.start), end: new Date(interval.end) }))
+    .sort((left, right) => left.start.getTime() - right.start.getTime());
+  const merged: TimeInterval[] = [{ ...sorted[0] }];
 
   sorted.slice(1).forEach((interval) => {
     const current = merged[merged.length - 1];
