@@ -141,7 +141,7 @@ function buildExtraRecurringFixedEvents(count: number) {
     daysOfWeek: [1],
     repeatUntil: "2027-06-30",
     flexibility: "fixed" as const,
-    category: "other" as const,
+    category: "activity" as const,
     notes: "",
   }));
 }
