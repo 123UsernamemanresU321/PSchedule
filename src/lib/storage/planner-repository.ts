@@ -33,14 +33,14 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-04-30-olympiad-french-maths-v57";
+const PLANNING_MODEL_VERSION = "2026-05-01-maths-aug31-french-commitments-v58";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-30-olympiad-final-june-v12";
-const PREFERENCE_DEFAULTS_VERSION = "2026-04-29-tight-packing-no-breaks-v3";
+const PREFERENCE_DEFAULTS_VERSION = "2026-05-01-french-tune-up-commitments-v4";
 const EXTENDED_GOALS_VERSION = "2026-04-30-paper-frontiers-v9";
-const LANGUAGE_MAINTENANCE_VERSION = "2026-04-30-french-grammar-cap-v3";
-const SEED_TOPIC_ORDERING_VERSION = "2026-04-30-paper-frontiers-v6";
+const LANGUAGE_MAINTENANCE_VERSION = "2026-05-01-french-commitment-maintenance-v4";
+const SEED_TOPIC_ORDERING_VERSION = "2026-05-01-maths-aug31-paper-frontiers-v7";
 const STALE_PLANNING_MODEL_VERSION = "stale";
 const AUTO_MARKED_MISSED_NOTE_PREFIX = "Auto-marked missed after the block ended";
 const LAST_HORIZON_GENERATED_AT_META_KEY = "last-horizon-generated-at";
@@ -975,6 +975,26 @@ export function getCollapsedCoverageRepairState(
   };
 }
 
+function buildCollapsedCoverageStatusMessage(
+  repairState: ReturnType<typeof getCollapsedCoverageRepairState>,
+) {
+  const details = [
+    repairState.hardConstraintSubjectIds.length
+      ? `unscheduled core subjects: ${repairState.hardConstraintSubjectIds.join(", ")}`
+      : null,
+    repairState.futureFillableGap.hasGap
+      ? `fillable gap on ${repairState.futureFillableGap.dateKey} (${repairState.futureFillableGap.openMinutes} min)`
+      : null,
+    repairState.invalidOverlapIssues.length
+      ? `${repairState.invalidOverlapIssues.length} overlap validation issue(s)`
+      : null,
+  ].filter((detail): detail is string => !!detail);
+
+  return details.length
+    ? `Regeneration needs attention: ${details.join("; ")}. Adjust availability or click Regenerate again after fixing the cause.`
+    : "Regeneration could not produce a valid complete horizon. Check planner diagnostics and try again.";
+}
+
 export function buildCollapsedCoverageRepairBaselineStudyBlocks(
   studyBlocks: StudyBlock[],
   referenceDate = new Date(),
@@ -1125,11 +1145,10 @@ export async function regeneratePlanningHorizon(referenceDate = new Date()) {
   });
 
   const finalSnapshot = await loadPlannerSnapshot();
-  if (getCollapsedCoverageRepairState(finalSnapshot, referenceDate).hasCollapsedCoverage) {
-    await markPlanningHorizonStale(
-      "Regeneration could not produce a valid complete horizon. Check planner diagnostics and try again.",
-    );
-    throw new Error("Regeneration could not produce a valid complete horizon.");
+  const finalRepairState = getCollapsedCoverageRepairState(finalSnapshot, referenceDate);
+  if (finalRepairState.hasCollapsedCoverage) {
+    await markPlanningHorizonStale(buildCollapsedCoverageStatusMessage(finalRepairState));
+    return loadPlannerSnapshot();
   }
 
   await markPlanningHorizonReady(referenceDate);

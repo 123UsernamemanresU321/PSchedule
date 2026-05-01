@@ -21,6 +21,9 @@ export const zeroUnscheduledCoverageSubjectIds = visibleCoreSubjectIds;
 
 export const softMaintenanceSubjectIds = ["french-b-sl"] as const;
 
+export const FRENCH_TUNE_UP_RULE_ID = "french-tune-up";
+export const FRENCH_TUNE_UP_WEEKLY_SESSION_COUNT = 2;
+
 export const mainSubjectIds = visibleCoreSubjectIds;
 
 export const hardScopeSubjectIds = zeroUnscheduledCoverageSubjectIds;

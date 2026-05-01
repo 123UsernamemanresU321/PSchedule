@@ -1,4 +1,4 @@
-import { subjectPrioritySeed } from "@/lib/constants/planner";
+import { FRENCH_TUNE_UP_RULE_ID, subjectPrioritySeed } from "@/lib/constants/planner";
 import type { Preferences } from "@/lib/types/planner";
 
 export function buildSeedPreferences(): Preferences {
@@ -68,6 +68,15 @@ export function buildSeedPreferences(): Preferences {
         days: [0, 1, 2, 3, 4, 5],
         appliesDuring: "school-term",
         preferredStart: "16:00",
+        timeOverrides: {},
+      },
+      {
+        id: FRENCH_TUNE_UP_RULE_ID,
+        label: "French tune-up",
+        durationMinutes: 30,
+        days: [1, 4],
+        appliesDuring: "all",
+        preferredStart: "17:30",
         timeOverrides: {},
       },
     ],

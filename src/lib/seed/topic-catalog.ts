@@ -258,9 +258,9 @@ function annotateAndRetuneGuideMetadata(blueprints: SeedTopicBlueprint[]) {
     };
   });
 }
-function buildRotatingPaperCycleWeeks() {
+function buildRotatingPaperCycleWeeks(startDate = "2026-08-17") {
   const weeks: Array<{ label: string; availableFrom: string }> = [];
-  let cursor = new Date("2026-08-17T00:00:00");
+  let cursor = new Date(`${startDate}T00:00:00`);
   const end = new Date("2027-06-28T00:00:00");
   let index = 1;
 
@@ -275,8 +275,6 @@ function buildRotatingPaperCycleWeeks() {
 
   return weeks;
 }
-
-const rotatingPaperCycleWeeks = buildRotatingPaperCycleWeeks();
 
 function buildFrenchMaintenanceBlueprints(): SeedTopicBlueprint[] {
   const sessions: SeedTopicBlueprint[] = [];
@@ -376,6 +374,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
       reviewBlockTypes: ["standard_focus", "review"] as BlockType[],
       sourceLabel: "Maths AA HL past paper set",
       reviewSourceLabel: "Maths AA HL past paper review",
+      firstAvailableFrom: "2026-08-31",
     },
     {
       subjectId: "physics-hl" as const,
@@ -389,6 +388,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
       reviewBlockTypes: ["deep_work", "standard_focus"] as BlockType[],
       sourceLabel: "Physics HL past paper set",
       reviewSourceLabel: "Physics HL past paper review",
+      firstAvailableFrom: "2026-08-17",
     },
     {
       subjectId: "chemistry-hl" as const,
@@ -402,10 +402,11 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
       reviewBlockTypes: ["deep_work", "standard_focus"] as BlockType[],
       sourceLabel: "Chemistry HL past paper set",
       reviewSourceLabel: "Chemistry HL past paper review",
+      firstAvailableFrom: "2026-08-17",
     },
   ] as const;
 
-  return rotatingPaperCycleWeeks.flatMap((week, index) => cycle.flatMap((cycleEntry) => {
+  return cycle.flatMap((cycleEntry) => buildRotatingPaperCycleWeeks(cycleEntry.firstAvailableFrom).flatMap((week, index) => {
     const weekNumber = index + 1;
     const practiceTopicId = `${cycleEntry.unitIdPrefix}-week-${weekNumber}-${cycleEntry.paperIdSuffix}`;
 

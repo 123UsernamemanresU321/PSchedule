@@ -125,7 +125,7 @@ export function buildSeedSubjects(referenceDate = new Date()): Subject[] {
       category: "french",
       description: "Light twice-weekly maintenance: small grammar and vocabulary tune-ups instead of full theme study.",
       defaultPriority: subjectPrioritySeed["french-b-sl"],
-      weeklyMinimumHours: 1,
+      weeklyMinimumHours: 0,
       examMode: "maintenance",
       colorToken: "subject-french",
       gradientClassName: "from-subject-french/25 via-subject-french/10 to-transparent",
@@ -149,6 +149,7 @@ export function buildSeedSubjects(referenceDate = new Date()): Subject[] {
 
 export function buildSeedGoals(referenceDate = new Date()): Goal[] {
   const firstSchoolMilestoneDeadline = `${referenceDate.getFullYear()}-08-14`;
+  const mathsFirstSchoolMilestoneDeadline = `${referenceDate.getFullYear()}-08-31`;
   const olympiadPhaseOneDeadline = `${referenceDate.getFullYear()}-07-31`;
   const olympiadPhaseTwoDeadline = `${referenceDate.getFullYear()}-09-30`;
   const olympiadCampDeadline = `${referenceDate.getFullYear()}-11-30`;
@@ -180,9 +181,9 @@ export function buildSeedGoals(referenceDate = new Date()): Goal[] {
     },
     {
       id: "goal-maths-aa-hl",
-      title: `Finish the full Maths AA HL syllabus, including HL extension, by ${firstSchoolMilestoneDeadline}`,
+      title: `Finish the full Maths AA HL syllabus, including HL extension, by ${mathsFirstSchoolMilestoneDeadline}`,
       subjectId: "maths-aa-hl",
-      deadline: firstSchoolMilestoneDeadline,
+      deadline: mathsFirstSchoolMilestoneDeadline,
       targetCompletion: mathsSyllabusTargetCompletion,
       priorityWeight: 1,
     },

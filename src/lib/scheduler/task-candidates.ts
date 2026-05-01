@@ -1,6 +1,6 @@
 import { addDays } from "date-fns";
 
-import { endOfPlannerWeek, fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
+import { endOfPlannerWeek, fromDateKey } from "@/lib/dates/helpers";
 import {
   getOlympiadNumberTheoryEligibilityStatus,
   getOlympiadStageGateStatus,
@@ -119,28 +119,8 @@ function isSchedulableCoverageStatus(status: StudyBlock["status"]) {
   );
 }
 
-function isFrenchGrammarTuneUpTopic(topic: Pick<Topic, "subjectId" | "title">) {
-  return topic.subjectId === "french-b-sl" && topic.title.toLowerCase().includes("grammar tune-up");
-}
-
-function getScheduledFrenchGrammarTuneUpSessionCountForWeek(options: {
-  existingPlannedBlocks: StudyBlock[];
-  topicById: Map<string, Topic>;
-  weekStartKey: string;
-}) {
-  return options.existingPlannedBlocks
-    .filter((block) => !!block.topicId && isSchedulableCoverageStatus(block.status))
-    .filter((block) => {
-      if (block.weekStart === options.weekStartKey) {
-        return true;
-      }
-
-      return toDateKey(startOfPlannerWeek(new Date(block.start))) === options.weekStartKey;
-    })
-    .filter((block) => {
-      const topic = options.topicById.get(block.topicId!);
-      return !!topic && isFrenchGrammarTuneUpTopic(topic);
-    }).length;
+function isFrenchMaintenanceTopic(topic: Pick<Topic, "subjectId">) {
+  return topic.subjectId === "french-b-sl";
 }
 
 function getTaskStudyLayer(options: {
@@ -631,13 +611,6 @@ export function buildTaskCandidates(options: {
     hasCompletedOlympiadAttempt,
   } = existingBlockState;
   const topicById = new Map(topics.map((topic) => [topic.id, topic]));
-  const plannerWeekStartKey = toDateKey(startOfPlannerWeek(referenceDate));
-  const scheduledFrenchGrammarTuneUpSessionCount =
-    getScheduledFrenchGrammarTuneUpSessionCountForWeek({
-      existingPlannedBlocks,
-      topicById,
-      weekStartKey: plannerWeekStartKey,
-    });
   const availabilityOverrideSubjectIdSet = new Set(availabilityOverrideSubjectIds);
   const topicIdsWithStudyHistory = getTopicIdsWithStudyHistory(
     topics,
@@ -650,10 +623,7 @@ export function buildTaskCandidates(options: {
     ReturnType<typeof resolveTopicTimingWindow>
   >();
   const activeTopicsBySubject = topics.reduce<Record<string, Topic[]>>((accumulator, topic) => {
-    if (
-      isFrenchGrammarTuneUpTopic(topic) &&
-      scheduledFrenchGrammarTuneUpSessionCount >= 2
-    ) {
+    if (isFrenchMaintenanceTopic(topic)) {
       return accumulator;
     }
 
@@ -713,10 +683,7 @@ export function buildTaskCandidates(options: {
   );
 
   const topicCandidates = topics.flatMap<TaskCandidate>((topic) => {
-    if (
-      isFrenchGrammarTuneUpTopic(topic) &&
-      scheduledFrenchGrammarTuneUpSessionCount >= 2
-    ) {
+    if (isFrenchMaintenanceTopic(topic)) {
       return [];
     }
 

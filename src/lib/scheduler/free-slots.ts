@@ -2,6 +2,10 @@ import { addDays, addMinutes, differenceInCalendarDays, startOfDay } from "date-
 
 import { classifySlotEnergy } from "@/lib/scheduler/slot-classifier";
 import {
+  FRENCH_TUNE_UP_RULE_ID,
+  FRENCH_TUNE_UP_WEEKLY_SESSION_COUNT,
+} from "@/lib/constants/planner";
+import {
   getActiveSickDaySeverity,
   getReservedCommitmentDurationForDate,
   getSickDayEffectProfile,
@@ -280,6 +284,14 @@ function buildSickDayCacheKey(sickDays: SickDay[] = []) {
     .map((sickDay) => `${sickDay.id}:${sickDay.startDate}:${sickDay.endDate}:${sickDay.severity}`)
     .sort()
     .join("|");
+}
+
+function normalizeRuleDays(days: number[], fallbackDays: number[]) {
+  const normalizedDays = Array.from(
+    new Set(days.filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)),
+  ).sort((left, right) => left - right);
+
+  return normalizedDays.length ? normalizedDays : fallbackDays;
 }
 
 function getFixedEventIntervalsByDateForWeek(options: {
@@ -698,6 +710,170 @@ function buildReservedCommitmentCacheKey(options: {
   ].join("::");
 }
 
+function getWeeklyCommitmentDayOrder(weekStart: Date, preferredDays: number[]) {
+  const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+  const preferredDaySet = new Set(preferredDays);
+  return [
+    ...days.filter((day) => preferredDaySet.has(day.getDay())),
+    ...days.filter((day) => !preferredDaySet.has(day.getDay())),
+  ];
+}
+
+function getUninterruptedPlacementCandidates(options: {
+  day: Date;
+  durationMinutes: number;
+  preferredStart: string;
+  busyIntervals: TimeInterval[];
+  preferences: Preferences;
+  sickDays: SickDay[];
+  planningStart?: Date;
+}) {
+  const scheduleProfile = resolveDailyScheduleProfile(
+    options.day,
+    options.preferences,
+    options.sickDays,
+  );
+
+  if (!scheduleProfile.isStudyEnabled) {
+    return [];
+  }
+
+  const plannerWindow = createInterval(
+    createDateAtTime(options.day, scheduleProfile.dailyStudyWindow.start),
+    createDateAtTime(options.day, scheduleProfile.dailyStudyWindow.end),
+  );
+
+  if (options.planningStart && plannerWindow.end <= options.planningStart) {
+    return [];
+  }
+
+  if (
+    options.planningStart &&
+    plannerWindow.start < options.planningStart &&
+    plannerWindow.end > options.planningStart
+  ) {
+    plannerWindow.start = options.planningStart;
+  }
+
+  const preferredStart = createDateAtTime(options.day, options.preferredStart);
+  return subtractIntervals(plannerWindow, mergeIntervals(options.busyIntervals))
+    .filter((segment) => minutesBetween(segment.start, segment.end) >= options.durationMinutes)
+    .map((segment) => {
+      const latestStart = addMinutes(segment.end, -options.durationMinutes);
+      const start =
+        preferredStart < segment.start
+          ? segment.start
+          : preferredStart > latestStart
+            ? latestStart
+            : preferredStart;
+      const end = addMinutes(start, options.durationMinutes);
+
+      return {
+        start,
+        end,
+        distanceFromPreferredMinutes: Math.abs(minutesBetween(preferredStart, start)),
+      };
+    });
+}
+
+function placeFrenchTuneUpCommitmentsForWeek(options: {
+  weekStart: Date;
+  rule: Preferences["reservedCommitmentRules"][number];
+  fixedEvents: FixedEvent[];
+  preferences: Preferences;
+  sickDays: SickDay[];
+  ordinaryCommitments: ReservedCommitmentOccurrence[];
+  planningStart?: Date;
+  fixedEventIntervalsByDate: Map<string, TimeInterval[]>;
+}) {
+  const placed: ReservedCommitmentOccurrence[] = [];
+  const preferredDays = normalizeRuleDays(options.rule.days, [1, 4]);
+  const days = getWeeklyCommitmentDayOrder(options.weekStart, preferredDays);
+
+  for (let sessionIndex = 0; sessionIndex < FRENCH_TUNE_UP_WEEKLY_SESSION_COUNT; sessionIndex += 1) {
+    const usedDateKeys = new Set(placed.map((commitment) => commitment.dateKey));
+    const candidates = days.flatMap((day, dayOrder) => {
+      const dateKey = toDateKey(day);
+      const activeSickDaySeverity = getActiveSickDaySeverity(day, options.sickDays);
+      const durationMinutes = getReservedCommitmentDurationForDate(
+        options.rule,
+        dateKey,
+        activeSickDaySeverity ? getSickDayEffectProfile(activeSickDaySeverity) : null,
+      );
+
+      if (durationMinutes <= 0) {
+        return [];
+      }
+
+      const eventIntervals = options.fixedEventIntervalsByDate.get(dateKey) ?? [];
+      const ordinaryCommitmentIntervals = buildReservedCommitmentIntervals(
+        day,
+        options.ordinaryCommitments,
+      );
+      const placedIntervals = buildReservedCommitmentIntervals(day, placed);
+      const recoveryIntervals = resolveRecoveryWindowsForDay({
+        day,
+        fixedEvents: options.fixedEvents,
+        preferences: options.preferences,
+        sickDays: options.sickDays,
+        blockedReservedCommitments: [
+          ...options.ordinaryCommitments,
+          ...placed,
+        ],
+        skipMovableRecovery: false,
+        eventIntervals,
+      }).map((window) => createInterval(window.start, window.end));
+      const dateOverrideStart = options.rule.timeOverrides?.[dateKey]?.start;
+      const preferredStart = dateOverrideStart ?? options.rule.preferredStart;
+
+      return getUninterruptedPlacementCandidates({
+        day,
+        durationMinutes,
+        preferredStart,
+        busyIntervals: [
+          ...eventIntervals,
+          ...ordinaryCommitmentIntervals,
+          ...placedIntervals,
+          ...recoveryIntervals,
+        ],
+        preferences: options.preferences,
+        sickDays: options.sickDays,
+        planningStart: options.planningStart,
+      }).map((candidate) => ({
+        ...candidate,
+        dateKey,
+        durationMinutes,
+        dayOrder,
+        repeatedDatePenalty: usedDateKeys.has(dateKey) ? 10000 : 0,
+      }));
+    });
+
+    const bestCandidate = candidates.sort(
+      (left, right) =>
+        left.repeatedDatePenalty - right.repeatedDatePenalty ||
+        left.dayOrder - right.dayOrder ||
+        left.distanceFromPreferredMinutes - right.distanceFromPreferredMinutes ||
+        left.start.getTime() - right.start.getTime(),
+    )[0];
+
+    if (!bestCandidate) {
+      break;
+    }
+
+    placed.push({
+      id: `${options.rule.id}:${bestCandidate.dateKey}:${sessionIndex + 1}`,
+      ruleId: options.rule.id,
+      dateKey: bestCandidate.dateKey,
+      title: options.rule.label,
+      start: bestCandidate.start.toISOString(),
+      end: bestCandidate.end.toISOString(),
+      label: options.rule.label,
+    });
+  }
+
+  return placed;
+}
+
 export function expandReservedCommitmentWindowsForWeek(
   weekStart: Date,
   preferences: Preferences,
@@ -727,6 +903,9 @@ export function expandReservedCommitmentWindowsForWeek(
   }
 
   const excludedRuleIdSet = new Set(excludedRuleIds);
+  const frenchTuneUpRule = preferences.reservedCommitmentRules.find(
+    (rule) => rule.id === FRENCH_TUNE_UP_RULE_ID && !excludedRuleIdSet.has(rule.id),
+  );
   const effectiveDurationByKey = buildEffectiveReservedCommitmentDurationMap(
     effectiveReservedCommitmentDurations,
   );
@@ -737,7 +916,7 @@ export function expandReservedCommitmentWindowsForWeek(
     schedulingContext,
   });
 
-  const occurrences = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)).flatMap((day) => {
+  const ordinaryOccurrences = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)).flatMap((day) => {
     const inSchoolTerm = isDateInActiveSchoolTerm(day, preferences);
     const dayFixedEventIntervals = fixedEventIntervalsByDate.get(toDateKey(day)) ?? [];
     const dayRecoveryIntervals = resolveRecoveryWindowsForDay({
@@ -751,6 +930,7 @@ export function expandReservedCommitmentWindowsForWeek(
     }).map((window) => createInterval(window.start, window.end));
     const resolvedIntervals: Array<TimeInterval & { ruleId: string }> = [];
     const prioritizedRules = preferences.reservedCommitmentRules
+      .filter((rule) => rule.id !== FRENCH_TUNE_UP_RULE_ID)
       .map((rule, index) => ({
         rule,
         index,
@@ -834,6 +1014,21 @@ export function expandReservedCommitmentWindowsForWeek(
       }));
     });
   });
+  const frenchTuneUpOccurrences = frenchTuneUpRule
+    ? placeFrenchTuneUpCommitmentsForWeek({
+        weekStart,
+        rule: frenchTuneUpRule,
+        fixedEvents: expandedFixedEvents,
+        preferences,
+        sickDays,
+        ordinaryCommitments: ordinaryOccurrences,
+        planningStart,
+        fixedEventIntervalsByDate,
+      })
+    : [];
+  const occurrences = [...ordinaryOccurrences, ...frenchTuneUpOccurrences].sort(
+    (left, right) => left.start.localeCompare(right.start),
+  );
 
   schedulingContext?.reservedCommitmentWindowsByKey.set(cacheKey, occurrences);
   return occurrences;
