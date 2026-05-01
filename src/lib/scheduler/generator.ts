@@ -34,7 +34,7 @@ import { selectBlockOption } from "@/lib/scheduler/slot-classifier";
 import { buildTaskCandidates } from "@/lib/scheduler/task-candidates";
 import {
   formatHoursFromMinutes,
-  getAcademicDeadline,
+  getPlannerHorizonEndDate,
   getPlannerReferenceDate,
   startOfPlannerWeek,
   toDateKey,
@@ -97,6 +97,42 @@ function getSoftCommitmentFallbackTier(ruleId: string) {
     default:
       return 0;
   }
+}
+
+function getMaximumPlanningHorizonEndWeek(referenceDate: Date) {
+  void referenceDate;
+  return startOfPlannerWeek(getPlannerHorizonEndDate());
+}
+
+function clampPlanningHorizonEndWeek(endWeek: Date, referenceDate: Date) {
+  const maximumEndWeek = getMaximumPlanningHorizonEndWeek(referenceDate);
+  return endWeek.getTime() > maximumEndWeek.getTime() ? maximumEndWeek : endWeek;
+}
+
+function getHorizonEndDateKey(finalWeek: Date, referenceDate: Date) {
+  const maximumEndWeek = getMaximumPlanningHorizonEndWeek(referenceDate);
+  return finalWeek.getTime() >= maximumEndWeek.getTime()
+    ? toDateKey(getPlannerHorizonEndDate())
+    : toDateKey(finalWeek);
+}
+
+function getExtendedPlanningHorizonEndWeek(
+  effectiveEndWeek: Date,
+  referenceDate: Date,
+) {
+  return clampPlanningHorizonEndWeek(addDays(effectiveEndWeek, 7), referenceDate);
+}
+
+function canExtendPlanningHorizon(options: {
+  effectiveEndWeek: Date;
+  referenceDate: Date;
+  extensionWeeksUsed: number;
+}) {
+  return (
+    options.extensionWeeksUsed < MAX_HORIZON_EXTENSION_WEEKS &&
+    options.effectiveEndWeek.getTime() <
+      getMaximumPlanningHorizonEndWeek(options.referenceDate).getTime()
+  );
 }
 
 function isMicroGapExtendableBlock(block: StudyBlock | undefined) {
@@ -3428,15 +3464,21 @@ export function generateStudyPlanForWeek(options: {
 }
 
 export function getPlanningHorizonEndWeek(goals: Goal[], subjects: Subject[], referenceDate: Date) {
+  void referenceDate;
+  const maximumHorizonEndDate = getPlannerHorizonEndDate();
   const latestConfiguredDeadline = [...goals.map((goal) => goal.deadline), ...subjects.map((subject) => subject.deadline)]
     .map((value) => new Date(value))
     .filter((date) => !Number.isNaN(date.getTime()))
     .reduce(
       (latest, candidate) => (isAfter(candidate, latest) ? candidate : latest),
-      getAcademicDeadline(referenceDate),
+      maximumHorizonEndDate,
     );
 
-  return startOfPlannerWeek(latestConfiguredDeadline);
+  return startOfPlannerWeek(
+    isAfter(latestConfiguredDeadline, maximumHorizonEndDate)
+      ? maximumHorizonEndDate
+      : latestConfiguredDeadline,
+  );
 }
 
 export function shouldAlwaysPreserveStudyBlockOnRegeneration(block: StudyBlock) {
@@ -3500,9 +3542,12 @@ export function generateStudyPlanHorizon(options: {
   const referenceDate = options.referenceDate ?? new Date();
   const schedulingContext = createSchedulingRunContext();
   const horizonStartDate = referenceDate;
-  const configuredEndWeek = options.endWeek
-    ? startOfPlannerWeek(options.endWeek)
-    : getPlanningHorizonEndWeek(options.goals, options.subjects, referenceDate);
+  const configuredEndWeek = clampPlanningHorizonEndWeek(
+    options.endWeek
+      ? startOfPlannerWeek(options.endWeek)
+      : getPlanningHorizonEndWeek(options.goals, options.subjects, referenceDate),
+    referenceDate,
+  );
   const existingStudyBlocks = options.existingStudyBlocks ?? [];
   const extraPreservedIds = new Set(options.preservedStudyBlockIds ?? []);
   const preservedLockedBlocks = existingStudyBlocks.filter(
@@ -3642,14 +3687,18 @@ export function generateStudyPlanHorizon(options: {
     if (
       currentWeek.getTime() >= effectiveEndWeek.getTime() &&
       remainingTaskCount > 0 &&
-      extensionWeeksUsed < MAX_HORIZON_EXTENSION_WEEKS
+      canExtendPlanningHorizon({
+        effectiveEndWeek,
+        referenceDate,
+        extensionWeeksUsed,
+      })
     ) {
-      effectiveEndWeek = addDays(effectiveEndWeek, 7);
+      effectiveEndWeek = getExtendedPlanningHorizonEndWeek(effectiveEndWeek, referenceDate);
       extensionWeeksUsed += 1;
     }
   }
 
-  const horizonEndDate = toDateKey(finalWeek);
+  const horizonEndDate = getHorizonEndDateKey(finalWeek, referenceDate);
 
   return {
     studyBlocks: horizonStudyBlocks.sort(
@@ -3858,9 +3907,12 @@ export function generateIncrementalStudyPlanTail(options: {
   const referenceDate = options.referenceDate ?? new Date();
   const schedulingContext = createSchedulingRunContext();
   const horizonStartDate = referenceDate;
-  const configuredEndWeek = options.endWeek
-    ? startOfPlannerWeek(options.endWeek)
-    : getPlanningHorizonEndWeek(options.goals, options.subjects, referenceDate);
+  const configuredEndWeek = clampPlanningHorizonEndWeek(
+    options.endWeek
+      ? startOfPlannerWeek(options.endWeek)
+      : getPlanningHorizonEndWeek(options.goals, options.subjects, referenceDate),
+    referenceDate,
+  );
   const extraPreservedIds = new Set(options.preservedStudyBlockIds ?? []);
   const preservedLockedBlocks = options.existingStudyBlocks.filter(
     (block) =>
@@ -4036,9 +4088,13 @@ export function generateIncrementalStudyPlanTail(options: {
     if (
       currentWeek.getTime() >= effectiveEndWeek.getTime() &&
       remainingTaskCount > 0 &&
-      extensionWeeksUsed < MAX_HORIZON_EXTENSION_WEEKS
+      canExtendPlanningHorizon({
+        effectiveEndWeek,
+        referenceDate,
+        extensionWeeksUsed,
+      })
     ) {
-      effectiveEndWeek = addDays(effectiveEndWeek, 7);
+      effectiveEndWeek = getExtendedPlanningHorizonEndWeek(effectiveEndWeek, referenceDate);
       extensionWeeksUsed += 1;
       continue;
     }
@@ -4051,7 +4107,7 @@ export function generateIncrementalStudyPlanTail(options: {
   const horizonEndDate =
     changedWeekStarts.size === 0 || finalWeek.getTime() < configuredEndWeek.getTime()
       ? existingHorizonEndDate
-      : toDateKey(finalWeek);
+      : getHorizonEndDateKey(finalWeek, referenceDate);
   const changedWeekStartList = Array.from(changedWeekStarts).sort((left, right) =>
     left.localeCompare(right),
   );

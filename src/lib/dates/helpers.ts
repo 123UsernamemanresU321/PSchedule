@@ -23,9 +23,15 @@ export function endOfPlannerWeek(referenceDate: Date) {
   return endOfWeek(referenceDate, { weekStartsOn: 1 });
 }
 
+export const PLANNER_HORIZON_END_DATE_KEY = "2027-12-01";
+
+export function getPlannerHorizonEndDate() {
+  return new Date(2027, 11, 1, 23, 59, 59, 999);
+}
+
 export function getAcademicDeadline(referenceDate = new Date()) {
-  const year = referenceDate.getMonth() > 6 ? referenceDate.getFullYear() + 1 : referenceDate.getFullYear();
-  return new Date(year, 6, 31, 23, 59, 59, 999);
+  void referenceDate;
+  return getPlannerHorizonEndDate();
 }
 
 export function toDateKey(date: Date) {

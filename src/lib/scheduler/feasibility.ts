@@ -5,6 +5,7 @@ import {
   displayHoursFromMinutes,
   endOfPlannerWeek,
   getAcademicDeadline,
+  getPlannerHorizonEndDate,
   hoursFromMinutes,
   toDateKey,
 } from "@/lib/dates/helpers";
@@ -78,13 +79,18 @@ function getSortedSubjectGoals(subject: Subject, goals: Goal[]) {
 
 function getLatestPlanningDeadline(goals: Goal[], subjects: Subject[], referenceDate: Date) {
   const academicDeadline = getAcademicDeadline(referenceDate);
-  return [...goals.map((goal) => goal.deadline), ...subjects.map((subject) => subject.deadline)]
+  const latestConfiguredDeadline = [...goals.map((goal) => goal.deadline), ...subjects.map((subject) => subject.deadline)]
     .map((value) => new Date(value))
     .filter((date) => !Number.isNaN(date.getTime()))
     .reduce(
       (latest, candidate) => (candidate.getTime() > latest.getTime() ? candidate : latest),
       academicDeadline,
     );
+  const horizonEndDate = getPlannerHorizonEndDate();
+
+  return latestConfiguredDeadline.getTime() > horizonEndDate.getTime()
+    ? horizonEndDate
+    : latestConfiguredDeadline;
 }
 
 function computePlannedMinutesByTopic(studyBlocks: StudyBlock[] = []) {

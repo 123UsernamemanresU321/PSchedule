@@ -30,6 +30,7 @@ import {
   generateIncrementalStudyPlanTail,
   generateStudyPlanForWeek,
   generateStudyPlanHorizon,
+  getPlanningHorizonEndWeek,
   getInlineBreakMinutes,
   selectEffectiveReservedCommitmentPlanForWeek,
   shouldPreserveStudyBlockOnRegeneration,
@@ -1343,6 +1344,63 @@ test("horizon generation fully places remaining topic hours when future capacity
 
   assert.equal(progress.scheduledFutureHours, 6);
   assert.equal(progress.unscheduledHours, 0);
+});
+
+test("default planning horizon ends in the week containing December 1 2027", () => {
+  const referenceDate = new Date("2026-05-01T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const horizonEndWeek = getPlanningHorizonEndWeek(dataset.goals, dataset.subjects, referenceDate);
+
+  assert.equal(toDateKey(horizonEndWeek), "2027-11-29");
+});
+
+test("horizon generation never extends past December 1 2027", () => {
+  const referenceDate = new Date("2026-05-01T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const physicsSubject = dataset.subjects.find((subject) => subject.id === "physics-hl");
+
+  assert.ok(physicsSubject, "expected seeded physics subject");
+
+  const impossibleTopic: Topic = {
+    ...dataset.topics.find((topic) => topic.id === "physics-a1-kinematics")!,
+    id: "physics-impossible-horizon-cap",
+    title: "Impossible horizon cap workload",
+    unitId: "physics-impossible-horizon-cap",
+    unitTitle: "Impossible horizon cap",
+    estHours: 10000,
+    completedHours: 0,
+    status: "not_started",
+    mastery: 0,
+    dependsOnTopicId: null,
+    availableFrom: null,
+  };
+
+  const result = generateStudyPlanHorizon({
+    startWeek: referenceDate,
+    endWeek: new Date("2027-11-29T00:00:00"),
+    referenceDate,
+    goals: [
+      {
+        id: "physics-impossible-horizon-cap-goal",
+        title: "Impossible horizon cap goal",
+        subjectId: "physics-hl",
+        deadline: "2027-12-01",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [physicsSubject],
+    topics: [impossibleTopic],
+    fixedEvents: [],
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    preferences: dataset.preferences,
+    existingStudyBlocks: [],
+  });
+
+  assert.equal(result.weeklyPlans.at(-1)?.weekStart, "2027-11-29");
+  assert.equal(result.weeklyPlans.at(-1)?.horizonEndDate, "2027-12-01");
 });
 
 test("clean full-horizon seed keeps every hard-scope subject fully scheduled", () => {
