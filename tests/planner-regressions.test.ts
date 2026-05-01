@@ -1912,7 +1912,7 @@ test("horizon generation places olympiad advanced only after the foundation fron
   assert.equal(new Date(advancedBlock.start).getTime() >= lastFoundationEnd, true);
 });
 
-test("seeded horizon keeps olympiad present week to week instead of dropping it for long gaps", () => {
+test("seeded horizon keeps olympiad present until its real content is fully covered", () => {
   const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
   const result = generateStudyPlanHorizon({
     startWeek: new Date("2026-03-20T08:00:00"),
@@ -1946,8 +1946,6 @@ test("seeded horizon keeps olympiad present week to week instead of dropping it 
     "2026-06-01",
     "2026-06-08",
     "2026-06-15",
-    "2026-06-22",
-    "2026-06-29",
   ];
 
   expectedWeeks.forEach((weekStart) => {
@@ -8106,7 +8104,7 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
   );
 });
 
-test("overflow reinforcement caps IB extras and never creates Olympiad or C++ filler", () => {
+test("post-coverage reinforcement can fill all visible core subjects", () => {
   const referenceDate = new Date("2026-09-07T08:00:00.000Z");
   const dataset = buildSeedDataset(referenceDate);
   const preferences = withConfiguredSchoolTerm(dataset.preferences, {
@@ -8135,6 +8133,7 @@ test("overflow reinforcement caps IB extras and never creates Olympiad or C++ fi
     focusedDays: [],
     focusedWeeks: [],
     preferences,
+    allowReinforcement: true,
   });
   const reinforcementBlocks = result.studyBlocks.filter((block) =>
     block.title.includes("reinforcement"),
@@ -8147,11 +8146,176 @@ test("overflow reinforcement caps IB extras and never creates Olympiad or C++ fi
     {},
   );
 
-  assert.ok((reinforcementCountBySubject["maths-aa-hl"] ?? 0) <= 2);
-  assert.ok((reinforcementCountBySubject["physics-hl"] ?? 0) <= 2);
-  assert.ok((reinforcementCountBySubject["chemistry-hl"] ?? 0) <= 2);
-  assert.equal(reinforcementCountBySubject.olympiad ?? 0, 0);
-  assert.equal(reinforcementCountBySubject["cpp-book"] ?? 0, 0);
+  ["maths-aa-hl", "physics-hl", "chemistry-hl", "olympiad", "cpp-book"].forEach((subjectId) => {
+    assert.ok(
+      (reinforcementCountBySubject[subjectId] ?? 0) > 0,
+      `expected post-coverage reinforcement for ${subjectId}`,
+    );
+  });
+});
+
+test("real core work is scheduled before any reinforcement filler", () => {
+  const referenceDate = new Date("2026-04-20T08:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const physicsSubject = dataset.subjects.find((subject) => subject.id === "physics-hl");
+
+  assert.ok(physicsSubject, "expected physics subject");
+
+  const preferences: Preferences = {
+    ...dataset.preferences,
+    reservedCommitmentRules: [],
+    lockedRecoveryWindows: [],
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: false,
+    },
+    holidaySchedule: {
+      ...dataset.preferences.holidaySchedule,
+      enabled: true,
+      dailyStudyWindow: {
+        start: "09:00",
+        end: "12:00",
+      },
+    },
+  };
+  const topic: Topic = {
+    id: "physics-real-before-reinforcement",
+    subjectId: "physics-hl",
+    unitId: "physics-real-before-reinforcement",
+    unitTitle: "Real work before reinforcement",
+    title: "Real physics content",
+    subtopics: ["Real content"],
+    estHours: 18,
+    completedHours: 0,
+    difficulty: 3,
+    status: "not_started",
+    mastery: 1,
+    reviewDue: null,
+    lastStudiedAt: null,
+    sourceMaterials: [],
+    preferredBlockTypes: ["standard_focus", "drill", "review"],
+    order: 1,
+  };
+
+  const result = generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: [
+      {
+        id: "goal-physics-real-before-reinforcement",
+        title: "Finish real physics content",
+        subjectId: "physics-hl",
+        deadline: "2026-05-01",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [physicsSubject],
+    topics: [topic],
+    completionLogs: [],
+    fixedEvents: [],
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    preferences,
+    allowReinforcement: true,
+  });
+
+  assert.equal(
+    result.studyBlocks.some((block) => block.title.includes("reinforcement")),
+    false,
+  );
+  assert.ok(
+    result.studyBlocks.some((block) => block.topicId === topic.id),
+    "expected real content to use available study capacity first",
+  );
+});
+
+test("exact thirty-minute gaps before lunch are allocatable real study slots", () => {
+  const referenceDate = new Date("2026-04-20T08:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const physicsSubject = dataset.subjects.find((subject) => subject.id === "physics-hl");
+
+  assert.ok(physicsSubject, "expected physics subject");
+
+  const preferences: Preferences = {
+    ...dataset.preferences,
+    dailyStudyWindow: {
+      start: "11:30",
+      end: "13:30",
+    },
+    preferredDeepWorkWindows: [],
+    reservedCommitmentRules: [],
+    lockedRecoveryWindows: [
+      {
+        label: "Lunch break",
+        start: "12:00",
+        end: "13:30",
+        days: [0, 1, 2, 3, 4, 5, 6],
+        movable: false,
+      },
+    ],
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: false,
+    },
+    holidaySchedule: {
+      ...dataset.preferences.holidaySchedule,
+      enabled: true,
+      dailyStudyWindow: {
+        start: "11:30",
+        end: "13:30",
+      },
+      preferredDeepWorkWindows: [],
+    },
+  };
+  const topic: Topic = {
+    id: "physics-thirty-minute-lunch-gap",
+    subjectId: "physics-hl",
+    unitId: "physics-thirty-minute-lunch-gap",
+    unitTitle: "Lunch gap",
+    title: "Thirty minute lunch-gap topic",
+    subtopics: ["Short focused work"],
+    estHours: 0.5,
+    completedHours: 0,
+    difficulty: 2,
+    status: "not_started",
+    mastery: 1,
+    reviewDue: null,
+    lastStudiedAt: null,
+    sourceMaterials: [],
+    preferredBlockTypes: ["review", "drill"],
+    order: 1,
+  };
+
+  const result = generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: [
+      {
+        id: "goal-physics-thirty-minute-lunch-gap",
+        title: "Finish lunch-gap topic",
+        subjectId: "physics-hl",
+        deadline: "2026-04-21",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [physicsSubject],
+    topics: [topic],
+    completionLogs: [],
+    fixedEvents: [],
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    preferences,
+  });
+  const block = result.studyBlocks.find((candidate) => candidate.topicId === topic.id);
+
+  assert.ok(block, "expected exact 30-minute pre-lunch slot to be scheduled");
+  assert.equal(block.estimatedMinutes, 30);
+  assert.equal(block.start, "2026-04-20T09:30:00.000Z");
+  assert.equal(block.end, "2026-04-20T10:00:00.000Z");
 });
 
 test("homework becomes a daily 150-minute commitment after Term 3 2026", () => {

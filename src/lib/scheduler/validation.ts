@@ -379,9 +379,45 @@ export function validateGeneratedHorizon(options: {
       .filter((block) => block.subjectId === "olympiad")
       .map((block) => block.weekStart || toDateKey(startOfPlannerWeek(new Date(block.start)))),
   );
+  const olympiadRemainingMinutes = options.topics
+    .filter((topic) => topic.subjectId === "olympiad")
+    .reduce(
+      (total, topic) =>
+        total + Math.max(Math.round((topic.estHours - topic.completedHours) * 60), 0),
+      0,
+    );
+  const olympiadPlannedMinutesByTopic = options.studyBlocks.reduce<Record<string, number>>(
+    (accumulator, block) => {
+      const topic = block.topicId ? topicById.get(block.topicId) : null;
+
+      if (
+        !topic ||
+        topic.subjectId !== "olympiad" ||
+        (block.status !== "planned" && block.status !== "rescheduled")
+      ) {
+        return accumulator;
+      }
+
+      accumulator[topic.id] = (accumulator[topic.id] ?? 0) + block.estimatedMinutes;
+      return accumulator;
+    },
+    {},
+  );
+  const olympiadUnscheduledMinutes = options.topics
+    .filter((topic) => topic.subjectId === "olympiad")
+    .reduce((total, topic) => {
+      const remainingMinutes = Math.max(Math.round((topic.estHours - topic.completedHours) * 60), 0);
+      const plannedMinutes = Math.min(olympiadPlannedMinutesByTopic[topic.id] ?? 0, remainingMinutes);
+      return total + Math.max(remainingMinutes - plannedMinutes, 0);
+    }, 0);
 
   options.weeklyPlans.forEach((plan) => {
-    if ((plan.remainingHoursBySubject.olympiad ?? 0) <= 0.1 || plan.slackMinutes <= 0) {
+    if (
+      olympiadRemainingMinutes <= 0 ||
+      olympiadUnscheduledMinutes <= 0 ||
+      (plan.remainingHoursBySubject.olympiad ?? 0) <= 0.1 ||
+      plan.slackMinutes <= 0
+    ) {
       return;
     }
 

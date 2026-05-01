@@ -18,6 +18,8 @@ export const visibleCoreSubjectIds = [
 ] as const;
 
 export const zeroUnscheduledCoverageSubjectIds = visibleCoreSubjectIds;
+export const realCoverageSubjectIds = visibleCoreSubjectIds;
+export const reinforcementSubjectIds = visibleCoreSubjectIds;
 
 export const softMaintenanceSubjectIds = ["french-b-sl"] as const;
 

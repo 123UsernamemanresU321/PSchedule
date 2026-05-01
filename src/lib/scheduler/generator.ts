@@ -1,6 +1,8 @@
 import { addDays, addMinutes, getISOWeek, isAfter } from "date-fns";
 
 import {
+  realCoverageSubjectIds,
+  reinforcementSubjectIds,
   softMaintenanceSubjectIds,
   subjectIds,
   zeroUnscheduledCoverageSubjectIds,
@@ -80,8 +82,8 @@ const CORE_IB_FILL_SUBJECT_ORDER: Subject["id"][] = [
   "physics-hl",
   "chemistry-hl",
 ];
-const IB_REINFORCEMENT_SUBJECT_IDS = new Set<Subject["id"]>(CORE_IB_FILL_SUBJECT_ORDER);
-const MAX_IB_REINFORCEMENT_BLOCKS_PER_WEEK = 2;
+const REAL_COVERAGE_SUBJECT_ID_SET = new Set<Subject["id"]>([...realCoverageSubjectIds]);
+const REINFORCEMENT_SUBJECT_ID_SET = new Set<Subject["id"]>([...reinforcementSubjectIds]);
 
 const HARD_SCOPE_PRIORITY_BY_SUBJECT = Object.fromEntries(
   zeroUnscheduledCoverageSubjectIds.map((subjectId, index) => [
@@ -418,7 +420,7 @@ function buildOverflowPracticeBlock(options: {
   start: Date;
   durationMinutes: number;
 }): StudyBlock {
-  if (!IB_REINFORCEMENT_SUBJECT_IDS.has(options.subjectId)) {
+  if (!REINFORCEMENT_SUBJECT_ID_SET.has(options.subjectId)) {
     throw new Error(`Overflow reinforcement is disabled for ${options.subjectId}`);
   }
 
@@ -434,6 +436,14 @@ function buildOverflowPracticeBlock(options: {
     "chemistry-hl": {
       title: "Chemistry HL reinforcement",
       summary: "Extra recall, mechanism review, and mixed chemistry problem reinforcement.",
+    },
+    olympiad: {
+      title: "Olympiad reinforcement",
+      summary: "Extra olympiad-style method rehearsal, proof cleanup, and mixed-problem reinforcement.",
+    },
+    "cpp-book": {
+      title: "C++ reinforcement",
+      summary: "Extra implementation practice and concept reinforcement on recent C++ material.",
     },
   };
   const subjectLabel = subjectLabelById[options.subjectId] ?? {
@@ -482,6 +492,140 @@ function buildOverflowPracticeBlock(options: {
     rescheduleCount: 0,
     assignmentLocked: false,
     assignmentEditedAt: null,
+  };
+}
+
+function fillReinforcementForWeek(options: {
+  weekStart: Date;
+  weeklyPlan: WeeklyPlan;
+  realStudyBlocks: StudyBlock[];
+  priorReinforcementBlocks: StudyBlock[];
+  goals: Goal[];
+  subjects: Subject[];
+  topics: Topic[];
+  fixedEvents: import("@/lib/types/planner").FixedEvent[];
+  sickDays?: SickDay[];
+  preferences: Preferences;
+  referenceDate: Date;
+  horizonStartDate: Date;
+  schedulingContext?: SchedulingRunContext;
+}) {
+  const weekStartKey = toDateKey(options.weekStart);
+  const subjectMap = new Map(options.subjects.map((subject) => [subject.id, subject]));
+  const finalDeadlineBySubject = buildFinalDeadlineBySubject(options.subjects, options.goals);
+  const reinforcementBlocks: StudyBlock[] = [];
+  const reinforcementMinutesByDate: Record<string, Record<string, number>> = {};
+  const reinforcementMinutesBySubject = recordFromKeys(subjectIds, () => 0);
+  const fillOrder = ([
+    "olympiad",
+    ...DAILY_FILL_SUBJECT_ORDER.filter((subjectId) => subjectId !== "olympiad"),
+  ] satisfies Subject["id"][]).filter((subjectId) => REINFORCEMENT_SUBJECT_ID_SET.has(subjectId));
+
+  function getReinforcementSubjectId(dateKey: string, slotStart: Date) {
+    return fillOrder
+      .filter((subjectId) => {
+        if (!subjectMap.has(subjectId)) {
+          return false;
+        }
+
+        const finalDeadline = finalDeadlineBySubject[subjectId];
+        return !finalDeadline || slotStart.getTime() <= new Date(`${finalDeadline}T23:59:59`).getTime();
+      })
+      .sort((left, right) => {
+        const leftDateMinutes = reinforcementMinutesByDate[dateKey]?.[left] ?? 0;
+        const rightDateMinutes = reinforcementMinutesByDate[dateKey]?.[right] ?? 0;
+
+        if (leftDateMinutes !== rightDateMinutes) {
+          return leftDateMinutes - rightDateMinutes;
+        }
+
+        const leftTotalMinutes = reinforcementMinutesBySubject[left] ?? 0;
+        const rightTotalMinutes = reinforcementMinutesBySubject[right] ?? 0;
+
+        if (leftTotalMinutes !== rightTotalMinutes) {
+          return leftTotalMinutes - rightTotalMinutes;
+        }
+
+        return fillOrder.indexOf(left) - fillOrder.indexOf(right);
+      })[0] ?? null;
+  }
+
+  const initialFreeSlots = calculateFreeSlots({
+    weekStart: options.weekStart,
+    fixedEvents: options.fixedEvents,
+    sickDays: options.sickDays ?? [],
+    preferences: options.preferences,
+    blockedStudyBlocks: options.realStudyBlocks,
+    planningStart: options.referenceDate,
+    effectiveReservedCommitmentDurations: options.weeklyPlan.effectiveReservedCommitmentDurations,
+    excludedReservedCommitmentRuleIds: options.weeklyPlan.excludedReservedCommitmentRuleIds,
+    schedulingContext: options.schedulingContext,
+  });
+
+  initialFreeSlots.forEach((slot) => {
+    let cursor = slot.start;
+    let remainingSlotMinutes = slot.durationMinutes;
+
+    while (remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES) {
+      const subjectId = getReinforcementSubjectId(slot.dateKey, cursor);
+
+      if (!subjectId) {
+        break;
+      }
+
+      const durationMinutes = Math.min(
+        remainingSlotMinutes,
+        slot.energy === "low" ? 60 : 90,
+      );
+      const slotSlice = {
+        ...slot,
+        start: cursor,
+        end: addMinutes(cursor, durationMinutes),
+        durationMinutes,
+      };
+      const block = buildOverflowPracticeBlock({
+        slot: slotSlice,
+        weekStart: weekStartKey,
+        subjectId,
+        start: cursor,
+        durationMinutes,
+      });
+
+      reinforcementBlocks.push(block);
+      reinforcementMinutesByDate[slot.dateKey] = {
+        ...(reinforcementMinutesByDate[slot.dateKey] ?? {}),
+        [subjectId]: (reinforcementMinutesByDate[slot.dateKey]?.[subjectId] ?? 0) + durationMinutes,
+      };
+      reinforcementMinutesBySubject[subjectId] += durationMinutes;
+      cursor = addMinutes(cursor, durationMinutes);
+      remainingSlotMinutes = Math.max(0, remainingSlotMinutes - durationMinutes);
+    }
+  });
+
+  const studyBlocks = [...options.realStudyBlocks, ...reinforcementBlocks].sort(
+    (left, right) => new Date(left.start).getTime() - new Date(right.start).getTime(),
+  );
+  const assignedHoursBySubject = {
+    ...options.weeklyPlan.assignedHoursBySubject,
+  };
+  Object.entries(reinforcementMinutesBySubject).forEach(([subjectId, minutes]) => {
+    if (minutes <= 0) {
+      return;
+    }
+
+    assignedHoursBySubject[subjectId] =
+      Math.round(((assignedHoursBySubject[subjectId] ?? 0) + minutes / 60) * 10) / 10;
+  });
+
+  return {
+    studyBlocks,
+    weeklyPlan: {
+      ...options.weeklyPlan,
+      assignedHoursBySubject,
+      fillableGapDateKeys: [],
+      weekHasOpenCapacity: false,
+      slackMinutes: 0,
+    },
   };
 }
 
@@ -819,6 +963,89 @@ function buildFullCoverageHoursBySubject(subjects: Subject[], tasks: TaskCandida
   });
 
   return requiredHoursBySubject;
+}
+
+function buildFinalDeadlineBySubject(subjects: Subject[], goals: Goal[]) {
+  const deadlineBySubject = Object.fromEntries(
+    subjects.map((subject) => [subject.id, subject.deadline]),
+  ) as Record<string, string>;
+
+  goals.forEach((goal) => {
+    const current = deadlineBySubject[goal.subjectId];
+    if (!current || new Date(goal.deadline).getTime() > new Date(current).getTime()) {
+      deadlineBySubject[goal.subjectId] = goal.deadline;
+    }
+  });
+
+  return deadlineBySubject;
+}
+
+function getRealCoverageUnscheduledMinutesBySubject(options: {
+  subjects: Subject[];
+  topics: Topic[];
+  studyBlocks: StudyBlock[];
+  referenceDate: Date;
+}) {
+  const referenceTime = options.referenceDate.getTime();
+  const topicById = new Map(options.topics.map((topic) => [topic.id, topic]));
+  const uncappedPlannedMinutesByTopic = options.studyBlocks.reduce<Record<string, number>>(
+    (accumulator, block) => {
+      const topic = block.topicId ? topicById.get(block.topicId) : null;
+      const isSyntheticReviewFollowUp =
+        !!topic &&
+        !topic.id.endsWith("-review") &&
+        block.blockType === "review" &&
+        block.title === `${topic.title} review`;
+
+      if (
+        !topic ||
+        !REAL_COVERAGE_SUBJECT_ID_SET.has(topic.subjectId) ||
+        (block.status !== "planned" && block.status !== "rescheduled") ||
+        new Date(block.end).getTime() <= referenceTime ||
+        isSyntheticReviewFollowUp
+      ) {
+        return accumulator;
+      }
+
+      accumulator[topic.id] = (accumulator[topic.id] ?? 0) + block.estimatedMinutes;
+      return accumulator;
+    },
+    {},
+  );
+
+  return Object.fromEntries(
+    options.subjects
+      .filter((subject) => REAL_COVERAGE_SUBJECT_ID_SET.has(subject.id))
+      .map((subject) => {
+        const unscheduledMinutes = options.topics
+          .filter((topic) => topic.subjectId === subject.id)
+          .reduce((total, topic) => {
+            const remainingMinutes = Math.max(
+              Math.round((topic.estHours - topic.completedHours) * 60),
+              0,
+            );
+            const plannedMinutes = Math.min(
+              uncappedPlannedMinutesByTopic[topic.id] ?? 0,
+              remainingMinutes,
+            );
+
+            return total + Math.max(remainingMinutes - plannedMinutes, 0);
+          }, 0);
+
+        return [subject.id, unscheduledMinutes];
+      }),
+  ) as Record<string, number>;
+}
+
+function hasCompleteRealCoverage(options: {
+  subjects: Subject[];
+  topics: Topic[];
+  studyBlocks: StudyBlock[];
+  referenceDate: Date;
+}) {
+  return Object.values(getRealCoverageUnscheduledMinutesBySubject(options)).every(
+    (minutes) => minutes === 0,
+  );
 }
 
 function roundUpToAllocatableMinutes(minutes: number) {
@@ -1552,6 +1779,7 @@ function allocateTasksToSlots(options: {
   olympiadLoadMultiplier?: number;
   olympiadWeaknessStrand?: "geometry" | "algebra" | "number-theory" | "combinatorics" | null;
   isFinalPass?: boolean;
+  allowReinforcement?: boolean;
   dayStudyCapOverrideMinutesByDate?: Record<string, number>;
   schoolTermTemplate?: ReturnType<typeof buildSchoolTermWeekTemplate>;
   schedulingContext?: SchedulingRunContext;
@@ -1575,6 +1803,7 @@ function allocateTasksToSlots(options: {
   const subjectDeadlinesById = Object.fromEntries(
     options.subjects.map((subject) => [subject.id, subject.deadline]),
   );
+  const finalDeadlineBySubject = buildFinalDeadlineBySubject(options.subjects, options.goals);
   const assignedMinutesBySubject = recordFromKeys(subjectIds, () => 0);
   const dailyMinutes: Record<string, number> = {};
   const heavyBlocksPerDay: Record<string, number> = {};
@@ -1583,23 +1812,6 @@ function allocateTasksToSlots(options: {
 
   function getWeekKeyForDate(dateKey: string) {
     return toDateKey(startOfPlannerWeek(new Date(`${dateKey}T12:00:00`)));
-  }
-
-  function isOverflowReinforcementBlock(block: StudyBlock, subjectId: Subject["id"]) {
-    return (
-      block.subjectId === subjectId &&
-      !block.topicId &&
-      block.title.includes("reinforcement")
-    );
-  }
-
-  function getWeeklyOverflowReinforcementCount(subjectId: Subject["id"], dateKey: string) {
-    const weekKey = getWeekKeyForDate(dateKey);
-    return [...options.lockedBlocks, ...scheduledBlocks].filter(
-      (block) =>
-        (block.weekStart || getWeekKeyForDate(block.date)) === weekKey &&
-        isOverflowReinforcementBlock(block, subjectId),
-    ).length;
   }
 
   function hasPendingTaskForSubject(subjectId: Subject["id"]) {
@@ -1620,30 +1832,34 @@ function allocateTasksToSlots(options: {
     );
   }
 
-  function hasFutureLockedRemainingTopicForSubject(subjectId: Subject["id"], slotStart: Date) {
-    return options.topics.some((topic) => {
-      if (topic.subjectId !== subjectId) {
-        return false;
-      }
-
-      if (Math.round(Math.max(topic.estHours - topic.completedHours, 0) * 60) < MIN_ALLOCATABLE_MINUTES) {
-        return false;
-      }
-
-      return !!topic.availableFrom && new Date(topic.availableFrom).getTime() > slotStart.getTime();
-    });
+  function hasOpenRealCoverageTask() {
+    return workingTasks.some(
+      (task) =>
+        !!task.subjectId &&
+        REAL_COVERAGE_SUBJECT_ID_SET.has(task.subjectId) &&
+        task.remainingMinutes > 0,
+    );
   }
 
   function canUseOverflowPracticeSubject(subjectId: Subject["id"], dateKey: string, slotStart: Date) {
+    if (!options.allowReinforcement) {
+      return false;
+    }
+
     if (!subjectMap.has(subjectId)) {
       return false;
     }
 
-    if (
-      !zeroUnscheduledCoverageSubjectIds.includes(
-        subjectId as (typeof zeroUnscheduledCoverageSubjectIds)[number],
-      )
-    ) {
+    if (!REINFORCEMENT_SUBJECT_ID_SET.has(subjectId)) {
+      return false;
+    }
+
+    if (hasOpenRealCoverageTask()) {
+      return false;
+    }
+
+    const finalDeadline = finalDeadlineBySubject[subjectId];
+    if (finalDeadline && slotStart.getTime() > new Date(`${finalDeadline}T23:59:59`).getTime()) {
       return false;
     }
 
@@ -1651,15 +1867,8 @@ function allocateTasksToSlots(options: {
       return false;
     }
 
-    if (!hasPendingTaskForSubject(subjectId) && hasFutureLockedRemainingTopicForSubject(subjectId, slotStart)) {
-      return false;
-    }
-
-    if (!IB_REINFORCEMENT_SUBJECT_IDS.has(subjectId)) {
-      return false;
-    }
-
-    return getWeeklyOverflowReinforcementCount(subjectId, dateKey) < MAX_IB_REINFORCEMENT_BLOCKS_PER_WEEK;
+    void dateKey;
+    return true;
   }
 
   function hasReachedWeeklyTarget(task: TaskCandidate, dateKey?: string) {
@@ -2170,13 +2379,6 @@ function allocateTasksToSlots(options: {
     return [...fillOrder]
       .filter((subjectId) => canUseOverflowPracticeSubject(subjectId, dateKey, slotStart))
       .sort((left, right) => {
-        const leftRank = fillOrder.indexOf(left);
-        const rightRank = fillOrder.indexOf(right);
-
-        if (leftRank !== rightRank) {
-          return leftRank - rightRank;
-        }
-
         const leftMinutes = subjectMinutesByDate[dateKey]?.[left] ?? 0;
         const rightMinutes = subjectMinutesByDate[dateKey]?.[right] ?? 0;
 
@@ -2189,6 +2391,13 @@ function allocateTasksToSlots(options: {
 
         if (leftBacklog !== rightBacklog) {
           return rightBacklog - leftBacklog;
+        }
+
+        const leftRank = fillOrder.indexOf(left);
+        const rightRank = fillOrder.indexOf(right);
+
+        if (leftRank !== rightRank) {
+          return leftRank - rightRank;
         }
 
         return (
@@ -3136,6 +3345,7 @@ export function generateStudyPlanForWeek(options: {
   effectiveReservedCommitmentDurations?: EffectiveReservedCommitmentDuration[];
   excludedReservedCommitmentRuleIds?: string[];
   reservedCommitmentFallbackTierUsed?: number;
+  allowReinforcement?: boolean;
   schedulingContext?: SchedulingRunContext;
 }): SchedulerResult {
   const weekStart = startOfPlannerWeek(options.weekStart ?? new Date());
@@ -3364,6 +3574,7 @@ export function generateStudyPlanForWeek(options: {
       olympiadLoadMultiplier: olympiadWeekLoadProfile.multiplier,
       olympiadWeaknessStrand: olympiadWeaknessProfile.activeStrand,
       isFinalPass: passPolicy === passPolicies[passPolicies.length - 1],
+      allowReinforcement: options.allowReinforcement ?? false,
       dayStudyCapOverrideMinutesByDate: schoolTermTemplate.dayStudyCapOverrideMinutesByDate,
       schoolTermTemplate,
     });
@@ -3460,6 +3671,7 @@ export function generateStudyPlanForWeek(options: {
         olympiadLoadMultiplier: olympiadWeekLoadProfile.multiplier,
         olympiadWeaknessStrand: olympiadWeaknessProfile.activeStrand,
         isFinalPass: true,
+        allowReinforcement: options.allowReinforcement ?? false,
         dayStudyCapOverrideMinutesByDate: schoolTermTemplate.dayStudyCapOverrideMinutesByDate,
         schoolTermTemplate,
         allowLargeGapAbsorption: true,
@@ -3792,12 +4004,75 @@ export function generateStudyPlanHorizon(options: {
   }
 
   const horizonEndDate = getHorizonEndDateKey(finalWeek, referenceDate);
+  const realCoverageUnscheduledBySubject = getRealCoverageUnscheduledMinutesBySubject({
+    subjects: options.subjects,
+    topics: options.topics,
+    studyBlocks: horizonStudyBlocks,
+    referenceDate,
+  });
+
+  if (
+    (realCoverageUnscheduledBySubject.olympiad ?? 0) > 0 &&
+    !(options.availabilityOverrideSubjectIds ?? []).includes("olympiad")
+  ) {
+    return generateStudyPlanHorizon({
+      ...options,
+      availabilityOverrideSubjectIds: [
+        ...(options.availabilityOverrideSubjectIds ?? []),
+        "olympiad",
+      ],
+    });
+  }
+
+  let finalStudyBlocks = horizonStudyBlocks;
+  let finalWeeklyPlans = weeklyPlans;
+
+  if (
+    hasCompleteRealCoverage({
+      subjects: options.subjects,
+      topics: options.topics,
+      studyBlocks: horizonStudyBlocks,
+      referenceDate,
+    })
+  ) {
+    const reinforcedStudyBlocks: StudyBlock[] = [];
+    const reinforcedWeeklyPlans: WeeklyPlan[] = [];
+
+    weeklyPlans.forEach((weeklyPlan) => {
+      const currentWeek = startOfPlannerWeek(new Date(`${weeklyPlan.weekStart}T12:00:00`));
+      const realStudyBlocks = horizonStudyBlocks.filter((block) => {
+        const blockWeekStart = block.weekStart || toDateKey(startOfPlannerWeek(new Date(block.start)));
+        return blockWeekStart === weeklyPlan.weekStart;
+      });
+      const result = fillReinforcementForWeek({
+        weekStart: currentWeek,
+        weeklyPlan,
+        realStudyBlocks,
+        priorReinforcementBlocks: reinforcedStudyBlocks,
+        referenceDate,
+        horizonStartDate,
+        goals: options.goals,
+        subjects: options.subjects,
+        topics: options.topics,
+        fixedEvents: options.fixedEvents,
+        sickDays: options.sickDays,
+        preferences: options.preferences,
+        schedulingContext,
+      });
+
+      reinforcedStudyBlocks.push(...result.studyBlocks);
+      reinforcedWeeklyPlans.push(result.weeklyPlan);
+    });
+
+    finalStudyBlocks = reinforcedStudyBlocks;
+    finalWeeklyPlans = reinforcedWeeklyPlans;
+  }
 
   return {
-    studyBlocks: horizonStudyBlocks.sort(
+    studyBlocks: finalStudyBlocks.sort(
       (left, right) => new Date(left.start).getTime() - new Date(right.start).getTime(),
     ),
-    weeklyPlans: weeklyPlans.map((plan) => ({
+    weeklyPlans: finalWeeklyPlans.map((plan) => ({
       ...plan,
       horizonEndDate,
     })),
@@ -3833,12 +4108,24 @@ function buildComparableStudyBlock(block: StudyBlock) {
   };
 }
 
+function isReinforcementStudyBlock(block: StudyBlock) {
+  return (
+    !!block.subjectId &&
+    REINFORCEMENT_SUBJECT_ID_SET.has(block.subjectId) &&
+    !block.topicId &&
+    block.title.includes("reinforcement")
+  );
+}
+
 function areStudyBlockListsEquivalent(left: StudyBlock[], right: StudyBlock[]) {
-  if (left.length !== right.length) {
+  const realLeft = left.filter((block) => !isReinforcementStudyBlock(block));
+  const realRight = right.filter((block) => !isReinforcementStudyBlock(block));
+
+  if (realLeft.length !== realRight.length) {
     return false;
   }
 
-  const comparableLeft = [...left]
+  const comparableLeft = [...realLeft]
     .map(buildComparableStudyBlock)
     .sort((a, b) =>
       a.start.localeCompare(b.start) ||
@@ -3847,7 +4134,7 @@ function areStudyBlockListsEquivalent(left: StudyBlock[], right: StudyBlock[]) {
       (a.followUpSourceStudyBlockId ?? "").localeCompare(b.followUpSourceStudyBlockId ?? "") ||
       a.title.localeCompare(b.title),
     );
-  const comparableRight = [...right]
+  const comparableRight = [...realRight]
     .map(buildComparableStudyBlock)
     .sort((a, b) =>
       a.start.localeCompare(b.start) ||
@@ -3869,15 +4156,12 @@ function buildComparableWeeklyPlan(weeklyPlan: WeeklyPlan | null | undefined) {
     weekStart: weeklyPlan.weekStart,
     requiredHoursBySubject: weeklyPlan.requiredHoursBySubject,
     deadlinePaceHoursBySubject: weeklyPlan.deadlinePaceHoursBySubject,
-    assignedHoursBySubject: weeklyPlan.assignedHoursBySubject,
     completedHoursBySubject: weeklyPlan.completedHoursBySubject,
     remainingHoursBySubject: weeklyPlan.remainingHoursBySubject,
     remainingAfterWeekMinutesBySubject: weeklyPlan.remainingAfterWeekMinutesBySubject,
     weekPacingGapMinutesBySubject: weeklyPlan.weekPacingGapMinutesBySubject,
     scheduledToGoalHoursBySubject: weeklyPlan.scheduledToGoalHoursBySubject,
     weekCarryForwardSubjectIds: weeklyPlan.weekCarryForwardSubjectIds,
-    slackMinutes: weeklyPlan.slackMinutes,
-    weekHasOpenCapacity: weeklyPlan.weekHasOpenCapacity,
     carryOverBlockIds: weeklyPlan.carryOverBlockIds,
     feasibilityScore: weeklyPlan.feasibilityScore,
     riskFlag: weeklyPlan.riskFlag,
@@ -3887,7 +4171,6 @@ function buildComparableWeeklyPlan(weeklyPlan: WeeklyPlan | null | undefined) {
     usedSundayMinutes: weeklyPlan.usedSundayMinutes,
     weekOverloadMinutes: weeklyPlan.weekOverloadMinutes,
     overscheduledMinutes: weeklyPlan.overscheduledMinutes,
-    fillableGapDateKeys: weeklyPlan.fillableGapDateKeys,
     effectiveReservedCommitmentDurations: weeklyPlan.effectiveReservedCommitmentDurations,
     excludedReservedCommitmentRuleIds: weeklyPlan.excludedReservedCommitmentRuleIds,
     weeksRemainingToDeadline: weeklyPlan.weeksRemainingToDeadline,
