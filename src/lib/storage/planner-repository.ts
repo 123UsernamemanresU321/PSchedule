@@ -947,15 +947,6 @@ export function getScopedReplanPrecheckState(options: {
     sickDays: options.snapshot.sickDays,
     referenceDate,
   }).filter((issue) => issue.severity === "error" && issue.code === "overlap");
-  const hasFutureFillableGap = relevantWeeklyPlans.some((weeklyPlan) => {
-    if (weeklyPlan.fillableGapDateKeys.length === 0) {
-      return false;
-    }
-
-    return zeroUnscheduledCoverageSubjectIds.some(
-      (subjectId) => (weeklyPlan.remainingAfterWeekMinutesBySubject[subjectId] ?? 0) > 0,
-    );
-  });
   const hardConstraintSubjectIds = options.snapshot.subjects
     .filter((subject) =>
       zeroUnscheduledCoverageSubjectIds.includes(
@@ -968,6 +959,17 @@ export function getScopedReplanPrecheckState(options: {
     }))
     .filter(({ progress }) => progress.remainingMinutes > 0 && progress.unscheduledMinutes > 0)
     .map(({ subjectId }) => subjectId);
+  const hasFutureFillableGap =
+    hardConstraintSubjectIds.length > 0 &&
+    relevantWeeklyPlans.some((weeklyPlan) => {
+      if (weeklyPlan.fillableGapDateKeys.length === 0) {
+        return false;
+      }
+
+      return hardConstraintSubjectIds.some(
+        (subjectId) => (weeklyPlan.remainingAfterWeekMinutesBySubject[subjectId] ?? 0) > 0,
+      );
+    });
   const missingScopedWeeks =
     options.scope !== "week_local" &&
     relevantWeekStarts.length === 0 &&
@@ -1075,18 +1077,26 @@ export function getCollapsedCoverageRepairState(
   const hardConstraintSubjectIds = states
     .filter((state) => state.hasStrictIncompleteCoverage)
     .map((state) => state.subjectId);
-  const futureFillableGap = detectFutureFillableGap({
-    subjects: snapshot.subjects,
-    topics: snapshot.topics,
-    studyBlocks: snapshot.studyBlocks,
-    weeklyPlans: snapshot.weeklyPlans,
-    fixedEvents: snapshot.fixedEvents,
-    sickDays: snapshot.sickDays,
-    completionLogs: snapshot.completionLogs,
-    preferences: snapshot.preferences,
-    referenceDate,
-    subjectIds: [...zeroUnscheduledCoverageSubjectIds],
-  });
+  const futureFillableGap =
+    hardConstraintSubjectIds.length > 0
+      ? detectFutureFillableGap({
+          subjects: snapshot.subjects,
+          topics: snapshot.topics,
+          studyBlocks: snapshot.studyBlocks,
+          weeklyPlans: snapshot.weeklyPlans,
+          fixedEvents: snapshot.fixedEvents,
+          sickDays: snapshot.sickDays,
+          completionLogs: snapshot.completionLogs,
+          preferences: snapshot.preferences,
+          referenceDate,
+          subjectIds: hardConstraintSubjectIds,
+        })
+      : {
+          hasGap: false,
+          weekStart: null,
+          dateKey: null,
+          openMinutes: 0,
+        };
 
   return {
     states,

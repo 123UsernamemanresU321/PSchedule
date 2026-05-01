@@ -418,6 +418,10 @@ function buildOverflowPracticeBlock(options: {
   start: Date;
   durationMinutes: number;
 }): StudyBlock {
+  if (!IB_REINFORCEMENT_SUBJECT_IDS.has(options.subjectId)) {
+    throw new Error(`Overflow reinforcement is disabled for ${options.subjectId}`);
+  }
+
   const subjectLabelById: Record<string, { title: string; summary: string }> = {
     "physics-hl": {
       title: "Physics HL reinforcement",
@@ -430,14 +434,6 @@ function buildOverflowPracticeBlock(options: {
     "chemistry-hl": {
       title: "Chemistry HL reinforcement",
       summary: "Extra recall, mechanism review, and mixed chemistry problem reinforcement.",
-    },
-    olympiad: {
-      title: "Olympiad reinforcement",
-      summary: "Extra olympiad-style method rehearsal, proof cleanup, and mixed-problem reinforcement.",
-    },
-    "cpp-book": {
-      title: "C++ reinforcement",
-      summary: "Extra implementation practice and concept reinforcement on recent C++ material.",
     },
   };
   const subjectLabel = subjectLabelById[options.subjectId] ?? {
@@ -1599,7 +1595,7 @@ function allocateTasksToSlots(options: {
 
   function getWeeklyOverflowReinforcementCount(subjectId: Subject["id"], dateKey: string) {
     const weekKey = getWeekKeyForDate(dateKey);
-    return scheduledBlocks.filter(
+    return [...options.lockedBlocks, ...scheduledBlocks].filter(
       (block) =>
         (block.weekStart || getWeekKeyForDate(block.date)) === weekKey &&
         isOverflowReinforcementBlock(block, subjectId),
@@ -1660,7 +1656,7 @@ function allocateTasksToSlots(options: {
     }
 
     if (!IB_REINFORCEMENT_SUBJECT_IDS.has(subjectId)) {
-      return true;
+      return false;
     }
 
     return getWeeklyOverflowReinforcementCount(subjectId, dateKey) < MAX_IB_REINFORCEMENT_BLOCKS_PER_WEEK;

@@ -8106,7 +8106,7 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
   );
 });
 
-test("overflow reinforcement caps IB extras and sends spare filler to Olympiad", () => {
+test("overflow reinforcement caps IB extras and never creates Olympiad or C++ filler", () => {
   const referenceDate = new Date("2026-09-07T08:00:00.000Z");
   const dataset = buildSeedDataset(referenceDate);
   const preferences = withConfiguredSchoolTerm(dataset.preferences, {
@@ -8150,12 +8150,8 @@ test("overflow reinforcement caps IB extras and sends spare filler to Olympiad",
   assert.ok((reinforcementCountBySubject["maths-aa-hl"] ?? 0) <= 2);
   assert.ok((reinforcementCountBySubject["physics-hl"] ?? 0) <= 2);
   assert.ok((reinforcementCountBySubject["chemistry-hl"] ?? 0) <= 2);
-  assert.ok(
-    (reinforcementCountBySubject.olympiad ?? 0) >
-      ((reinforcementCountBySubject["maths-aa-hl"] ?? 0) +
-        (reinforcementCountBySubject["physics-hl"] ?? 0) +
-        (reinforcementCountBySubject["chemistry-hl"] ?? 0)),
-  );
+  assert.equal(reinforcementCountBySubject.olympiad ?? 0, 0);
+  assert.equal(reinforcementCountBySubject["cpp-book"] ?? 0, 0);
 });
 
 test("homework becomes a daily 150-minute commitment after Term 3 2026", () => {
