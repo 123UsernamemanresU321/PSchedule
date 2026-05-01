@@ -80,6 +80,8 @@ const CORE_IB_FILL_SUBJECT_ORDER: Subject["id"][] = [
   "physics-hl",
   "chemistry-hl",
 ];
+const IB_REINFORCEMENT_SUBJECT_IDS = new Set<Subject["id"]>(CORE_IB_FILL_SUBJECT_ORDER);
+const MAX_IB_REINFORCEMENT_BLOCKS_PER_WEEK = 2;
 
 const HARD_SCOPE_PRIORITY_BY_SUBJECT = Object.fromEntries(
   zeroUnscheduledCoverageSubjectIds.map((subjectId, index) => [
@@ -1587,6 +1589,83 @@ function allocateTasksToSlots(options: {
     return toDateKey(startOfPlannerWeek(new Date(`${dateKey}T12:00:00`)));
   }
 
+  function isOverflowReinforcementBlock(block: StudyBlock, subjectId: Subject["id"]) {
+    return (
+      block.subjectId === subjectId &&
+      !block.topicId &&
+      block.title.includes("reinforcement")
+    );
+  }
+
+  function getWeeklyOverflowReinforcementCount(subjectId: Subject["id"], dateKey: string) {
+    const weekKey = getWeekKeyForDate(dateKey);
+    return scheduledBlocks.filter(
+      (block) =>
+        (block.weekStart || getWeekKeyForDate(block.date)) === weekKey &&
+        isOverflowReinforcementBlock(block, subjectId),
+    ).length;
+  }
+
+  function hasPendingTaskForSubject(subjectId: Subject["id"]) {
+    return workingTasks.some(
+      (task) =>
+        task.subjectId === subjectId &&
+        task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
+    );
+  }
+
+  function hasEligibleTaskForSubject(subjectId: Subject["id"], slotStart: Date) {
+    return workingTasks.some(
+      (task) =>
+        task.subjectId === subjectId &&
+        task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES &&
+        (!task.availableAt || new Date(task.availableAt) <= slotStart) &&
+        isTaskDependencySatisfied(task, slotStart),
+    );
+  }
+
+  function hasFutureLockedRemainingTopicForSubject(subjectId: Subject["id"], slotStart: Date) {
+    return options.topics.some((topic) => {
+      if (topic.subjectId !== subjectId) {
+        return false;
+      }
+
+      if (Math.round(Math.max(topic.estHours - topic.completedHours, 0) * 60) < MIN_ALLOCATABLE_MINUTES) {
+        return false;
+      }
+
+      return !!topic.availableFrom && new Date(topic.availableFrom).getTime() > slotStart.getTime();
+    });
+  }
+
+  function canUseOverflowPracticeSubject(subjectId: Subject["id"], dateKey: string, slotStart: Date) {
+    if (!subjectMap.has(subjectId)) {
+      return false;
+    }
+
+    if (
+      !zeroUnscheduledCoverageSubjectIds.includes(
+        subjectId as (typeof zeroUnscheduledCoverageSubjectIds)[number],
+      )
+    ) {
+      return false;
+    }
+
+    if (hasPendingTaskForSubject(subjectId) && !hasEligibleTaskForSubject(subjectId, slotStart)) {
+      return false;
+    }
+
+    if (!hasPendingTaskForSubject(subjectId) && hasFutureLockedRemainingTopicForSubject(subjectId, slotStart)) {
+      return false;
+    }
+
+    if (!IB_REINFORCEMENT_SUBJECT_IDS.has(subjectId)) {
+      return true;
+    }
+
+    return getWeeklyOverflowReinforcementCount(subjectId, dateKey) < MAX_IB_REINFORCEMENT_BLOCKS_PER_WEEK;
+  }
+
   function hasReachedWeeklyTarget(task: TaskCandidate, dateKey?: string) {
     if (options.fillAvailableStudyDays) {
       return false;
@@ -2082,13 +2161,18 @@ function allocateTasksToSlots(options: {
     );
   }
 
-  function getOverflowPracticeSubjectId(dateKey: string) {
-    const fillOrder = buildDailyFillSubjectOrder({
+  function getOverflowPracticeSubjectId(dateKey: string, slotStart: Date) {
+    const dailyFillOrder = buildDailyFillSubjectOrder({
       dateKey,
       requiredMinutesBySubject,
     });
+    const fillOrder = [
+      "olympiad",
+      ...dailyFillOrder.filter((subjectId) => subjectId !== "olympiad"),
+    ] satisfies Subject["id"][];
 
     return [...fillOrder]
+      .filter((subjectId) => canUseOverflowPracticeSubject(subjectId, dateKey, slotStart))
       .sort((left, right) => {
         const leftRank = fillOrder.indexOf(left);
         const rightRank = fillOrder.indexOf(right);
@@ -2115,7 +2199,7 @@ function allocateTasksToSlots(options: {
           (assignedMinutesBySubject[left] ?? 0) -
           (assignedMinutesBySubject[right] ?? 0)
         );
-      })[0] ?? "maths-aa-hl";
+      })[0] ?? null;
   }
 
   function getFocusedOverflowPracticeSubjectId(dateKey: string): Subject["id"] | null {
@@ -2666,6 +2750,7 @@ function allocateTasksToSlots(options: {
       if (
         focusedOverflowSubjectId &&
         options.fillAvailableStudyDays &&
+        canUseOverflowPracticeSubject(focusedOverflowSubjectId, slot.dateKey, cursor) &&
         !lightReviewOnlyDay &&
         remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES &&
         (options.isFinalPass ?? true)
@@ -2734,7 +2819,19 @@ function allocateTasksToSlots(options: {
           remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES &&
           (options.isFinalPass ?? true)
         ) {
-          const overflowSubjectId = getOverflowPracticeSubjectId(slot.dateKey);
+          const overflowSubjectId = getOverflowPracticeSubjectId(slot.dateKey, cursor);
+          if (!overflowSubjectId) {
+            if (
+              options.allowLargeGapAbsorption !== false &&
+              absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)
+            ) {
+              remainingSlotMinutes = 0;
+              break;
+            }
+
+            remainingSlotMinutes = 0;
+            break;
+          }
           const overflowDuration = Math.min(
             remainingSlotMinutes,
             slotSlice.energy === "low" ? 60 : 90,

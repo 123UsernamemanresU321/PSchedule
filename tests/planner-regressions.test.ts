@@ -8106,6 +8106,121 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
   );
 });
 
+test("overflow reinforcement caps IB extras and sends spare filler to Olympiad", () => {
+  const referenceDate = new Date("2026-09-07T08:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const preferences = withConfiguredSchoolTerm(dataset.preferences, {
+    terms: [
+      {
+        id: "term-3",
+        label: "Term 3",
+        startDate: "2026-07-20",
+        endDate: "2026-09-30",
+      },
+    ],
+  });
+  const completedTopics = dataset.topics.map((topic) => ({
+    ...topic,
+    completedHours: topic.estHours,
+    status: "strong" as const,
+  }));
+  const result = generateStudyPlanForWeek({
+    weekStart: new Date("2026-09-07T00:00:00.000Z"),
+    referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: completedTopics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: [],
+    focusedWeeks: [],
+    preferences,
+  });
+  const reinforcementBlocks = result.studyBlocks.filter((block) =>
+    block.title.includes("reinforcement"),
+  );
+  const reinforcementCountBySubject = reinforcementBlocks.reduce<Record<string, number>>(
+    (counts, block) => ({
+      ...counts,
+      [block.subjectId ?? "none"]: (counts[block.subjectId ?? "none"] ?? 0) + 1,
+    }),
+    {},
+  );
+
+  assert.ok((reinforcementCountBySubject["maths-aa-hl"] ?? 0) <= 2);
+  assert.ok((reinforcementCountBySubject["physics-hl"] ?? 0) <= 2);
+  assert.ok((reinforcementCountBySubject["chemistry-hl"] ?? 0) <= 2);
+  assert.ok(
+    (reinforcementCountBySubject.olympiad ?? 0) >
+      ((reinforcementCountBySubject["maths-aa-hl"] ?? 0) +
+        (reinforcementCountBySubject["physics-hl"] ?? 0) +
+        (reinforcementCountBySubject["chemistry-hl"] ?? 0)),
+  );
+});
+
+test("homework becomes a daily 150-minute commitment after Term 3 2026", () => {
+  const seedPreferences = buildSeedPreferences();
+  const preferences = withConfiguredSchoolTerm(seedPreferences, {
+    terms: [
+      {
+        id: "term-3",
+        label: "Term 3",
+        startDate: "2026-07-20",
+        endDate: "2026-09-30",
+      },
+      {
+        id: "term-4",
+        label: "Term 4",
+        startDate: "2026-10-05",
+        endDate: "2026-12-04",
+      },
+    ],
+  });
+  const beforeCommitments = expandReservedCommitmentWindowsForWeek(
+    new Date("2026-09-07T00:00:00.000Z"),
+    preferences,
+    [],
+    [],
+  ).filter((commitment) => commitment.ruleId === "term-homework");
+  const afterCommitments = expandReservedCommitmentWindowsForWeek(
+    new Date("2026-10-05T00:00:00.000Z"),
+    preferences,
+    [],
+    [],
+  ).filter((commitment) => commitment.ruleId === "term-homework");
+  const afterDates = Array.from(
+    new Set(afterCommitments.map((commitment) => commitment.dateKey)),
+  ).sort();
+  const afterMinutesByDate = afterCommitments.reduce<Record<string, number>>(
+    (totals, commitment) => ({
+      ...totals,
+      [commitment.dateKey]:
+        (totals[commitment.dateKey] ?? 0) +
+        (new Date(commitment.end).getTime() - new Date(commitment.start).getTime()) / 60000,
+    }),
+    {},
+  );
+
+  assert.equal(
+    beforeCommitments.some((commitment) => commitment.dateKey === "2026-09-12"),
+    false,
+  );
+  assert.ok(beforeCommitments.every((commitment) => {
+    const minutes = (new Date(commitment.end).getTime() - new Date(commitment.start).getTime()) / 60000;
+    return minutes === 90;
+  }));
+  assert.deepEqual(afterDates, [
+    "2026-10-05",
+    "2026-10-06",
+    "2026-10-07",
+    "2026-10-08",
+    "2026-10-09",
+    "2026-10-10",
+    "2026-10-11",
+  ]);
+  assert.ok(Object.values(afterMinutesByDate).every((minutes) => minutes === 150));
+});
+
 test("phase 1 retunes Olympiad toward conversion with lighter new-content strand hours", () => {
   const dataset = buildSeedDataset(new Date("2026-04-07T08:00:00"));
   const phaseOneTopics = dataset.topics.filter(

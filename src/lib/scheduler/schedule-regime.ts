@@ -60,6 +60,15 @@ function getConfiguredSchoolTerms(preferences: Preferences) {
   );
 }
 
+export function isTermHomeworkIntensifiedDate(dateKey: string, preferences: Preferences) {
+  const term3 = preferences.schoolSchedule.terms.find((term) => {
+    const normalizedLabel = term.label.trim().toLowerCase();
+    return term.id === "term-3" || normalizedLabel === "term 3";
+  });
+
+  return !!term3?.endDate && term3.endDate.startsWith("2026-") && dateKey > term3.endDate;
+}
+
 export function getNoSchoolDay(day: Date, preferences: Preferences) {
   const dateKey = toDateKey(day);
   return preferences.schoolSchedule.noSchoolDays.find((entry) => entry.date === dateKey) ?? null;
@@ -100,7 +109,7 @@ function getReservedCommitmentMinutes(
       return total;
     }
 
-    return total + getReservedCommitmentDurationForDate(rule, dateKey, sickDayEffect);
+    return total + getReservedCommitmentDurationForDate(rule, dateKey, sickDayEffect, preferences);
   }, 0);
 }
 
@@ -137,8 +146,17 @@ export function isReservedCommitmentRuleActiveOnDate(
 
   if (rule.id === "term-homework" && inSchoolTerm && preferences) {
     // Respect user-configured rule.days if set; fall back to school weekdays.
-    const activeDays = rule.days.length > 0 ? rule.days : preferences.schoolSchedule.weekdays;
-    return activeDays.includes(day.getDay());
+    const activeDays = new Set(
+      rule.days.length > 0 ? rule.days : preferences.schoolSchedule.weekdays,
+    );
+
+    if (isTermHomeworkIntensifiedDate(dateKey, preferences)) {
+      preferences.schoolSchedule.weekdays.forEach((weekday) => activeDays.add(weekday));
+      activeDays.add(0);
+      activeDays.add(6);
+    }
+
+    return activeDays.has(day.getDay());
   }
 
   return rule.days.includes(day.getDay());
@@ -148,11 +166,16 @@ export function getReservedCommitmentDurationForDate(
   rule: ReservedCommitmentRule,
   dateKey: string,
   sickDayEffect: SickDayEffectProfile | null = null,
+  preferences?: Preferences,
 ) {
   const overriddenDuration = rule.durationOverrides?.[dateKey];
 
   if (rule.id === "piano-practice" && sickDayEffect) {
     return sickDayEffect.pianoMinutesOverride ?? 0;
+  }
+
+  if (rule.id === "term-homework" && preferences && isTermHomeworkIntensifiedDate(dateKey, preferences)) {
+    return overriddenDuration ?? Math.max(rule.durationMinutes, 150);
   }
 
   return overriddenDuration ?? rule.durationMinutes;

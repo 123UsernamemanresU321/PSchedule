@@ -961,6 +961,7 @@ function placeFrenchTuneUpCommitmentsForWeek(options: {
         options.rule,
         dateKey,
         activeSickDaySeverity ? getSickDayEffectProfile(activeSickDaySeverity) : null,
+        options.preferences,
       );
 
       if (durationMinutes <= 0) {
@@ -1123,6 +1124,7 @@ export function expandReservedCommitmentWindowsForWeek(
         rule,
         dateKey,
         activeSickDaySeverity ? getSickDayEffectProfile(activeSickDaySeverity) : null,
+        preferences,
       );
       const durationOverride = effectiveDurationByKey.get(`${dateKey}:${rule.id}`);
       const durationMinutes =
