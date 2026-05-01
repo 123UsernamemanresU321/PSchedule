@@ -48,6 +48,7 @@ import {
   buildCollapsedCoverageRepairBaselineStudyBlocks,
   getCollapsedCoverageRepairState,
   getScopedReplanPrecheckState,
+  derivePlannerHorizonStatus,
   normalizePreferences,
   type PlannerSnapshot,
   normalizeStudyBlock,
@@ -818,6 +819,63 @@ test("planner replan scope selection prefers local scope before escalation", () 
   assert.equal(getEscalatedPlannerReplanScope("full_horizon"), null);
 });
 
+test("planner horizon status is derived without triggering regeneration", () => {
+  const currentWeekStart = "2026-05-04";
+
+  assert.deepEqual(
+    derivePlannerHorizonStatus({
+      weeklyPlans: [],
+      planningModelVersion: "current",
+      currentPlanningModelVersion: "current",
+      currentWeekStart,
+    }),
+    {
+      horizonStatus: "missing",
+      horizonStatusMessage: "Plan needs regeneration. Click Regenerate horizon.",
+    },
+  );
+
+  assert.deepEqual(
+    derivePlannerHorizonStatus({
+      weeklyPlans: [{ weekStart: currentWeekStart } as WeeklyPlan],
+      planningModelVersion: "old",
+      currentPlanningModelVersion: "current",
+      currentWeekStart,
+      staleReason: "Imported planner data. Click Regenerate horizon to build a fresh schedule.",
+    }),
+    {
+      horizonStatus: "stale",
+      horizonStatusMessage: "Imported planner data. Click Regenerate horizon to build a fresh schedule.",
+    },
+  );
+
+  assert.deepEqual(
+    derivePlannerHorizonStatus({
+      weeklyPlans: [{ weekStart: "2026-04-27" } as WeeklyPlan],
+      planningModelVersion: "current",
+      currentPlanningModelVersion: "current",
+      currentWeekStart,
+    }),
+    {
+      horizonStatus: "stale",
+      horizonStatusMessage: "The saved horizon does not include the current week. Click Regenerate horizon.",
+    },
+  );
+
+  assert.deepEqual(
+    derivePlannerHorizonStatus({
+      weeklyPlans: [{ weekStart: currentWeekStart } as WeeklyPlan],
+      planningModelVersion: "current",
+      currentPlanningModelVersion: "current",
+      currentWeekStart,
+    }),
+    {
+      horizonStatus: "ready",
+      horizonStatusMessage: "",
+    },
+  );
+});
+
 test("healthy snapshots pass the cheap scoped replan precheck", () => {
   const referenceDate = new Date("2026-04-20T08:00:00.000Z");
   const dataset = buildSeedDataset(referenceDate);
@@ -846,6 +904,9 @@ test("healthy snapshots pass the cheap scoped replan precheck", () => {
     completionLogs: [],
     weeklyPlans: horizon.weeklyPlans,
     preferences: dataset.preferences,
+    horizonStatus: "ready",
+    horizonStatusMessage: "",
+    lastHorizonGeneratedAt: null,
   };
 
   const precheck = getScopedReplanPrecheckState({
@@ -3276,6 +3337,9 @@ test("done subject-block updates patch local state without rebuilding the horizo
     completionLogs: [],
     weeklyPlans: [],
     preferences: normalizePreferences(buildSeedPreferences()),
+    horizonStatus: "ready",
+    horizonStatusMessage: "",
+    lastHorizonGeneratedAt: null,
   };
 
   const nextState = applyStatusUpdateWithoutReplan({

@@ -130,12 +130,50 @@ const tailIncrementalChanged = measure("tail_incremental_changed", () =>
   }),
 );
 
+function buildExtraRecurringFixedEvents(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `benchmark-extra-fixed-${index}`,
+    title: `Benchmark fixed event ${index + 1}`,
+    start: "2026-05-04T06:00:00.000Z",
+    end: "2026-05-04T06:15:00.000Z",
+    isAllDay: false,
+    recurrence: "weekly" as const,
+    daysOfWeek: [1],
+    repeatUntil: "2027-06-30",
+    flexibility: "fixed" as const,
+    category: "other" as const,
+    notes: "",
+  }));
+}
+
+const fixedEventStress = [50, 200, 500].map((extraFixedEventCount) =>
+  measure(`full_horizon_${extraFixedEventCount}_extra_fixed_events`, () =>
+    generateStudyPlanHorizon({
+      startWeek: weekStart,
+      referenceDate,
+      goals: dataset.goals,
+      subjects: dataset.subjects,
+      topics: dataset.topics,
+      completionLogs: [],
+      fixedEvents: [
+        ...dataset.fixedEvents,
+        ...buildExtraRecurringFixedEvents(extraFixedEventCount),
+      ],
+      sickDays: dataset.sickDays,
+      focusedDays: dataset.focusedDays,
+      focusedWeeks: dataset.focusedWeeks,
+      preferences: dataset.preferences,
+    }),
+  ),
+);
+
 const summary = [
   fullHorizon,
   weekLocal,
   tailFromWeek,
   tailIncrementalNoop,
   tailIncrementalChanged,
+  ...fixedEventStress,
 ].map((entry) => {
   const maybeChangedWeekStarts =
     "changedWeekStarts" in entry.result

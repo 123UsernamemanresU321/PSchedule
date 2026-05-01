@@ -8,6 +8,7 @@ import { usePlannerStore } from "@/lib/store/planner-store";
 
 export function TopHeader() {
   const loading = usePlannerStore((state) => state.loading);
+  const horizonStatus = usePlannerStore((state) => state.horizonStatus);
   const backgroundReplanStatus = usePlannerStore((state) => state.backgroundReplanStatus);
   const backgroundReplanScope = usePlannerStore((state) => state.backgroundReplanScope);
 
@@ -25,6 +26,8 @@ export function TopHeader() {
       </div>
       <div className="flex items-center gap-3">
         {loading ? <Badge variant="default">Replanning…</Badge> : null}
+        {!loading && horizonStatus === "stale" ? <Badge variant="warning">Horizon stale</Badge> : null}
+        {!loading && horizonStatus === "missing" ? <Badge variant="warning">Horizon missing</Badge> : null}
         {!loading && backgroundReplanStatus === "running" ? (
           <Badge variant="muted">
             {backgroundReplanScope === "tail_from_week" ? "Updating horizon…" : "Validating…"}

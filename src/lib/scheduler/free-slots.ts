@@ -48,6 +48,20 @@ export interface ReservedCommitmentOccurrence {
 
 const MIN_ALLOCATABLE_MINUTES = 30;
 
+export interface SchedulingRunContext {
+  expandedPlannerFixedEventsByWeek: Map<string, FixedEvent[]>;
+  fixedEventIntervalsByWeek: Map<string, Map<string, TimeInterval[]>>;
+  reservedCommitmentWindowsByKey: Map<string, ReservedCommitmentOccurrence[]>;
+}
+
+export function createSchedulingRunContext(): SchedulingRunContext {
+  return {
+    expandedPlannerFixedEventsByWeek: new Map(),
+    fixedEventIntervalsByWeek: new Map(),
+    reservedCommitmentWindowsByKey: new Map(),
+  };
+}
+
 function mergeIntervals(intervals: TimeInterval[]) {
   if (!intervals.length) {
     return [];
@@ -241,11 +255,57 @@ export function expandPlannerFixedEventsForWeek(
   weekStart: Date,
   fixedEvents: FixedEvent[],
   preferences: Preferences,
+  schedulingContext?: SchedulingRunContext,
 ) {
-  return [
+  const weekStartKey = toDateKey(startOfPlannerWeek(weekStart));
+  const cached = schedulingContext?.expandedPlannerFixedEventsByWeek.get(weekStartKey);
+  if (cached) {
+    return cached;
+  }
+
+  const expanded = [
     ...expandSchoolScheduleForWeek(weekStart, preferences),
     ...expandFixedEventsForWeek(weekStart, fixedEvents),
   ];
+  schedulingContext?.expandedPlannerFixedEventsByWeek.set(weekStartKey, expanded);
+  return expanded;
+}
+
+function buildSickDayCacheKey(sickDays: SickDay[] = []) {
+  if (!sickDays.length) {
+    return "none";
+  }
+
+  return sickDays
+    .map((sickDay) => `${sickDay.id}:${sickDay.startDate}:${sickDay.endDate}:${sickDay.severity}`)
+    .sort()
+    .join("|");
+}
+
+function getFixedEventIntervalsByDateForWeek(options: {
+  weekStart: Date;
+  fixedEvents: FixedEvent[];
+  preferences: Preferences;
+  sickDays?: SickDay[];
+  schedulingContext?: SchedulingRunContext;
+}) {
+  const weekStartKey = toDateKey(startOfPlannerWeek(options.weekStart));
+  const cacheKey = `${weekStartKey}:${buildSickDayCacheKey(options.sickDays ?? [])}`;
+  const cached = options.schedulingContext?.fixedEventIntervalsByWeek.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const intervalsByDate = new Map<string, TimeInterval[]>();
+  Array.from({ length: 7 }, (_, index) => addDays(options.weekStart, index)).forEach((day) => {
+    intervalsByDate.set(
+      toDateKey(day),
+      buildEventIntervals(day, options.fixedEvents, options.preferences, options.sickDays ?? []),
+    );
+  });
+
+  options.schedulingContext?.fixedEventIntervalsByWeek.set(cacheKey, intervalsByDate);
+  return intervalsByDate;
 }
 
 function buildStudyBlockIntervals(day: Date, studyBlocks: StudyBlock[]) {
@@ -434,9 +494,11 @@ function resolveRecoveryWindowsForDay(options: {
   blockedStudyBlocks?: StudyBlock[];
   blockedReservedCommitments?: ReservedCommitmentOccurrence[];
   skipMovableRecovery?: boolean;
+  eventIntervals?: TimeInterval[];
 }) {
   const resolvedIntervals: Array<TimeInterval & { label: string; movable: boolean }> = [];
-  const eventIntervals = buildEventIntervals(options.day, options.fixedEvents, options.preferences);
+  const eventIntervals =
+    options.eventIntervals ?? buildEventIntervals(options.day, options.fixedEvents, options.preferences);
   const studyBlockIntervals = buildStudyBlockIntervals(options.day, options.blockedStudyBlocks ?? []);
   const reservedCommitmentIntervals = buildReservedCommitmentIntervals(
     options.day,
@@ -613,6 +675,29 @@ function buildEffectiveReservedCommitmentDurationMap(
   );
 }
 
+function buildReservedCommitmentCacheKey(options: {
+  weekStart: Date;
+  sickDays: SickDay[];
+  excludedRuleIds: string[];
+  effectiveReservedCommitmentDurations: EffectiveReservedCommitmentDuration[];
+  planningStart?: Date;
+}) {
+  const excludedKey = [...options.excludedRuleIds].sort().join(",");
+  const durationKey = [...options.effectiveReservedCommitmentDurations]
+    .sort((left, right) =>
+      `${left.dateKey}:${left.ruleId}`.localeCompare(`${right.dateKey}:${right.ruleId}`),
+    )
+    .map((override) => `${override.dateKey}:${override.ruleId}:${override.durationMinutes}`)
+    .join(",");
+  return [
+    toDateKey(startOfPlannerWeek(options.weekStart)),
+    options.planningStart?.toISOString() ?? "none",
+    buildSickDayCacheKey(options.sickDays),
+    excludedKey,
+    durationKey,
+  ].join("::");
+}
+
 export function expandReservedCommitmentWindowsForWeek(
   weekStart: Date,
   preferences: Preferences,
@@ -621,16 +706,40 @@ export function expandReservedCommitmentWindowsForWeek(
   excludedRuleIds: string[] = [],
   effectiveReservedCommitmentDurations: EffectiveReservedCommitmentDuration[] = [],
   planningStart?: Date,
+  schedulingContext?: SchedulingRunContext,
 ): ReservedCommitmentOccurrence[] {
-  const expandedFixedEvents = expandPlannerFixedEventsForWeek(weekStart, fixedEvents, preferences);
+  const expandedFixedEvents = expandPlannerFixedEventsForWeek(
+    weekStart,
+    fixedEvents,
+    preferences,
+    schedulingContext,
+  );
+  const cacheKey = buildReservedCommitmentCacheKey({
+    weekStart,
+    sickDays,
+    excludedRuleIds,
+    effectiveReservedCommitmentDurations,
+    planningStart,
+  });
+  const cached = schedulingContext?.reservedCommitmentWindowsByKey.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const excludedRuleIdSet = new Set(excludedRuleIds);
   const effectiveDurationByKey = buildEffectiveReservedCommitmentDurationMap(
     effectiveReservedCommitmentDurations,
   );
+  const fixedEventIntervalsByDate = getFixedEventIntervalsByDateForWeek({
+    weekStart,
+    fixedEvents: expandedFixedEvents,
+    preferences,
+    schedulingContext,
+  });
 
-  return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)).flatMap((day) => {
+  const occurrences = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)).flatMap((day) => {
     const inSchoolTerm = isDateInActiveSchoolTerm(day, preferences);
-    const dayFixedEventIntervals = buildEventIntervals(day, expandedFixedEvents, preferences);
+    const dayFixedEventIntervals = fixedEventIntervalsByDate.get(toDateKey(day)) ?? [];
     const dayRecoveryIntervals = resolveRecoveryWindowsForDay({
       day,
       fixedEvents: expandedFixedEvents,
@@ -638,6 +747,7 @@ export function expandReservedCommitmentWindowsForWeek(
       sickDays,
       blockedStudyBlocks: [],
       skipMovableRecovery: false,
+      eventIntervals: dayFixedEventIntervals,
     }).map((window) => createInterval(window.start, window.end));
     const resolvedIntervals: Array<TimeInterval & { ruleId: string }> = [];
     const prioritizedRules = preferences.reservedCommitmentRules
@@ -724,6 +834,9 @@ export function expandReservedCommitmentWindowsForWeek(
       }));
     });
   });
+
+  schedulingContext?.reservedCommitmentWindowsByKey.set(cacheKey, occurrences);
+  return occurrences;
 }
 
 export function expandLockedRecoveryWindowsForWeek(
@@ -735,8 +848,20 @@ export function expandLockedRecoveryWindowsForWeek(
   skipMovableRecovery = false,
   planningStart?: Date,
   blockedReservedCommitments: ReservedCommitmentOccurrence[] = [],
+  schedulingContext?: SchedulingRunContext,
 ): RecoveryWindowOccurrence[] {
-  const expandedFixedEvents = expandPlannerFixedEventsForWeek(weekStart, fixedEvents, preferences);
+  const expandedFixedEvents = expandPlannerFixedEventsForWeek(
+    weekStart,
+    fixedEvents,
+    preferences,
+    schedulingContext,
+  );
+  const fixedEventIntervalsByDate = getFixedEventIntervalsByDateForWeek({
+    weekStart,
+    fixedEvents: expandedFixedEvents,
+    preferences,
+    schedulingContext,
+  });
 
   return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)).flatMap((day) =>
     resolveRecoveryWindowsForDay({
@@ -747,6 +872,7 @@ export function expandLockedRecoveryWindowsForWeek(
       blockedStudyBlocks,
       blockedReservedCommitments,
       skipMovableRecovery,
+      eventIntervals: fixedEventIntervalsByDate.get(toDateKey(day)) ?? [],
     }).map((window) => ({
       id: `${window.label}-${toDateKey(day)}`,
       dateKey: toDateKey(day),
@@ -800,11 +926,17 @@ export function calculateFreeSlots(options: {
   excludedReservedCommitmentRuleIds?: string[];
   effectiveReservedCommitmentDurations?: EffectiveReservedCommitmentDuration[];
   minimumDurationMinutes?: number;
+  schedulingContext?: SchedulingRunContext;
 }) {
   const { weekStart, preferences, planningStart } = options;
   const sickDays = options.sickDays ?? [];
   const minimumDurationMinutes = options.minimumDurationMinutes ?? MIN_ALLOCATABLE_MINUTES;
-  const fixedEvents = expandPlannerFixedEventsForWeek(weekStart, options.fixedEvents, preferences);
+  const fixedEvents = expandPlannerFixedEventsForWeek(
+    weekStart,
+    options.fixedEvents,
+    preferences,
+    options.schedulingContext,
+  );
   const reservedCommitments = expandReservedCommitmentWindowsForWeek(
     weekStart,
     preferences,
@@ -813,6 +945,7 @@ export function calculateFreeSlots(options: {
     options.excludedReservedCommitmentRuleIds ?? [],
     options.effectiveReservedCommitmentDurations ?? [],
     planningStart,
+    options.schedulingContext,
   );
   const blockedStudyBlocks = options.blockedStudyBlocks ?? [];
   const recoveryWindows = expandLockedRecoveryWindowsForWeek(
@@ -824,11 +957,20 @@ export function calculateFreeSlots(options: {
     options.skipMovableRecovery ?? false,
     planningStart,
     reservedCommitments,
+    options.schedulingContext,
   );
+  const fixedEventIntervalsByDate = getFixedEventIntervalsByDateForWeek({
+    weekStart,
+    fixedEvents,
+    preferences,
+    sickDays,
+    schedulingContext: options.schedulingContext,
+  });
 
   const slots: CalendarSlot[] = [];
 
   Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)).forEach((day) => {
+    const dateKey = toDateKey(day);
     const scheduleProfile = resolveDailyScheduleProfile(day, preferences, sickDays);
     if (!scheduleProfile.isStudyEnabled) {
       return;
@@ -851,9 +993,9 @@ export function calculateFreeSlots(options: {
         .filter((window) => toDateKey(new Date(window.start)) === toDateKey(day))
         .map((window) => createInterval(new Date(window.start), new Date(window.end))),
       ...reservedCommitments
-        .filter((window) => toDateKey(new Date(window.start)) === toDateKey(day))
+        .filter((window) => toDateKey(new Date(window.start)) === dateKey)
         .map((window) => createInterval(new Date(window.start), new Date(window.end))),
-      ...buildEventIntervals(day, fixedEvents, preferences, sickDays),
+      ...(fixedEventIntervalsByDate.get(dateKey) ?? []),
       ...buildStudyBlockIntervals(day, blockedStudyBlocks),
     ]);
 
@@ -864,7 +1006,7 @@ export function calculateFreeSlots(options: {
           id: `${toDateKey(day)}-slot-${slotIndex + 1}`,
           start: interval.start,
           end: interval.end,
-          dateKey: toDateKey(day),
+          dateKey,
           durationMinutes: minutesBetween(interval.start, interval.end),
           energy: "steady",
           dayIndex: day.getDay(),
@@ -888,11 +1030,12 @@ export function studyBlockOverlapsFixedEvent(
   fixedEvents: FixedEvent[],
   weekStart: Date,
   preferences: Preferences,
+  schedulingContext?: SchedulingRunContext,
 ) {
   const blockStart = new Date(block.start);
   const blockEnd = new Date(block.end);
 
-  return expandPlannerFixedEventsForWeek(weekStart, fixedEvents, preferences).some((event) => {
+  return expandPlannerFixedEventsForWeek(weekStart, fixedEvents, preferences, schedulingContext).some((event) => {
     const eventStart = new Date(event.start);
     const eventEnd = new Date(event.end);
     return blockStart < eventEnd && blockEnd > eventStart;

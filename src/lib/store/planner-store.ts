@@ -27,6 +27,9 @@ import {
   importPlannerData,
   initializePlannerDatabase,
   loadPlannerSnapshot,
+  markPlanningHorizonReady,
+  markPlanningHorizonStale,
+  regeneratePlanningHorizon,
   getCollapsedCoverageRepairState,
   getScopedReplanPrecheckState,
   repairCollapsedCoveragePlanningState,
@@ -56,6 +59,7 @@ import type {
   FocusedWeek,
   PlannerExportPayload,
   BackgroundReplanStatus,
+  PlannerHorizonStatus,
   Preferences,
   PlannerReplanScope,
   ReplanDiagnostics,
@@ -75,6 +79,9 @@ interface PlannerState {
   backgroundReplanStatus: BackgroundReplanStatus;
   backgroundReplanScope: PlannerReplanScope | null;
   backgroundReplanDiagnostics: ReplanDiagnostics | null;
+  horizonStatus: PlannerHorizonStatus;
+  horizonStatusMessage: string;
+  lastHorizonGeneratedAt: string | null;
   currentWeekStart: string;
   goals: PlannerExportPayload["goals"];
   subjects: PlannerExportPayload["subjects"];
@@ -612,7 +619,8 @@ async function replanPlannerState(options: {
   let nextSnapshot = await loadPlannerSnapshot();
   snapshotLoadMs += nowMs() - nextSnapshotLoadStartedAtMs;
   if (!getCollapsedCoverageRepairState(nextSnapshot, referenceDate).hasCollapsedCoverage) {
-    return nextSnapshot;
+    await markPlanningHorizonReady(referenceDate);
+    return loadPlannerSnapshot();
   }
 
   const repairStartedAtMs = nowMs();
@@ -622,7 +630,15 @@ async function replanPlannerState(options: {
   nextSnapshotLoadStartedAtMs = nowMs();
   const finalSnapshot = await loadPlannerSnapshot();
   snapshotLoadMs += nowMs() - nextSnapshotLoadStartedAtMs;
-  return finalSnapshot;
+  if (!getCollapsedCoverageRepairState(finalSnapshot, referenceDate).hasCollapsedCoverage) {
+    await markPlanningHorizonReady(referenceDate);
+    return loadPlannerSnapshot();
+  }
+
+  await markPlanningHorizonStale(
+    "Regeneration could not produce a valid complete horizon. Check planner diagnostics and try again.",
+  );
+  return loadPlannerSnapshot();
 }
 
 function studyBlockOverlapsExpandedFixedEvent(block: StudyBlock, expandedEvent: FixedEvent) {
@@ -666,6 +682,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   backgroundReplanStatus: "idle",
   backgroundReplanScope: null,
   backgroundReplanDiagnostics: null,
+  horizonStatus: "missing",
+  horizonStatusMessage: "Plan needs regeneration. Click Regenerate horizon.",
+  lastHorizonGeneratedAt: null,
   currentWeekStart: getCurrentWeekKey(),
   goals: [],
   subjects: [],
@@ -729,14 +748,16 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     });
   },
   regenerateHorizon: async () => {
-    set({ loading: true, error: null });
+    set({
+      loading: true,
+      error: null,
+      horizonStatus: "regenerating",
+      horizonStatusMessage: "Regenerating the full horizon…",
+    });
 
     try {
       bumpPlannerMutationRevision();
-      const snapshot = await replanPlannerState({
-        mutation: "regenerate_horizon",
-        preserveFlexibleFutureBlocks: false,
-      });
+      const snapshot = await regeneratePlanningHorizon(new Date());
       set({
         ...snapshot,
         backgroundReplanStatus: "idle",

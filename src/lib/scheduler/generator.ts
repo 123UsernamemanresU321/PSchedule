@@ -12,7 +12,9 @@ import {
 } from "@/lib/scheduler/feasibility";
 import {
   calculateFreeSlots,
+  createSchedulingRunContext,
   expandReservedCommitmentWindowsForWeek,
+  type SchedulingRunContext,
 } from "@/lib/scheduler/free-slots";
 import {
   getOlympiadNumberTheoryEligibilityStatus,
@@ -124,6 +126,7 @@ export function absorbStudyMicroGaps(options: {
   preferences: Preferences;
   sickDays?: SickDay[];
   planningStart?: Date;
+  schedulingContext?: SchedulingRunContext;
 }) {
   const weekStart = startOfPlannerWeek(options.weekStart);
   const clonedBlocks = options.studyBlocks.map((block) => ({ ...block }));
@@ -138,6 +141,7 @@ export function absorbStudyMicroGaps(options: {
       blockedStudyBlocks: clonedBlocks,
       planningStart: options.planningStart,
       minimumDurationMinutes: 1,
+      schedulingContext: options.schedulingContext,
     }).filter(
       (slot) => slot.durationMinutes > 0 && slot.durationMinutes < MIN_ALLOCATABLE_MINUTES,
     );
@@ -873,6 +877,7 @@ function buildBaseReservedCommitmentDurationsForWeek(options: {
   sickDays?: SickDay[];
   preferences: Preferences;
   planningStart: Date;
+  schedulingContext?: SchedulingRunContext;
 }) {
   return summarizeEffectiveReservedCommitmentDurations(
     expandReservedCommitmentWindowsForWeek(
@@ -883,6 +888,7 @@ function buildBaseReservedCommitmentDurationsForWeek(options: {
       [],
       [],
       options.planningStart,
+      options.schedulingContext,
     ),
   );
 }
@@ -911,6 +917,7 @@ function calculateFreeSlotCapacityForWeek(options: {
   blockedStudyBlocks: StudyBlock[];
   planningStart: Date;
   effectiveReservedCommitmentDurations: EffectiveReservedCommitmentDuration[];
+  schedulingContext?: SchedulingRunContext;
 }) {
   return sumFreeSlotMinutes(
     calculateFreeSlots({
@@ -921,6 +928,7 @@ function calculateFreeSlotCapacityForWeek(options: {
       blockedStudyBlocks: options.blockedStudyBlocks,
       planningStart: options.planningStart,
       effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
+      schedulingContext: options.schedulingContext,
     }),
   );
 }
@@ -934,6 +942,7 @@ function chooseBestSoftCommitmentReduction(options: {
   preferences: Preferences;
   blockedStudyBlocks: StudyBlock[];
   planningStart: Date;
+  schedulingContext?: SchedulingRunContext;
 }):
   | {
       reducedDurations: EffectiveReservedCommitmentDuration[];
@@ -965,6 +974,7 @@ function chooseBestSoftCommitmentReduction(options: {
       blockedStudyBlocks: options.blockedStudyBlocks,
       planningStart: options.planningStart,
       effectiveReservedCommitmentDurations: reducedDurations,
+      schedulingContext: options.schedulingContext,
     });
 
     if (
@@ -1035,6 +1045,7 @@ function calculateSoftCommitmentTargetCapacityMinutes(options: {
   remainingTaskMinutes: number;
   weeklyRequiredMinutes: number;
   baseDurations: EffectiveReservedCommitmentDuration[];
+  schedulingContext?: SchedulingRunContext;
 }) {
   const weekEnd = addDays(options.currentWeek, 6);
   const hardInWeekDemandMinutes = calculateHardInWeekDemandMinutes({
@@ -1056,6 +1067,7 @@ function calculateSoftCommitmentTargetCapacityMinutes(options: {
     sickDays: options.sickDays,
     preferences: options.preferences,
     planningStart: options.currentWeek,
+    schedulingContext: options.schedulingContext,
   });
   const fullWeekCapacityMinutes = calculateFreeSlotCapacityForWeek({
     weekStart: options.currentWeek,
@@ -1065,6 +1077,7 @@ function calculateSoftCommitmentTargetCapacityMinutes(options: {
     blockedStudyBlocks: options.blockedStudyBlocks,
     planningStart: options.currentWeek,
     effectiveReservedCommitmentDurations: fullWeekBaseDurations,
+    schedulingContext: options.schedulingContext,
   });
   const remainingWeekCapacityMinutes = calculateFreeSlotCapacityForWeek({
     weekStart: options.currentWeek,
@@ -1074,6 +1087,7 @@ function calculateSoftCommitmentTargetCapacityMinutes(options: {
     blockedStudyBlocks: options.blockedStudyBlocks,
     planningStart: options.referenceDate,
     effectiveReservedCommitmentDurations: options.baseDurations,
+    schedulingContext: options.schedulingContext,
   });
   const remainingWeekDemandMinutes =
     fullWeekCapacityMinutes > 0
@@ -1155,6 +1169,7 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
   horizonStartDate: Date;
   subjectDeadlinesById: Record<string, string>;
   availabilityOverrideSubjectIds?: Subject["id"][];
+  schedulingContext?: SchedulingRunContext;
 }) {
   const referenceDate = getPlannerReferenceDate(options.currentWeek, options.horizonStartDate);
   const baseDurations = buildBaseReservedCommitmentDurationsForWeek({
@@ -1163,6 +1178,7 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
     sickDays: options.sickDays,
     preferences: options.preferences,
     planningStart: referenceDate,
+    schedulingContext: options.schedulingContext,
   });
   const remainingTasks = buildTaskCandidates({
     topics: options.topics,
@@ -1222,6 +1238,7 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
     remainingTaskMinutes,
     weeklyRequiredMinutes,
     baseDurations,
+    schedulingContext: options.schedulingContext,
   });
   let currentDurations = baseDurations;
   const reducedRuleIds = new Set<string>();
@@ -1234,6 +1251,7 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
     blockedStudyBlocks,
     planningStart: referenceDate,
     effectiveReservedCommitmentDurations: currentDurations,
+    schedulingContext: options.schedulingContext,
   });
 
   while (capacityMinutes + MIN_ALLOCATABLE_MINUTES < targetCapacityMinutes) {
@@ -1249,6 +1267,7 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
         preferences: options.preferences,
         blockedStudyBlocks,
         planningStart: referenceDate,
+        schedulingContext: options.schedulingContext,
       });
 
       if (!candidate) {
@@ -1295,6 +1314,7 @@ function buildFutureFocusedReserveMinutesBySubject(options: {
   availabilityOverrideSubjectIds?: Subject["id"][];
   effectiveReservedCommitmentDurations?: EffectiveReservedCommitmentDuration[];
   excludedReservedCommitmentRuleIds?: string[];
+  schedulingContext?: SchedulingRunContext;
   getEffectiveReservedCommitmentPlanForWeek?: (weekStart: Date) => {
     effectiveReservedCommitmentDurations: EffectiveReservedCommitmentDuration[];
     excludedReservedCommitmentRuleIds: string[];
@@ -1378,6 +1398,7 @@ function buildFutureFocusedReserveMinutesBySubject(options: {
         options.getEffectiveReservedCommitmentPlanForWeek?.(futureWeek)
           ?.excludedReservedCommitmentRuleIds ??
         options.excludedReservedCommitmentRuleIds,
+      schedulingContext: options.schedulingContext,
     });
     const dayCapacityByDate = buildDayCapacityByDate(futureWeekSlots);
     const focusedTargetMinutesByDate = buildFocusedTargetMinutesByDate({
@@ -1499,6 +1520,7 @@ function allocateTasksToSlots(options: {
   isFinalPass?: boolean;
   dayStudyCapOverrideMinutesByDate?: Record<string, number>;
   schoolTermTemplate?: ReturnType<typeof buildSchoolTermWeekTemplate>;
+  schedulingContext?: SchedulingRunContext;
 }) {
   const weekStartKey = toDateKey(options.weekStart);
   const subjectMap = new Map(options.subjects.map((subject) => [subject.id, subject]));
@@ -2267,6 +2289,7 @@ function allocateTasksToSlots(options: {
         planningStart: options.referenceDate,
         skipMovableRecovery: false,
         minimumDurationMinutes: 1,
+        schedulingContext: options.schedulingContext,
       }).filter(
         (slot) =>
           slot.durationMinutes > 0 &&
@@ -2984,6 +3007,7 @@ export function generateStudyPlanForWeek(options: {
   effectiveReservedCommitmentDurations?: EffectiveReservedCommitmentDuration[];
   excludedReservedCommitmentRuleIds?: string[];
   reservedCommitmentFallbackTierUsed?: number;
+  schedulingContext?: SchedulingRunContext;
 }): SchedulerResult {
   const weekStart = startOfPlannerWeek(options.weekStart ?? new Date());
   const referenceDate = getPlannerReferenceDate(weekStart, options.referenceDate);
@@ -3078,6 +3102,7 @@ export function generateStudyPlanForWeek(options: {
     planningStart: referenceDate,
     effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
     excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
+    schedulingContext: options.schedulingContext,
   });
   const capacityFreeSlots = calculateFreeSlots({
     weekStart,
@@ -3089,6 +3114,7 @@ export function generateStudyPlanForWeek(options: {
     skipMovableRecovery: true,
     effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
     excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
+    schedulingContext: options.schedulingContext,
   });
   const shouldFillAvailableStudyDays = true;
   const fullCoverageTasks = buildTaskCandidates({
@@ -3174,6 +3200,7 @@ export function generateStudyPlanForWeek(options: {
       skipMovableRecovery: passPolicy.skipMovableRecovery,
       effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
       excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
+      schedulingContext: options.schedulingContext,
     });
 
     if (!freeSlots.length) {
@@ -3248,6 +3275,7 @@ export function generateStudyPlanForWeek(options: {
     planningStart: referenceDate,
     effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
     excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
+    schedulingContext: options.schedulingContext,
   });
   let finalTasks = buildTaskCandidates({
     topics: options.topics,
@@ -3331,6 +3359,7 @@ export function generateStudyPlanForWeek(options: {
         planningStart: referenceDate,
         effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
         excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
+        schedulingContext: options.schedulingContext,
       });
       finalTasks = buildTaskCandidates({
         topics: options.topics,
@@ -3469,6 +3498,7 @@ export function generateStudyPlanHorizon(options: {
 }) {
   const startWeek = startOfPlannerWeek(options.startWeek ?? new Date());
   const referenceDate = options.referenceDate ?? new Date();
+  const schedulingContext = createSchedulingRunContext();
   const horizonStartDate = referenceDate;
   const configuredEndWeek = options.endWeek
     ? startOfPlannerWeek(options.endWeek)
@@ -3541,6 +3571,7 @@ export function generateStudyPlanHorizon(options: {
       horizonStartDate,
       subjectDeadlinesById,
       availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+      schedulingContext,
     });
     const futureFocusedReserveMinutesBySubject = buildFutureFocusedReserveMinutesBySubject({
       currentWeek,
@@ -3573,7 +3604,9 @@ export function generateStudyPlanHorizon(options: {
           horizonStartDate,
           subjectDeadlinesById,
           availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+          schedulingContext,
         }),
+      schedulingContext,
     });
     const result = generateStudyPlanForWeek({
       weekStart: currentWeek,
@@ -3598,6 +3631,7 @@ export function generateStudyPlanHorizon(options: {
         effectiveReservedCommitmentPlan.excludedReservedCommitmentRuleIds,
       reservedCommitmentFallbackTierUsed:
         effectiveReservedCommitmentPlan.fallbackTierUsed,
+      schedulingContext,
     });
 
     horizonStudyBlocks.push(...result.studyBlocks);
@@ -3822,6 +3856,7 @@ export function generateIncrementalStudyPlanTail(options: {
 }) {
   const startWeek = startOfPlannerWeek(options.startWeek ?? new Date());
   const referenceDate = options.referenceDate ?? new Date();
+  const schedulingContext = createSchedulingRunContext();
   const horizonStartDate = referenceDate;
   const configuredEndWeek = options.endWeek
     ? startOfPlannerWeek(options.endWeek)
@@ -3912,6 +3947,7 @@ export function generateIncrementalStudyPlanTail(options: {
       horizonStartDate,
       subjectDeadlinesById,
       availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+      schedulingContext,
     });
     const futureFocusedReserveMinutesBySubject = buildFutureFocusedReserveMinutesBySubject({
       currentWeek,
@@ -3944,7 +3980,9 @@ export function generateIncrementalStudyPlanTail(options: {
           horizonStartDate,
           subjectDeadlinesById,
           availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+          schedulingContext,
         }),
+      schedulingContext,
     });
     const result = generateStudyPlanForWeek({
       weekStart: currentWeek,
@@ -3969,6 +4007,7 @@ export function generateIncrementalStudyPlanTail(options: {
         effectiveReservedCommitmentPlan.excludedReservedCommitmentRuleIds,
       reservedCommitmentFallbackTierUsed:
         effectiveReservedCommitmentPlan.fallbackTierUsed,
+      schedulingContext,
     });
 
     rebuiltWeeklyPlans.push(result.weeklyPlan);

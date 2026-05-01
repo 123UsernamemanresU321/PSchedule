@@ -7,6 +7,7 @@ import { StudyBlockDrawer } from "@/components/planner/study-block-drawer";
 import { Sidebar } from "@/components/shell/sidebar";
 import { TopHeader } from "@/components/shell/top-header";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { usePlannerStore } from "@/lib/store/planner-store";
 
 export function AppShell({
@@ -17,6 +18,9 @@ export function AppShell({
   const initialized = usePlannerStore((state) => state.initialized);
   const loading = usePlannerStore((state) => state.loading);
   const error = usePlannerStore((state) => state.error);
+  const horizonStatus = usePlannerStore((state) => state.horizonStatus);
+  const horizonStatusMessage = usePlannerStore((state) => state.horizonStatusMessage);
+  const regenerateHorizon = usePlannerStore((state) => state.regenerateHorizon);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -31,6 +35,28 @@ export function AppShell({
                 <p className="font-medium">Planner error</p>
                 <p className="text-sm text-danger/80">{error}</p>
               </div>
+            </Card>
+          ) : null}
+          {initialized && horizonStatus !== "ready" && horizonStatus !== "regenerating" ? (
+            <Card className="mb-6 flex flex-col gap-3 border-warning/30 bg-warning/8 p-4 text-warning sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <p className="font-medium">
+                    {horizonStatus === "missing" ? "Planner horizon missing" : "Planner horizon stale"}
+                  </p>
+                  <p className="text-sm text-warning/80">
+                    {horizonStatusMessage || "Plan needs regeneration. Click Regenerate horizon."}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                disabled={loading}
+                onClick={() => void regenerateHorizon()}
+              >
+                Regenerate horizon
+              </Button>
             </Card>
           ) : null}
           {!initialized && loading ? (

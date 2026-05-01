@@ -29,6 +29,7 @@ export type SickDaySeverity = "light" | "moderate" | "severe";
 export type StudyBlockCreationSource = "planner" | "manual";
 export type PlannerReplanScope = "week_local" | "tail_from_week" | "full_horizon";
 export type BackgroundReplanStatus = "idle" | "running" | "failed";
+export type PlannerHorizonStatus = "ready" | "stale" | "missing" | "regenerating";
 export type SubjectCategory =
   | "physics"
   | "maths"

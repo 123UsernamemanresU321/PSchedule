@@ -1,7 +1,6 @@
 import { getAcademicDeadline, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import {
   generateStudyPlanHorizon,
-  getPlanningHorizonEndWeek,
   shouldAlwaysPreserveStudyBlockOnRegeneration,
   shouldPreserveStudyBlockOnRegeneration,
 } from "@/lib/scheduler/generator";
@@ -25,6 +24,7 @@ import type {
   FocusedWeek,
   PlannerExportPayload,
   PlannerReplanScope,
+  PlannerHorizonStatus,
   Preferences,
   SeedDataset,
   SickDay,
@@ -43,6 +43,9 @@ const LANGUAGE_MAINTENANCE_VERSION = "2026-04-30-french-grammar-cap-v3";
 const SEED_TOPIC_ORDERING_VERSION = "2026-04-30-paper-frontiers-v6";
 const STALE_PLANNING_MODEL_VERSION = "stale";
 const AUTO_MARKED_MISSED_NOTE_PREFIX = "Auto-marked missed after the block ended";
+const LAST_HORIZON_GENERATED_AT_META_KEY = "last-horizon-generated-at";
+const HORIZON_START_WEEK_META_KEY = "horizon-start-week";
+const HORIZON_STALE_REASON_META_KEY = "horizon-stale-reason";
 const LEGACY_OLYMPIAD_DEFAULT_PRIORITY = 0.85;
 const LEGACY_CPP_BOOK_DEFAULT_PRIORITY = 0.45;
 const MIN_HEALTHY_SCHEDULED_COVERAGE_RATIO = 0.999;
@@ -570,6 +573,11 @@ async function migrateLegacyPreferenceDefaults(snapshot: PlannerSnapshot) {
       key: "preferences-defaults-version",
       value: PREFERENCE_DEFAULTS_VERSION,
     });
+    await db.meta.put({ key: "planning-model-version", value: STALE_PLANNING_MODEL_VERSION });
+    await db.meta.put({
+      key: HORIZON_STALE_REASON_META_KEY,
+      value: "Planner preference defaults changed. Click Regenerate horizon to rebuild the schedule.",
+    });
   });
 
   return loadPlannerSnapshot();
@@ -715,6 +723,53 @@ export interface PlannerSnapshot {
   completionLogs: PlannerExportPayload["completionLogs"];
   weeklyPlans: PlannerExportPayload["weeklyPlans"];
   preferences: Preferences;
+  horizonStatus?: PlannerHorizonStatus;
+  horizonStatusMessage?: string;
+  lastHorizonGeneratedAt?: string | null;
+}
+
+export function derivePlannerHorizonStatus(options: {
+  weeklyPlans: WeeklyPlan[];
+  planningModelVersion?: string | null;
+  currentPlanningModelVersion?: string;
+  currentWeekStart?: string;
+  staleReason?: string | null;
+}): {
+  horizonStatus: PlannerHorizonStatus;
+  horizonStatusMessage: string;
+} {
+  const currentPlanningModelVersion = options.currentPlanningModelVersion ?? PLANNING_MODEL_VERSION;
+
+  if (options.weeklyPlans.length === 0) {
+    return {
+      horizonStatus: "missing",
+      horizonStatusMessage: "Plan needs regeneration. Click Regenerate horizon.",
+    };
+  }
+
+  if (options.planningModelVersion !== currentPlanningModelVersion) {
+    return {
+      horizonStatus: "stale",
+      horizonStatusMessage:
+        options.staleReason?.trim() ||
+        "Planner rules changed. Click Regenerate horizon to rebuild the schedule.",
+    };
+  }
+
+  if (
+    options.currentWeekStart &&
+    !options.weeklyPlans.some((weeklyPlan) => weeklyPlan.weekStart === options.currentWeekStart)
+  ) {
+    return {
+      horizonStatus: "stale",
+      horizonStatusMessage: "The saved horizon does not include the current week. Click Regenerate horizon.",
+    };
+  }
+
+  return {
+    horizonStatus: "ready",
+    horizonStatusMessage: "",
+  };
 }
 
 function getScopedWeekStarts(
@@ -974,110 +1029,6 @@ export async function repairCollapsedCoveragePlanningState(referenceDate = new D
   return syncPlanningSubjectsToCurrentSeed(snapshot, referenceDate);
 }
 
-async function ensureCurrentWeekPlan(snapshot: PlannerSnapshot, referenceDate: Date) {
-  const weekStart = startOfPlannerWeek(referenceDate);
-  const weekStartKey = toDateKey(weekStart);
-  const horizonEndWeekKey = toDateKey(
-    getPlanningHorizonEndWeek(snapshot.goals, snapshot.subjects, referenceDate),
-  );
-  let workingSnapshot = snapshot;
-  const preservedStudyBlockIds = collectActiveStudyBlockIds(workingSnapshot.studyBlocks, referenceDate);
-  let repairState = getCollapsedCoverageRepairState(workingSnapshot, referenceDate);
-
-  if (
-    !repairState.hasCollapsedCoverage &&
-    workingSnapshot.weeklyPlans.some((plan) => plan.weekStart === weekStartKey) &&
-    workingSnapshot.weeklyPlans.some((plan) => plan.weekStart === horizonEndWeekKey) &&
-    !workingSnapshot.weeklyPlans.some((plan) => plan.weekStart > horizonEndWeekKey)
-  ) {
-    return workingSnapshot;
-  }
-
-  if (repairState.hasCollapsedCoverage) {
-    workingSnapshot = await syncPlanningSubjectsToCurrentSeed(workingSnapshot, referenceDate);
-    repairState = getCollapsedCoverageRepairState(workingSnapshot, referenceDate);
-  }
-
-  const existingStudyBlocks = repairState.hasCollapsedCoverage
-    ? repairState.hasHardConstraintCoverageFailure
-      ? buildHardConstraintFutureResetBaselineStudyBlocks(
-          workingSnapshot.studyBlocks,
-          referenceDate,
-          preservedStudyBlockIds,
-        )
-      : buildCollapsedCoverageRepairBaselineStudyBlocks(
-          workingSnapshot.studyBlocks,
-          referenceDate,
-          preservedStudyBlockIds,
-          repairState.invalidOverlapBlockIds,
-        )
-    : workingSnapshot.studyBlocks;
-
-  const replanned = generateStudyPlanHorizon({
-    startWeek: weekStart,
-    referenceDate,
-    goals: workingSnapshot.goals,
-    subjects: workingSnapshot.subjects,
-    topics: workingSnapshot.topics,
-    completionLogs: workingSnapshot.completionLogs,
-    fixedEvents: workingSnapshot.fixedEvents,
-    sickDays: workingSnapshot.sickDays,
-    focusedDays: workingSnapshot.focusedDays,
-    focusedWeeks: workingSnapshot.focusedWeeks,
-    preferences: workingSnapshot.preferences,
-    existingStudyBlocks,
-    preservedStudyBlockIds,
-    preserveFlexibleFutureBlocks: repairState.hasCollapsedCoverage ? false : undefined,
-  });
-
-  await replacePlanningHorizon(replanned.studyBlocks, replanned.weeklyPlans, weekStartKey, {
-    preservedStudyBlockIds,
-    preserveFlexibleFutureBlocks: repairState.hasCollapsedCoverage ? false : undefined,
-    aggressiveFutureReset: repairState.hasCollapsedCoverage,
-  });
-  let nextSnapshot = await loadPlannerSnapshot();
-  if (!getCollapsedCoverageRepairState(nextSnapshot, referenceDate).hasCollapsedCoverage) {
-    return nextSnapshot;
-  }
-
-  nextSnapshot = await syncPlanningSubjectsToCurrentSeed(nextSnapshot, referenceDate);
-  const repaired = generateStudyPlanHorizon({
-    startWeek: weekStart,
-    referenceDate,
-    goals: nextSnapshot.goals,
-    subjects: nextSnapshot.subjects,
-    topics: nextSnapshot.topics,
-    completionLogs: nextSnapshot.completionLogs,
-    fixedEvents: nextSnapshot.fixedEvents,
-    sickDays: nextSnapshot.sickDays,
-    focusedDays: nextSnapshot.focusedDays,
-    focusedWeeks: nextSnapshot.focusedWeeks,
-    preferences: nextSnapshot.preferences,
-    existingStudyBlocks: getCollapsedCoverageRepairState(nextSnapshot, referenceDate)
-      .hasHardConstraintCoverageFailure
-      ? buildHardConstraintFutureResetBaselineStudyBlocks(
-          nextSnapshot.studyBlocks,
-          referenceDate,
-          preservedStudyBlockIds,
-        )
-      : buildCollapsedCoverageRepairBaselineStudyBlocks(
-          nextSnapshot.studyBlocks,
-          referenceDate,
-          preservedStudyBlockIds,
-          getCollapsedCoverageRepairState(nextSnapshot, referenceDate).invalidOverlapBlockIds,
-        ),
-    preservedStudyBlockIds,
-    preserveFlexibleFutureBlocks: false,
-  });
-
-  await replacePlanningHorizon(repaired.studyBlocks, repaired.weeklyPlans, weekStartKey, {
-    preservedStudyBlockIds,
-    preserveFlexibleFutureBlocks: false,
-    aggressiveFutureReset: true,
-  });
-  return loadPlannerSnapshot();
-}
-
 async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Date) {
   const weekStart = startOfPlannerWeek(referenceDate);
   const weekStartKey = toDateKey(weekStart);
@@ -1119,11 +1070,73 @@ async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Da
     preserveFlexibleFutureBlocks: false,
     aggressiveFutureReset: true,
   });
-  await db.meta.put({ key: "planning-model-version", value: PLANNING_MODEL_VERSION });
+  await markPlanningHorizonReady(referenceDate);
   return loadPlannerSnapshot();
 }
 
-async function migrateLegacySeededFixedEvents(snapshot: PlannerSnapshot, referenceDate: Date) {
+export async function regeneratePlanningHorizon(referenceDate = new Date()) {
+  await autoMarkExpiredUncompletedStudyBlocks(referenceDate);
+  let snapshot = await loadPlannerSnapshot();
+  snapshot = await refreshPlanningModel(snapshot, referenceDate);
+
+  let repairState = getCollapsedCoverageRepairState(snapshot, referenceDate);
+  if (!repairState.hasCollapsedCoverage) {
+    await markPlanningHorizonReady(referenceDate);
+    return loadPlannerSnapshot();
+  }
+
+  const preservedStudyBlockIds = collectActiveStudyBlockIds(snapshot.studyBlocks, referenceDate);
+  const syncedSnapshot = await syncPlanningSubjectsToCurrentSeed(snapshot, referenceDate);
+  repairState = getCollapsedCoverageRepairState(syncedSnapshot, referenceDate);
+  const weekStart = startOfPlannerWeek(referenceDate);
+  const weekStartKey = toDateKey(weekStart);
+  const repaired = generateStudyPlanHorizon({
+    startWeek: weekStart,
+    referenceDate,
+    goals: syncedSnapshot.goals,
+    subjects: syncedSnapshot.subjects,
+    topics: syncedSnapshot.topics,
+    completionLogs: syncedSnapshot.completionLogs,
+    fixedEvents: syncedSnapshot.fixedEvents,
+    sickDays: syncedSnapshot.sickDays,
+    focusedDays: syncedSnapshot.focusedDays,
+    focusedWeeks: syncedSnapshot.focusedWeeks,
+    preferences: syncedSnapshot.preferences,
+    existingStudyBlocks: repairState.hasHardConstraintCoverageFailure
+      ? buildHardConstraintFutureResetBaselineStudyBlocks(
+          syncedSnapshot.studyBlocks,
+          referenceDate,
+          preservedStudyBlockIds,
+        )
+      : buildCollapsedCoverageRepairBaselineStudyBlocks(
+          syncedSnapshot.studyBlocks,
+          referenceDate,
+          preservedStudyBlockIds,
+          repairState.invalidOverlapBlockIds,
+        ),
+    preservedStudyBlockIds,
+    preserveFlexibleFutureBlocks: false,
+  });
+
+  await replacePlanningHorizon(repaired.studyBlocks, repaired.weeklyPlans, weekStartKey, {
+    preservedStudyBlockIds,
+    preserveFlexibleFutureBlocks: false,
+    aggressiveFutureReset: true,
+  });
+
+  const finalSnapshot = await loadPlannerSnapshot();
+  if (getCollapsedCoverageRepairState(finalSnapshot, referenceDate).hasCollapsedCoverage) {
+    await markPlanningHorizonStale(
+      "Regeneration could not produce a valid complete horizon. Check planner diagnostics and try again.",
+    );
+    throw new Error("Regeneration could not produce a valid complete horizon.");
+  }
+
+  await markPlanningHorizonReady(referenceDate);
+  return loadPlannerSnapshot();
+}
+
+async function migrateLegacySeededFixedEvents(snapshot: PlannerSnapshot) {
   if (!hasLegacySeedFixedEvents(snapshot.fixedEvents)) {
     return snapshot;
   }
@@ -1133,7 +1146,7 @@ async function migrateLegacySeededFixedEvents(snapshot: PlannerSnapshot, referen
     .filter((block) => block.isAutoGenerated && !["done", "partial"].includes(block.status))
     .map((block) => block.id);
 
-  await db.transaction("rw", [db.fixedEvents, db.studyBlocks, db.weeklyPlans], async () => {
+  await db.transaction("rw", [db.fixedEvents, db.studyBlocks, db.weeklyPlans, db.meta], async () => {
     await db.fixedEvents.clear();
 
     if (cleanedFixedEvents.length) {
@@ -1150,10 +1163,14 @@ async function migrateLegacySeededFixedEvents(snapshot: PlannerSnapshot, referen
     if (removableStudyBlockIds.length) {
       await db.studyBlocks.bulkDelete(removableStudyBlockIds);
     }
+    await db.meta.put({ key: "planning-model-version", value: STALE_PLANNING_MODEL_VERSION });
+    await db.meta.put({
+      key: HORIZON_STALE_REASON_META_KEY,
+      value: "Legacy fixed events were migrated. Click Regenerate horizon.",
+    });
   });
 
-  const migratedSnapshot = await loadPlannerSnapshot();
-  return ensureCurrentWeekPlan(migratedSnapshot, referenceDate);
+  return loadPlannerSnapshot();
 }
 
 async function migrateLegacySeededSyllabus(snapshot: PlannerSnapshot, referenceDate: Date) {
@@ -1179,11 +1196,15 @@ async function migrateLegacySeededSyllabus(snapshot: PlannerSnapshot, referenceD
       await db.subjects.bulkPut(seedDataset.subjects);
       await db.topics.bulkPut(seedDataset.topics);
       await db.meta.put({ key: "seed-syllabus-version", value: "2026-07-31" });
+      await db.meta.put({ key: "planning-model-version", value: STALE_PLANNING_MODEL_VERSION });
+      await db.meta.put({
+        key: HORIZON_STALE_REASON_META_KEY,
+        value: "Seed syllabus was migrated. Click Regenerate horizon.",
+      });
     },
   );
 
-  const migratedSnapshot = await loadPlannerSnapshot();
-  return ensureCurrentWeekPlan(migratedSnapshot, referenceDate);
+  return loadPlannerSnapshot();
 }
 
 async function migrateCppBookGoal(snapshot: PlannerSnapshot, referenceDate: Date) {
@@ -1840,6 +1861,7 @@ export async function loadPlannerSnapshot(): Promise<PlannerSnapshot> {
     completionLogs,
     weeklyPlans,
     preferences,
+    metaRecords,
   ] =
     await Promise.all([
       db.goals.toArray(),
@@ -1853,11 +1875,21 @@ export async function loadPlannerSnapshot(): Promise<PlannerSnapshot> {
       db.completionLogs.toArray(),
       db.weeklyPlans.toArray(),
       db.preferences.get("default"),
+      db.meta.toArray(),
     ]);
 
   if (!preferences) {
     throw new Error("Planner preferences were not found in IndexedDB.");
   }
+
+  const metaByKey = new Map(metaRecords.map((record) => [record.key, record.value]));
+  const normalizedWeeklyPlans = weeklyPlans.map((weeklyPlan) => normalizeWeeklyPlan(weeklyPlan, new Date()));
+  const horizonState = derivePlannerHorizonStatus({
+    weeklyPlans: normalizedWeeklyPlans,
+    planningModelVersion: metaByKey.get("planning-model-version") ?? null,
+    currentWeekStart: toDateKey(startOfPlannerWeek(new Date())),
+    staleReason: metaByKey.get(HORIZON_STALE_REASON_META_KEY) ?? null,
+  });
 
   return {
     goals,
@@ -1869,9 +1901,38 @@ export async function loadPlannerSnapshot(): Promise<PlannerSnapshot> {
     focusedWeeks: focusedWeeks.map(normalizeFocusedWeek),
     studyBlocks: studyBlocks.map(normalizeStudyBlock),
     completionLogs,
-    weeklyPlans: weeklyPlans.map((weeklyPlan) => normalizeWeeklyPlan(weeklyPlan, new Date())),
+    weeklyPlans: normalizedWeeklyPlans,
     preferences: normalizePreferences(preferences),
+    horizonStatus: horizonState.horizonStatus,
+    horizonStatusMessage: horizonState.horizonStatusMessage,
+    lastHorizonGeneratedAt: metaByKey.get(LAST_HORIZON_GENERATED_AT_META_KEY) ?? null,
   };
+}
+
+export async function loadPlannerSnapshotFast() {
+  return loadPlannerSnapshot();
+}
+
+export async function markPlanningHorizonStale(reason: string) {
+  await db.transaction("rw", db.meta, async () => {
+    await db.meta.put({ key: "planning-model-version", value: STALE_PLANNING_MODEL_VERSION });
+    await db.meta.put({ key: HORIZON_STALE_REASON_META_KEY, value: reason });
+  });
+}
+
+export async function markPlanningHorizonReady(referenceDate = new Date()) {
+  await db.transaction("rw", db.meta, async () => {
+    await db.meta.put({ key: "planning-model-version", value: PLANNING_MODEL_VERSION });
+    await db.meta.put({
+      key: LAST_HORIZON_GENERATED_AT_META_KEY,
+      value: referenceDate.toISOString(),
+    });
+    await db.meta.put({
+      key: HORIZON_START_WEEK_META_KEY,
+      value: toDateKey(startOfPlannerWeek(referenceDate)),
+    });
+    await db.meta.delete(HORIZON_STALE_REASON_META_KEY);
+  });
 }
 
 export async function initializePlannerDatabase(referenceDate = new Date()) {
@@ -1879,44 +1940,18 @@ export async function initializePlannerDatabase(referenceDate = new Date()) {
   if (!seeded) {
     const seedDataset = buildSeedDataset(referenceDate);
     await writeSeedDataset(seedDataset);
-
-    const initialPlan = generateStudyPlanHorizon({
-      startWeek: startOfPlannerWeek(referenceDate),
-      referenceDate,
-      goals: seedDataset.goals,
-      subjects: seedDataset.subjects,
-      topics: seedDataset.topics,
-      completionLogs: [],
-      fixedEvents: seedDataset.fixedEvents,
-      sickDays: seedDataset.sickDays,
-      focusedDays: seedDataset.focusedDays,
-      focusedWeeks: seedDataset.focusedWeeks,
-      preferences: seedDataset.preferences,
-    });
-
-    await replacePlanningHorizon(
-      initialPlan.studyBlocks,
-      initialPlan.weeklyPlans,
-      toDateKey(startOfPlannerWeek(referenceDate)),
-    );
   }
 
   let snapshot = await loadPlannerSnapshot();
   snapshot = await migrateLegacyPreferenceDefaults(snapshot);
-  snapshot = await migrateLegacySeededFixedEvents(snapshot, referenceDate);
+  snapshot = await migrateLegacySeededFixedEvents(snapshot);
   snapshot = await migrateLegacySeededSyllabus(snapshot, referenceDate);
   snapshot = await migrateCppBookGoal(snapshot, referenceDate);
   snapshot = await migrateOlympiadRoadmap(snapshot, referenceDate);
   snapshot = await syncExtendedGoalSubjects(snapshot, referenceDate);
   snapshot = await syncLanguageMaintenanceSubjects(snapshot, referenceDate);
-  snapshot = await syncSeedOrderedSubjects(snapshot, referenceDate);
-  const planningModelVersion = await db.meta.get("planning-model-version");
-  if (planningModelVersion?.value !== PLANNING_MODEL_VERSION) {
-    snapshot = await refreshPlanningModel(snapshot, referenceDate);
-  }
-  snapshot = await repairCollapsedCoveragePlanningState(referenceDate);
-  snapshot = await ensureCurrentWeekPlan(snapshot, referenceDate);
-  return snapshot;
+  await syncSeedOrderedSubjects(snapshot, referenceDate);
+  return loadPlannerSnapshot();
 }
 
 export async function replaceWeeklyPlan(studyBlocks: StudyBlock[], weeklyPlan: WeeklyPlan) {
@@ -2152,11 +2187,15 @@ export async function savePreferences(preferences: Preferences) {
 
 export async function exportPlannerData(): Promise<PlannerExportPayload> {
   const snapshot = await loadPlannerSnapshot();
+  const exportableSnapshot = { ...snapshot };
+  delete exportableSnapshot.horizonStatus;
+  delete exportableSnapshot.horizonStatusMessage;
+  delete exportableSnapshot.lastHorizonGeneratedAt;
   return {
     version: 1,
     exportKind: "full",
     exportedAt: new Date().toISOString(),
-    ...snapshot,
+    ...exportableSnapshot,
   };
 }
 
@@ -2337,10 +2376,15 @@ export async function importPlannerData(rawJson: string) {
         key: "preferences-defaults-version",
         value: PREFERENCE_DEFAULTS_VERSION,
       });
+      await db.meta.put({ key: "planning-model-version", value: STALE_PLANNING_MODEL_VERSION });
+      await db.meta.put({
+        key: HORIZON_STALE_REASON_META_KEY,
+        value: "Imported planner data. Click Regenerate horizon to build a fresh schedule.",
+      });
     },
   );
 
-  return initializePlannerDatabase(new Date());
+  return loadPlannerSnapshot();
 }
 
 export function getCurrentWeekKey(referenceDate = new Date()) {
