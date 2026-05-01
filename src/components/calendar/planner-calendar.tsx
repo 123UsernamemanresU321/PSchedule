@@ -249,6 +249,27 @@ export function PlannerCalendar({
         noSchoolDay,
       },
     }));
+  const examPeriodEvents = preferences.schoolSchedule.examPeriods
+    .filter((period) => {
+      if (!period.startDate || !period.endDate) {
+        return false;
+      }
+
+      const start = fromDateKey(period.startDate);
+      const end = addDays(fromDateKey(period.endDate), 1);
+      return end > visibleWeekStart && start < visibleWeekEnd;
+    })
+    .map((period) => ({
+      id: `exam-period:${period.id}`,
+      title: period.label,
+      start: fromDateKey(period.startDate),
+      end: addDays(fromDateKey(period.endDate), 1),
+      allDay: true,
+      extendedProps: {
+        kind: "exam-period" as const,
+        period,
+      },
+    }));
   const focusedDayEvents = focusedDays
     .filter((focusedDay) => {
       const day = fromDateKey(focusedDay.date);
@@ -333,12 +354,16 @@ export function PlannerCalendar({
           event: baseEvent,
           occurrenceStart: event.start,
           occurrenceEnd: event.end,
-          readOnly: event.id.startsWith("school-schedule:"),
+          readOnly:
+            event.id.startsWith("school-schedule:") ||
+            event.id.startsWith("school-club:") ||
+            event.id.startsWith("school-exam:"),
         },
       };
     }),
     ...sickDayEvents,
     ...noSchoolDayEvents,
+    ...examPeriodEvents,
     ...focusedWeekEvents,
     ...focusedDayEvents,
     ...reservedCommitments.map((commitment) => ({
@@ -432,6 +457,7 @@ export function PlannerCalendar({
             | "break"
             | "sick-day"
             | "no-school-day"
+            | "exam-period"
             | "focused-day"
             | "focused-week";
           if (
@@ -457,6 +483,9 @@ export function PlannerCalendar({
             }
           }
           if (kind === "break") {
+            return;
+          }
+          if (kind === "exam-period") {
             return;
           }
           if (kind === "no-school-day") {
@@ -528,6 +557,7 @@ export function PlannerCalendar({
             | "break"
             | "sick-day"
             | "no-school-day"
+            | "exam-period"
             | "focused-day"
             | "focused-week";
           const eventStart = eventInfo.event.start ?? new Date();
@@ -572,6 +602,27 @@ export function PlannerCalendar({
                 {noSchoolDay.notes ? (
                   <p className="mt-1 truncate text-xs text-warning/75">{noSchoolDay.notes}</p>
                 ) : null}
+              </div>
+            );
+          }
+
+          if (kind === "exam-period") {
+            const period = eventInfo.event.extendedProps
+              .period as Preferences["schoolSchedule"]["examPeriods"][number];
+
+            return (
+              <div
+                className="h-full overflow-hidden rounded-lg border border-danger/35 bg-danger/12 px-3 py-2 text-sm text-danger shadow-panel"
+                data-testid="calendar-exam-period"
+                data-event-title={eventInfo.event.title}
+              >
+                <div className="flex items-center gap-2">
+                  <TriangleAlert className="h-3.5 w-3.5" />
+                  <span className="truncate font-medium">{eventInfo.event.title}</span>
+                </div>
+                <p className="mt-1 truncate text-xs text-danger/75">
+                  {period.exams.length} exam{period.exams.length === 1 ? "" : "s"} configured
+                </p>
               </div>
             );
           }

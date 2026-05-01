@@ -288,6 +288,34 @@ export interface SchoolTerm {
   endDate: string;
 }
 
+export interface SchoolClub {
+  id: string;
+  label: string;
+  days: number[];
+  start: string;
+  end: string;
+  activeTermIds?: string[];
+  notes?: string;
+}
+
+export interface SchoolExam {
+  id: string;
+  title: string;
+  date: string;
+  start: string;
+  end: string;
+  notes?: string;
+}
+
+export interface SchoolExamPeriod {
+  id: string;
+  label: string;
+  termId: string;
+  startDate: string;
+  endDate: string;
+  exams: SchoolExam[];
+}
+
 export interface SchoolSchedule {
   enabled: boolean;
   weekdays: number[];
@@ -295,6 +323,8 @@ export interface SchoolSchedule {
   end: string;
   terms: SchoolTerm[];
   noSchoolDays: NoSchoolDay[];
+  schoolClubs: SchoolClub[];
+  examPeriods: SchoolExamPeriod[];
 }
 
 export interface ReservedCommitmentRule {

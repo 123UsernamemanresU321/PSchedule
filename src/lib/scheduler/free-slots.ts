@@ -25,6 +25,7 @@ import type {
   EffectiveReservedCommitmentDuration,
   FixedEvent,
   Preferences,
+  SchoolTerm,
   SickDay,
   StudyBlock,
   TimeInterval,
@@ -156,7 +157,8 @@ function expandSchoolScheduleForWeek(weekStart: Date, preferences: Preferences) 
   return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)).flatMap((day) => {
     if (
       !preferences.schoolSchedule.weekdays.includes(day.getDay()) ||
-      !isDateInActiveSchoolTerm(day, preferences)
+      !isDateInActiveSchoolTerm(day, preferences) ||
+      getExamDayEarliestStudyStart(day, preferences)
     ) {
       return [];
     }
@@ -182,6 +184,162 @@ function expandSchoolScheduleForWeek(weekStart: Date, preferences: Preferences) 
       },
     ];
   });
+}
+
+function dateRangesOverlap(leftStart: string, leftEnd: string, rightStart: string, rightEnd: string) {
+  return leftStart <= rightEnd && rightStart <= leftEnd;
+}
+
+export function getSchoolClubActiveWindowForTerm(
+  term: SchoolTerm,
+  examPeriods: Preferences["schoolSchedule"]["examPeriods"],
+) {
+  const termStartWeek = startOfPlannerWeek(fromDateKey(term.startDate));
+  const termEndWeek = startOfPlannerWeek(fromDateKey(term.endDate));
+  const firstClubWeek = addDays(termStartWeek, 7);
+  const firstExamWeek = examPeriods
+    .filter((period) =>
+      (period.termId && period.termId === term.id) ||
+      dateRangesOverlap(period.startDate, period.endDate, term.startDate, term.endDate),
+    )
+    .map((period) => startOfPlannerWeek(fromDateKey(period.startDate)))
+    .sort((left, right) => left.getTime() - right.getTime())[0];
+  const exclusiveEndWeek =
+    firstExamWeek && firstExamWeek < termEndWeek ? firstExamWeek : termEndWeek;
+
+  return {
+    firstClubWeek,
+    exclusiveEndWeek,
+  };
+}
+
+function getActiveTermForClubDate(
+  day: Date,
+  club: Preferences["schoolSchedule"]["schoolClubs"][number],
+  preferences: Preferences,
+) {
+  const dayKey = toDateKey(day);
+
+  return preferences.schoolSchedule.terms.find((term) => {
+    if (!term.startDate || !term.endDate || dayKey < term.startDate || dayKey > term.endDate) {
+      return false;
+    }
+
+    if (club.activeTermIds?.length && !club.activeTermIds.includes(term.id)) {
+      return false;
+    }
+
+    const weekStart = startOfPlannerWeek(day);
+    const activeWindow = getSchoolClubActiveWindowForTerm(
+      term,
+      preferences.schoolSchedule.examPeriods,
+    );
+
+    return (
+      weekStart.getTime() >= activeWindow.firstClubWeek.getTime() &&
+      weekStart.getTime() < activeWindow.exclusiveEndWeek.getTime()
+    );
+  });
+}
+
+export function expandSchoolClubsForWeek(weekStart: Date, preferences: Preferences) {
+  if (!preferences.schoolSchedule.enabled) {
+    return [];
+  }
+
+  return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)).flatMap((day) => {
+    if (!isDateInActiveSchoolTerm(day, preferences)) {
+      return [];
+    }
+
+    return preferences.schoolSchedule.schoolClubs.flatMap((club) => {
+      if (!club.days.includes(day.getDay())) {
+        return [];
+      }
+
+      if (!getActiveTermForClubDate(day, club, preferences)) {
+        return [];
+      }
+
+      const start = createDateAtTime(day, club.start);
+      const end = createDateAtTime(day, club.end);
+
+      if (end <= start) {
+        return [];
+      }
+
+      const dateKey = toDateKey(day);
+
+      return [
+        {
+          id: `school-club:${club.id}:${dateKey}`,
+          title: club.label,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          isAllDay: false,
+          recurrence: "none" as const,
+          flexibility: "fixed" as const,
+          category: "activity" as const,
+          notes: club.notes
+            ? `Generated from School club settings. ${club.notes}`
+            : "Generated from School club settings",
+        },
+      ];
+    });
+  });
+}
+
+export function expandSchoolExamsForWeek(weekStart: Date, preferences: Preferences) {
+  return preferences.schoolSchedule.examPeriods.flatMap((period) =>
+    period.exams.flatMap((exam) => {
+      const examDay = fromDateKey(exam.date);
+      const weekEnd = addDays(startOfPlannerWeek(weekStart), 7);
+
+      if (examDay < weekStart || examDay >= weekEnd) {
+        return [];
+      }
+
+      if (exam.date < period.startDate || exam.date > period.endDate) {
+        return [];
+      }
+
+      const start = createDateAtTime(examDay, exam.start);
+      const end = createDateAtTime(examDay, exam.end);
+
+      if (end <= start) {
+        return [];
+      }
+
+      return [
+        {
+          id: `school-exam:${period.id}:${exam.id}`,
+          title: exam.title,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          isAllDay: false,
+          recurrence: "none" as const,
+          flexibility: "fixed" as const,
+          category: "assessment" as const,
+          notes: exam.notes
+            ? `Generated from ${period.label}. ${exam.notes}`
+            : `Generated from ${period.label}`,
+        },
+      ];
+    }),
+  );
+}
+
+export function getExamDayEarliestStudyStart(day: Date, preferences: Preferences) {
+  const dateKey = toDateKey(day);
+  const examEndTimes = preferences.schoolSchedule.examPeriods
+    .filter((period) => dateKey >= period.startDate && dateKey <= period.endDate)
+    .flatMap((period) => period.exams)
+    .filter((exam) => exam.date === dateKey)
+    .map((exam) => createDateAtTime(day, exam.end))
+    .filter((end) => !Number.isNaN(end.getTime()))
+    .sort((left, right) => right.getTime() - left.getTime());
+
+  return examEndTimes[0] ? addMinutes(examEndTimes[0], 30) : null;
 }
 
 export function expandFixedEventsForWeek(weekStart: Date, fixedEvents: FixedEvent[]) {
@@ -269,6 +427,8 @@ export function expandPlannerFixedEventsForWeek(
 
   const expanded = [
     ...expandSchoolScheduleForWeek(weekStart, preferences),
+    ...expandSchoolClubsForWeek(weekStart, preferences),
+    ...expandSchoolExamsForWeek(weekStart, preferences),
     ...expandFixedEventsForWeek(weekStart, fixedEvents),
   ];
   schedulingContext?.expandedPlannerFixedEventsByWeek.set(weekStartKey, expanded);
@@ -1174,6 +1334,7 @@ export function calculateFreeSlots(options: {
       createDateAtTime(day, scheduleProfile.dailyStudyWindow.start),
       createDateAtTime(day, scheduleProfile.dailyStudyWindow.end),
     );
+    const examDayEarliestStudyStart = getExamDayEarliestStudyStart(day, preferences);
 
     if (planningStart && plannerWindow.end <= planningStart) {
       return;
@@ -1181,6 +1342,18 @@ export function calculateFreeSlots(options: {
 
     if (planningStart && plannerWindow.start < planningStart && plannerWindow.end > planningStart) {
       plannerWindow.start = planningStart;
+    }
+
+    if (
+      examDayEarliestStudyStart &&
+      plannerWindow.start < examDayEarliestStudyStart &&
+      plannerWindow.end > examDayEarliestStudyStart
+    ) {
+      plannerWindow.start = examDayEarliestStudyStart;
+    }
+
+    if (examDayEarliestStudyStart && plannerWindow.end <= examDayEarliestStudyStart) {
+      return;
     }
 
     const busyIntervals = mergeIntervals([

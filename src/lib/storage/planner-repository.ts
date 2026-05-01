@@ -33,7 +33,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-05-01-dec2027-horizon-cap-v59";
+const PLANNING_MODEL_VERSION = "2026-05-01-school-clubs-exams-v60";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-30-olympiad-final-june-v12";
@@ -447,6 +447,132 @@ function normalizeNoSchoolDays(
   return Array.from(byDate.values()).sort((left, right) => left.date.localeCompare(right.date));
 }
 
+function normalizeSchoolClubs(value: unknown): Preferences["schoolSchedule"]["schoolClubs"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .flatMap((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return [];
+      }
+
+      const candidate = entry as Partial<Preferences["schoolSchedule"]["schoolClubs"][number]>;
+      const label =
+        typeof candidate.label === "string" && candidate.label.trim()
+          ? candidate.label.trim()
+          : "School club";
+      const start =
+        typeof candidate.start === "string" && candidate.start.trim()
+          ? candidate.start
+          : "15:30";
+      const end =
+        typeof candidate.end === "string" && candidate.end.trim()
+          ? candidate.end
+          : "16:30";
+
+      return [
+        {
+          id: typeof candidate.id === "string" && candidate.id ? candidate.id : createId("club"),
+          label,
+          days: normalizeDays(candidate.days, [1]),
+          start,
+          end,
+          activeTermIds: Array.isArray(candidate.activeTermIds)
+            ? Array.from(
+                new Set(
+                  candidate.activeTermIds.filter(
+                    (termId): termId is string => typeof termId === "string" && !!termId,
+                  ),
+                ),
+              ).sort((left, right) => left.localeCompare(right))
+            : [],
+          notes:
+            typeof candidate.notes === "string" && candidate.notes.trim()
+              ? candidate.notes.trim()
+              : undefined,
+        },
+      ];
+    });
+}
+
+function normalizeSchoolExamPeriods(
+  value: unknown,
+): Preferences["schoolSchedule"]["examPeriods"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .flatMap((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return [];
+      }
+
+      const candidate = entry as Partial<Preferences["schoolSchedule"]["examPeriods"][number]>;
+      const startDate = typeof candidate.startDate === "string" ? candidate.startDate : "";
+      const endDate = typeof candidate.endDate === "string" ? candidate.endDate : "";
+      const exams = Array.isArray(candidate.exams)
+        ? candidate.exams.flatMap((examEntry) => {
+            if (!examEntry || typeof examEntry !== "object") {
+              return [];
+            }
+
+            const exam = examEntry as Partial<Preferences["schoolSchedule"]["examPeriods"][number]["exams"][number]>;
+            if (typeof exam.date !== "string" || !exam.date.trim()) {
+              return [];
+            }
+
+            return [
+              {
+                id: typeof exam.id === "string" && exam.id ? exam.id : createId("exam"),
+                title:
+                  typeof exam.title === "string" && exam.title.trim()
+                    ? exam.title.trim()
+                    : "Exam",
+                date: exam.date,
+                start:
+                  typeof exam.start === "string" && exam.start.trim()
+                    ? exam.start
+                    : "09:00",
+                end:
+                  typeof exam.end === "string" && exam.end.trim()
+                    ? exam.end
+                    : "10:00",
+                notes:
+                  typeof exam.notes === "string" && exam.notes.trim()
+                    ? exam.notes.trim()
+                    : undefined,
+              },
+            ];
+          })
+        : [];
+
+      return [
+        {
+          id:
+            typeof candidate.id === "string" && candidate.id
+              ? candidate.id
+              : createId("exam-period"),
+          label:
+            typeof candidate.label === "string" && candidate.label.trim()
+              ? candidate.label.trim()
+              : "Exam period",
+          termId: typeof candidate.termId === "string" ? candidate.termId : "",
+          startDate,
+          endDate,
+          exams: exams.sort((left, right) =>
+            left.date.localeCompare(right.date) ||
+            left.start.localeCompare(right.start) ||
+            left.title.localeCompare(right.title),
+          ),
+        },
+      ];
+    })
+    .sort((left, right) => left.startDate.localeCompare(right.startDate));
+}
+
 function normalizeTimeWindows<T extends Preferences["preferredDeepWorkWindows"][number]>(
   timeWindows: unknown,
   seedTimeWindows: T[],
@@ -533,6 +659,8 @@ export function normalizePreferences(preferences?: Partial<Preferences> | null):
             }))
           : seedPreferences.schoolSchedule.terms,
       noSchoolDays: normalizeNoSchoolDays(schoolSchedule.noSchoolDays),
+      schoolClubs: normalizeSchoolClubs(schoolSchedule.schoolClubs),
+      examPeriods: normalizeSchoolExamPeriods(schoolSchedule.examPeriods),
     },
     holidaySchedule: {
       ...seedPreferences.holidaySchedule,

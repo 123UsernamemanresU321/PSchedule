@@ -105,6 +105,8 @@ export function buildSeedPreferences(): Preferences {
         { id: "term-4", label: "Term 4", startDate: "", endDate: "" },
       ],
       noSchoolDays: [],
+      schoolClubs: [],
+      examPeriods: [],
     },
     holidaySchedule: {
       enabled: true,

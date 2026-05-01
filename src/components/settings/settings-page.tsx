@@ -137,6 +137,76 @@ export function SettingsPage() {
     });
   };
 
+  const appendSchoolClub = () => {
+    setForm({
+      ...form,
+      schoolSchedule: {
+        ...form.schoolSchedule,
+        schoolClubs: [
+          ...form.schoolSchedule.schoolClubs,
+          {
+            id: createId("club"),
+            label: "School club",
+            days: [2],
+            start: "15:30",
+            end: "16:30",
+            activeTermIds: [],
+            notes: "",
+          },
+        ],
+      },
+    });
+  };
+
+  const appendExamPeriod = () => {
+    const firstTerm = form.schoolSchedule.terms[0];
+    setForm({
+      ...form,
+      schoolSchedule: {
+        ...form.schoolSchedule,
+        examPeriods: [
+          ...form.schoolSchedule.examPeriods,
+          {
+            id: createId("exam-period"),
+            label: "Exam period",
+            termId: firstTerm?.id ?? "",
+            startDate: firstTerm?.startDate ?? "",
+            endDate: firstTerm?.endDate ?? "",
+            exams: [],
+          },
+        ],
+      },
+    });
+  };
+
+  const appendExamToPeriod = (periodId: string) => {
+    const today = toDateKey(new Date());
+    setForm({
+      ...form,
+      schoolSchedule: {
+        ...form.schoolSchedule,
+        examPeriods: form.schoolSchedule.examPeriods.map((period) =>
+          period.id === periodId
+            ? {
+                ...period,
+                exams: [
+                  ...period.exams,
+                  {
+                    id: createId("exam"),
+                    title: "Exam",
+                    date: period.startDate || today,
+                    start: "09:00",
+                    end: "10:30",
+                    notes: "",
+                  },
+                ],
+              }
+            : period,
+        ),
+      },
+    });
+  };
+
   const appendSickDay = () => {
     const today = toDateKey(new Date());
     setSickDayDrafts((current) => [
@@ -576,6 +646,538 @@ export function SettingsPage() {
                   <div className="rounded-sm border border-dashed border-white/10 bg-white/4 px-4 py-3 text-sm text-muted-foreground">
                     No no-school days yet. Use this for protests, long weekends, special closures, or any weekday
                     inside a term that should behave like a weekend/holiday.
+                  </div>
+                )}
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                      School clubs / extra curriculars
+                    </label>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Clubs start in the second week of a term and stop before exams or the final term week.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-full border border-white/8 px-3"
+                    onClick={appendSchoolClub}
+                    data-testid="settings-add-school-club"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add club
+                  </Button>
+                </div>
+                {form.schoolSchedule.schoolClubs.length ? (
+                  <div className="space-y-3">
+                    {form.schoolSchedule.schoolClubs.map((club, index) => (
+                      <div
+                        key={club.id}
+                        className="rounded-sm border border-white/6 bg-white/4 p-4"
+                        data-testid="settings-school-club-row"
+                      >
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <p className="text-sm font-medium text-foreground">Club {index + 1}</p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 rounded-full border border-white/8"
+                            aria-label={`Remove school club ${club.label}`}
+                            onClick={() =>
+                              setForm({
+                                ...form,
+                                schoolSchedule: {
+                                  ...form.schoolSchedule,
+                                  schoolClubs: form.schoolSchedule.schoolClubs.filter(
+                                    (candidate) => candidate.id !== club.id,
+                                  ),
+                                },
+                              })
+                            }
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_130px_130px]">
+                          <div className="space-y-2">
+                            <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Label</label>
+                            <Input
+                              value={club.label}
+                              placeholder="Debate club"
+                              onChange={(event) =>
+                                setForm({
+                                  ...form,
+                                  schoolSchedule: {
+                                    ...form.schoolSchedule,
+                                    schoolClubs: form.schoolSchedule.schoolClubs.map((candidate) =>
+                                      candidate.id === club.id
+                                        ? { ...candidate, label: event.target.value }
+                                        : candidate,
+                                    ),
+                                  },
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Start</label>
+                            <Input
+                              type="time"
+                              value={club.start}
+                              onChange={(event) =>
+                                setForm({
+                                  ...form,
+                                  schoolSchedule: {
+                                    ...form.schoolSchedule,
+                                    schoolClubs: form.schoolSchedule.schoolClubs.map((candidate) =>
+                                      candidate.id === club.id
+                                        ? { ...candidate, start: event.target.value }
+                                        : candidate,
+                                    ),
+                                  },
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">End</label>
+                            <Input
+                              type="time"
+                              value={club.end}
+                              onChange={(event) =>
+                                setForm({
+                                  ...form,
+                                  schoolSchedule: {
+                                    ...form.schoolSchedule,
+                                    schoolClubs: form.schoolSchedule.schoolClubs.map((candidate) =>
+                                      candidate.id === club.id
+                                        ? { ...candidate, end: event.target.value }
+                                        : candidate,
+                                    ),
+                                  },
+                                })
+                              }
+                            />
+                          </div>
+                        </div>
+                        <div className="mt-4 space-y-3">
+                          <div className="flex flex-wrap gap-2">
+                            {weekdayOptions.map((option) => {
+                              const active = club.days.includes(option.value);
+                              return (
+                                <Button
+                                  key={option.value}
+                                  type="button"
+                                  variant={active ? "default" : "ghost"}
+                                  size="sm"
+                                  className="min-w-12 rounded-full"
+                                  onClick={() =>
+                                    setForm({
+                                      ...form,
+                                      schoolSchedule: {
+                                        ...form.schoolSchedule,
+                                        schoolClubs: form.schoolSchedule.schoolClubs.map((candidate) =>
+                                          candidate.id === club.id
+                                            ? {
+                                                ...candidate,
+                                                days: active
+                                                  ? candidate.days.filter((day) => day !== option.value)
+                                                  : [...candidate.days, option.value].sort((left, right) => left - right),
+                                              }
+                                            : candidate,
+                                        ),
+                                      },
+                                    })
+                                  }
+                                >
+                                  {option.label}
+                                </Button>
+                              );
+                            })}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              variant={!club.activeTermIds?.length ? "default" : "ghost"}
+                              size="sm"
+                              className="rounded-full"
+                              onClick={() =>
+                                setForm({
+                                  ...form,
+                                  schoolSchedule: {
+                                    ...form.schoolSchedule,
+                                    schoolClubs: form.schoolSchedule.schoolClubs.map((candidate) =>
+                                      candidate.id === club.id
+                                        ? { ...candidate, activeTermIds: [] }
+                                        : candidate,
+                                    ),
+                                  },
+                                })
+                              }
+                            >
+                              All terms
+                            </Button>
+                            {form.schoolSchedule.terms.map((term) => {
+                              const active = club.activeTermIds?.includes(term.id) ?? false;
+                              return (
+                                <Button
+                                  key={term.id}
+                                  type="button"
+                                  variant={active ? "default" : "ghost"}
+                                  size="sm"
+                                  className="rounded-full"
+                                  onClick={() =>
+                                    setForm({
+                                      ...form,
+                                      schoolSchedule: {
+                                        ...form.schoolSchedule,
+                                        schoolClubs: form.schoolSchedule.schoolClubs.map((candidate) =>
+                                          candidate.id === club.id
+                                            ? {
+                                                ...candidate,
+                                                activeTermIds: active
+                                                  ? (candidate.activeTermIds ?? []).filter((termId) => termId !== term.id)
+                                                  : [...(candidate.activeTermIds ?? []), term.id].sort(),
+                                              }
+                                            : candidate,
+                                        ),
+                                      },
+                                    })
+                                  }
+                                >
+                                  {term.label || term.id}
+                                </Button>
+                              );
+                            })}
+                          </div>
+                          <Input
+                            value={club.notes ?? ""}
+                            placeholder="Notes, location, coach..."
+                            onChange={(event) =>
+                              setForm({
+                                ...form,
+                                schoolSchedule: {
+                                  ...form.schoolSchedule,
+                                  schoolClubs: form.schoolSchedule.schoolClubs.map((candidate) =>
+                                    candidate.id === club.id
+                                      ? { ...candidate, notes: event.target.value }
+                                      : candidate,
+                                  ),
+                                },
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-sm border border-dashed border-white/10 bg-white/4 px-4 py-3 text-sm text-muted-foreground">
+                    No clubs yet. Add each recurring extracurricular once; the planner will generate the valid weeks automatically.
+                  </div>
+                )}
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                      Exam periods
+                    </label>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Add exam windows and exact exam times. On exam days, study starts 30 minutes after the last exam.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-full border border-white/8 px-3"
+                    onClick={appendExamPeriod}
+                    data-testid="settings-add-exam-period"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add exam period
+                  </Button>
+                </div>
+                {form.schoolSchedule.examPeriods.length ? (
+                  <div className="space-y-3">
+                    {form.schoolSchedule.examPeriods.map((period) => (
+                      <div
+                        key={period.id}
+                        className="rounded-sm border border-danger/20 bg-danger/8 p-4"
+                        data-testid="settings-exam-period-row"
+                      >
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <p className="text-sm font-medium text-danger">{period.label || "Exam period"}</p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 rounded-full border border-danger/20"
+                            aria-label={`Remove exam period ${period.label}`}
+                            onClick={() =>
+                              setForm({
+                                ...form,
+                                schoolSchedule: {
+                                  ...form.schoolSchedule,
+                                  examPeriods: form.schoolSchedule.examPeriods.filter(
+                                    (candidate) => candidate.id !== period.id,
+                                  ),
+                                },
+                              })
+                            }
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_150px_150px]">
+                          <div className="space-y-2">
+                            <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Label</label>
+                            <Input
+                              value={period.label}
+                              onChange={(event) =>
+                                setForm({
+                                  ...form,
+                                  schoolSchedule: {
+                                    ...form.schoolSchedule,
+                                    examPeriods: form.schoolSchedule.examPeriods.map((candidate) =>
+                                      candidate.id === period.id
+                                        ? { ...candidate, label: event.target.value }
+                                        : candidate,
+                                    ),
+                                  },
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Term</label>
+                            <select
+                              value={period.termId}
+                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                              onChange={(event) =>
+                                setForm({
+                                  ...form,
+                                  schoolSchedule: {
+                                    ...form.schoolSchedule,
+                                    examPeriods: form.schoolSchedule.examPeriods.map((candidate) =>
+                                      candidate.id === period.id
+                                        ? { ...candidate, termId: event.target.value }
+                                        : candidate,
+                                    ),
+                                  },
+                                })
+                              }
+                            >
+                              <option value="">No linked term</option>
+                              {form.schoolSchedule.terms.map((term) => (
+                                <option key={term.id} value={term.id}>
+                                  {term.label || term.id}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Start</label>
+                            <Input
+                              type="date"
+                              value={period.startDate}
+                              onChange={(event) =>
+                                setForm({
+                                  ...form,
+                                  schoolSchedule: {
+                                    ...form.schoolSchedule,
+                                    examPeriods: form.schoolSchedule.examPeriods.map((candidate) =>
+                                      candidate.id === period.id
+                                        ? { ...candidate, startDate: event.target.value }
+                                        : candidate,
+                                    ),
+                                  },
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">End</label>
+                            <Input
+                              type="date"
+                              value={period.endDate}
+                              onChange={(event) =>
+                                setForm({
+                                  ...form,
+                                  schoolSchedule: {
+                                    ...form.schoolSchedule,
+                                    examPeriods: form.schoolSchedule.examPeriods.map((candidate) =>
+                                      candidate.id === period.id
+                                        ? { ...candidate, endDate: event.target.value }
+                                        : candidate,
+                                    ),
+                                  },
+                                })
+                              }
+                            />
+                          </div>
+                        </div>
+                        <div className="mt-4 space-y-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Exam times</p>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="rounded-full border border-danger/20 px-3"
+                              onClick={() => appendExamToPeriod(period.id)}
+                            >
+                              <Plus className="h-4 w-4" />
+                              Add exam
+                            </Button>
+                          </div>
+                          {period.exams.map((exam) => (
+                            <div
+                              key={exam.id}
+                              className="grid gap-3 rounded-sm border border-danger/15 bg-background/35 p-3 md:grid-cols-[minmax(0,1fr)_150px_110px_110px_40px]"
+                            >
+                              <Input
+                                value={exam.title}
+                                placeholder="Physics Paper 2"
+                                onChange={(event) =>
+                                  setForm({
+                                    ...form,
+                                    schoolSchedule: {
+                                      ...form.schoolSchedule,
+                                      examPeriods: form.schoolSchedule.examPeriods.map((candidate) =>
+                                        candidate.id === period.id
+                                          ? {
+                                              ...candidate,
+                                              exams: candidate.exams.map((candidateExam) =>
+                                                candidateExam.id === exam.id
+                                                  ? { ...candidateExam, title: event.target.value }
+                                                  : candidateExam,
+                                              ),
+                                            }
+                                          : candidate,
+                                      ),
+                                    },
+                                  })
+                                }
+                              />
+                              <Input
+                                type="date"
+                                value={exam.date}
+                                onChange={(event) =>
+                                  setForm({
+                                    ...form,
+                                    schoolSchedule: {
+                                      ...form.schoolSchedule,
+                                      examPeriods: form.schoolSchedule.examPeriods.map((candidate) =>
+                                        candidate.id === period.id
+                                          ? {
+                                              ...candidate,
+                                              exams: candidate.exams.map((candidateExam) =>
+                                                candidateExam.id === exam.id
+                                                  ? { ...candidateExam, date: event.target.value }
+                                                  : candidateExam,
+                                              ),
+                                            }
+                                          : candidate,
+                                      ),
+                                    },
+                                  })
+                                }
+                              />
+                              <Input
+                                type="time"
+                                value={exam.start}
+                                onChange={(event) =>
+                                  setForm({
+                                    ...form,
+                                    schoolSchedule: {
+                                      ...form.schoolSchedule,
+                                      examPeriods: form.schoolSchedule.examPeriods.map((candidate) =>
+                                        candidate.id === period.id
+                                          ? {
+                                              ...candidate,
+                                              exams: candidate.exams.map((candidateExam) =>
+                                                candidateExam.id === exam.id
+                                                  ? { ...candidateExam, start: event.target.value }
+                                                  : candidateExam,
+                                              ),
+                                            }
+                                          : candidate,
+                                      ),
+                                    },
+                                  })
+                                }
+                              />
+                              <Input
+                                type="time"
+                                value={exam.end}
+                                onChange={(event) =>
+                                  setForm({
+                                    ...form,
+                                    schoolSchedule: {
+                                      ...form.schoolSchedule,
+                                      examPeriods: form.schoolSchedule.examPeriods.map((candidate) =>
+                                        candidate.id === period.id
+                                          ? {
+                                              ...candidate,
+                                              exams: candidate.exams.map((candidateExam) =>
+                                                candidateExam.id === exam.id
+                                                  ? { ...candidateExam, end: event.target.value }
+                                                  : candidateExam,
+                                              ),
+                                            }
+                                          : candidate,
+                                      ),
+                                    },
+                                  })
+                                }
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-10 w-10 rounded-full border border-danger/20"
+                                aria-label={`Remove exam ${exam.title}`}
+                                onClick={() =>
+                                  setForm({
+                                    ...form,
+                                    schoolSchedule: {
+                                      ...form.schoolSchedule,
+                                      examPeriods: form.schoolSchedule.examPeriods.map((candidate) =>
+                                        candidate.id === period.id
+                                          ? {
+                                              ...candidate,
+                                              exams: candidate.exams.filter(
+                                                (candidateExam) => candidateExam.id !== exam.id,
+                                              ),
+                                            }
+                                          : candidate,
+                                      ),
+                                    },
+                                  })
+                                }
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
+                          {!period.exams.length ? (
+                            <div className="rounded-sm border border-dashed border-danger/20 bg-background/25 px-4 py-3 text-sm text-muted-foreground">
+                              No exact exam times yet. Add each paper so the calendar can block it and delay study correctly.
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-sm border border-dashed border-white/10 bg-white/4 px-4 py-3 text-sm text-muted-foreground">
+                    No exam periods yet. Add one for Term 2 or Term 4 when you know the exam window.
                   </div>
                 )}
               </div>

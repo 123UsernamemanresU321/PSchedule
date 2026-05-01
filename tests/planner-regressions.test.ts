@@ -6309,6 +6309,209 @@ test("marked no-school weekdays are treated as non-school days during active ter
   );
 });
 
+test("school club settings generate only from the second term week until exam or final term week", () => {
+  const seedPreferences = buildSeedPreferences();
+  const preferences = normalizePreferences({
+    ...seedPreferences,
+    reservedCommitmentRules: [],
+    lockedRecoveryWindows: [],
+    schoolSchedule: {
+      ...seedPreferences.schoolSchedule,
+      enabled: true,
+      weekdays: [1, 2, 3, 4, 5],
+      start: "08:00",
+      end: "15:00",
+      terms: [
+        {
+          id: "term-2",
+          label: "Term 2",
+          startDate: "2026-04-06",
+          endDate: "2026-05-01",
+        },
+      ],
+      noSchoolDays: [],
+      schoolClubs: [
+        {
+          id: "club-debate",
+          label: "Debate club",
+          days: [2],
+          start: "15:30",
+          end: "16:30",
+          activeTermIds: [],
+          notes: "",
+        },
+      ],
+      examPeriods: [
+        {
+          id: "term-2-exams",
+          label: "Term 2 exams",
+          termId: "term-2",
+          startDate: "2026-04-20",
+          endDate: "2026-04-24",
+          exams: [],
+        },
+      ],
+    },
+  });
+
+  const firstWeekEvents = expandPlannerFixedEventsForWeek(
+    new Date("2026-04-06T00:00:00"),
+    [],
+    preferences,
+  );
+  const secondWeekEvents = expandPlannerFixedEventsForWeek(
+    new Date("2026-04-13T00:00:00"),
+    [],
+    preferences,
+  );
+  const examWeekEvents = expandPlannerFixedEventsForWeek(
+    new Date("2026-04-20T00:00:00"),
+    [],
+    preferences,
+  );
+  const finalWeekEvents = expandPlannerFixedEventsForWeek(
+    new Date("2026-04-27T00:00:00"),
+    [],
+    preferences,
+  );
+
+  assert.equal(firstWeekEvents.some((event) => event.id.startsWith("school-club:")), false);
+  assert.equal(
+    secondWeekEvents.find((event) => event.id === "school-club:club-debate:2026-04-14")?.title,
+    "Debate club",
+  );
+  assert.equal(examWeekEvents.some((event) => event.id.startsWith("school-club:")), false);
+  assert.equal(finalWeekEvents.some((event) => event.id.startsWith("school-club:")), false);
+});
+
+test("no-school days suppress generated school clubs", () => {
+  const seedPreferences = buildSeedPreferences();
+  const preferences = normalizePreferences({
+    ...seedPreferences,
+    reservedCommitmentRules: [],
+    lockedRecoveryWindows: [],
+    schoolSchedule: {
+      ...seedPreferences.schoolSchedule,
+      enabled: true,
+      weekdays: [1, 2, 3, 4, 5],
+      start: "08:00",
+      end: "15:00",
+      terms: [
+        {
+          id: "term-2",
+          label: "Term 2",
+          startDate: "2026-04-06",
+          endDate: "2026-05-01",
+        },
+      ],
+      noSchoolDays: [
+        {
+          id: "no-school-2026-04-14",
+          date: "2026-04-14",
+          label: "No School",
+          notes: "Closure",
+        },
+      ],
+      schoolClubs: [
+        {
+          id: "club-debate",
+          label: "Debate club",
+          days: [2],
+          start: "15:30",
+          end: "16:30",
+          activeTermIds: [],
+          notes: "",
+        },
+      ],
+      examPeriods: [],
+    },
+  });
+
+  const events = expandPlannerFixedEventsForWeek(
+    new Date("2026-04-13T00:00:00"),
+    [],
+    preferences,
+  );
+
+  assert.equal(events.some((event) => event.id === "school-club:club-debate:2026-04-14"), false);
+});
+
+test("exam periods render exam blocks and delay study until thirty minutes after the final exam", () => {
+  const seedPreferences = buildSeedPreferences();
+  const preferences = normalizePreferences({
+    ...seedPreferences,
+    dailyStudyWindow: {
+      start: "06:00",
+      end: "22:00",
+    },
+    reservedCommitmentRules: [],
+    lockedRecoveryWindows: [],
+    schoolSchedule: {
+      ...seedPreferences.schoolSchedule,
+      enabled: true,
+      weekdays: [1, 2, 3, 4, 5],
+      start: "08:00",
+      end: "15:00",
+      terms: [
+        {
+          id: "term-2",
+          label: "Term 2",
+          startDate: "2026-04-06",
+          endDate: "2026-05-01",
+        },
+      ],
+      noSchoolDays: [],
+      schoolClubs: [],
+      examPeriods: [
+        {
+          id: "term-2-exams",
+          label: "Term 2 exams",
+          termId: "term-2",
+          startDate: "2026-04-13",
+          endDate: "2026-04-17",
+          exams: [
+            {
+              id: "maths-exam",
+              title: "Maths exam",
+              date: "2026-04-14",
+              start: "09:00",
+              end: "10:00",
+            },
+            {
+              id: "physics-exam",
+              title: "Physics exam",
+              date: "2026-04-14",
+              start: "13:00",
+              end: "14:15",
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const events = expandPlannerFixedEventsForWeek(
+    new Date("2026-04-13T00:00:00"),
+    [],
+    preferences,
+  );
+  const slots = calculateFreeSlots({
+    weekStart: new Date("2026-04-13T00:00:00"),
+    fixedEvents: [],
+    preferences,
+    sickDays: [],
+  });
+  const examDaySlots = slots.filter((slot) => slot.dateKey === "2026-04-14");
+
+  assert.equal(events.some((event) => event.id === "school-exam:term-2-exams:maths-exam"), true);
+  assert.equal(events.some((event) => event.id === "school-exam:term-2-exams:physics-exam"), true);
+  assert.equal(events.some((event) => event.id === "school-schedule:2026-04-14"), false);
+  assert.ok(examDaySlots.length > 0, "expected study capacity after the final exam buffer");
+  assert.ok(
+    examDaySlots.every((slot) => slot.start >= createDateAtTime(fromDateKey("2026-04-14"), "14:45")),
+    "expected every exam-day slot to start at least 30 minutes after the final exam",
+  );
+});
+
 test("school-term homework and piano compact together unless an explicit time override exists", () => {
   const seedPreferences = buildSeedPreferences();
   const homeworkRule = seedPreferences.reservedCommitmentRules.find(
@@ -7035,6 +7238,64 @@ test("normalizePreferences repairs malformed nested settings arrays", () => {
     normalized.holidaySchedule.preferredDeepWorkWindows,
     normalizedSeedPreferences.holidaySchedule.preferredDeepWorkWindows,
   );
+  assert.deepEqual(normalized.schoolSchedule.schoolClubs, []);
+  assert.deepEqual(normalized.schoolSchedule.examPeriods, []);
+});
+
+test("normalizePreferences preserves multiple school clubs and exam periods", () => {
+  const seedPreferences = buildSeedPreferences();
+  const normalized = normalizePreferences({
+    ...seedPreferences,
+    schoolSchedule: {
+      ...seedPreferences.schoolSchedule,
+      schoolClubs: [
+        {
+          id: "club-debate",
+          label: "Debate",
+          days: [2, 9, 2],
+          start: "15:30",
+          end: "16:30",
+          activeTermIds: ["term-2", "term-2"],
+          notes: "Room 12",
+        },
+        {
+          id: "club-music",
+          label: "Music",
+          days: [4],
+          start: "16:00",
+          end: "17:00",
+          activeTermIds: [],
+        },
+      ],
+      examPeriods: [
+        {
+          id: "term-2-exams",
+          label: "Term 2 exams",
+          termId: "term-2",
+          startDate: "2026-06-01",
+          endDate: "2026-06-14",
+          exams: [
+            {
+              id: "physics-exam",
+              title: "Physics",
+              date: "2026-06-03",
+              start: "09:00",
+              end: "10:30",
+              notes: "Lab paper",
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const schoolClubs = normalized.schoolSchedule.schoolClubs;
+  const examPeriods = normalized.schoolSchedule.examPeriods;
+
+  assert.equal(schoolClubs.length, 2);
+  assert.deepEqual(schoolClubs[0].days, [2]);
+  assert.deepEqual(schoolClubs[0].activeTermIds, ["term-2"]);
+  assert.equal(examPeriods.length, 1);
+  assert.equal(examPeriods[0].exams[0].title, "Physics");
 });
 
 test("seed preferences share the stronger Olympiad and demoted C++ defaults with seeded subjects", () => {
