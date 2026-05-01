@@ -47,6 +47,7 @@ import {
 import {
   buildHardConstraintFutureResetBaselineStudyBlocks,
   buildCollapsedCoverageRepairBaselineStudyBlocks,
+  buildCollapsedCoverageStatusMessage,
   getCollapsedCoverageRepairState,
   getScopedReplanPrecheckState,
   derivePlannerHorizonStatus,
@@ -3960,6 +3961,64 @@ test("collapsed coverage repair state also flags illegal future overlaps", () =>
     repairState.invalidOverlapIssues.length > 0,
     "expected future overlap damage to trigger repair detection",
   );
+});
+
+test("collapsed coverage stale message always includes concrete repair diagnostics", () => {
+  const referenceDate = new Date("2026-04-18T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const physicsSubject = dataset.subjects.find((subject) => subject.id === "physics-hl");
+
+  assert.ok(physicsSubject, "expected physics subject");
+
+  const repairState = getCollapsedCoverageRepairState(
+    {
+      goals: [
+        {
+          id: "goal-physics-message-gap",
+          title: "Finish the physics message gap",
+          subjectId: "physics-hl",
+          deadline: "2026-06-30",
+          targetCompletion: 1,
+          priorityWeight: 1,
+        },
+      ],
+      subjects: [physicsSubject],
+      topics: [
+        {
+          id: "physics-message-gap",
+          subjectId: "physics-hl",
+          unitId: "physics-unit-message-gap",
+          unitTitle: "Physics message gap",
+          title: "Message gap",
+          subtopics: ["Residual"],
+          estHours: 1,
+          completedHours: 0,
+          difficulty: 2,
+          status: "learning",
+          mastery: 2,
+          reviewDue: null,
+          lastStudiedAt: null,
+          sourceMaterials: [],
+          preferredBlockTypes: ["review"],
+          order: 1,
+        },
+      ],
+      fixedEvents: [],
+      sickDays: [],
+      focusedDays: [],
+      focusedWeeks: [],
+      studyBlocks: [],
+      completionLogs: [],
+      weeklyPlans: [createWeeklyPlan({ weekStart: "2026-04-13" })],
+      preferences: dataset.preferences,
+    },
+    referenceDate,
+  );
+  const message = buildCollapsedCoverageStatusMessage(repairState);
+
+  assert.match(message, /unscheduled core subjects: physics-hl/);
+  assert.match(message, /coverage details: physics-hl remaining 60 min/);
+  assert.doesNotMatch(message, /could not produce a valid complete horizon/);
 });
 
 test("collapsed coverage repair state flags even small non-C++ future gaps", () => {

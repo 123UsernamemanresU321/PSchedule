@@ -14,6 +14,7 @@ import { createSlotSlice, selectBlockOption } from "@/lib/scheduler/slot-classif
 import { getAssignableTaskCandidatesForBlock } from "@/lib/scheduler/task-candidates";
 import {
   buildCollapsedCoverageRepairBaselineStudyBlocks,
+  buildCollapsedCoverageStatusMessage,
   buildHardConstraintFutureResetBaselineStudyBlocks,
   deleteStudyBlocksByIds,
   deleteFixedEventById,
@@ -630,14 +631,13 @@ async function replanPlannerState(options: {
   nextSnapshotLoadStartedAtMs = nowMs();
   const finalSnapshot = await loadPlannerSnapshot();
   snapshotLoadMs += nowMs() - nextSnapshotLoadStartedAtMs;
-  if (!getCollapsedCoverageRepairState(finalSnapshot, referenceDate).hasCollapsedCoverage) {
+  const finalRepairState = getCollapsedCoverageRepairState(finalSnapshot, referenceDate);
+  if (!finalRepairState.hasCollapsedCoverage) {
     await markPlanningHorizonReady(referenceDate);
     return loadPlannerSnapshot();
   }
 
-  await markPlanningHorizonStale(
-    "Regeneration could not produce a valid complete horizon. Check planner diagnostics and try again.",
-  );
+  await markPlanningHorizonStale(buildCollapsedCoverageStatusMessage(finalRepairState));
   return loadPlannerSnapshot();
 }
 

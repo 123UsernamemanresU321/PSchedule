@@ -1103,12 +1103,27 @@ export function getCollapsedCoverageRepairState(
   };
 }
 
-function buildCollapsedCoverageStatusMessage(
+export function buildCollapsedCoverageStatusMessage(
   repairState: ReturnType<typeof getCollapsedCoverageRepairState>,
 ) {
+  const collapsedOnlySubjectIds = repairState.collapsedSubjectIds.filter(
+    (subjectId) => !repairState.hardConstraintSubjectIds.includes(subjectId),
+  );
+  const collapsedSubjectDetails = repairState.states
+    .filter((state) => repairState.collapsedSubjectIds.includes(state.subjectId))
+    .map(
+      (state) =>
+        `${state.subjectId} remaining ${state.progress.remainingMinutes} min, scheduled ${state.progress.scheduledFutureMinutes} min, unscheduled ${state.progress.unscheduledMinutes} min`,
+    );
   const details = [
     repairState.hardConstraintSubjectIds.length
       ? `unscheduled core subjects: ${repairState.hardConstraintSubjectIds.join(", ")}`
+      : null,
+    collapsedOnlySubjectIds.length
+      ? `collapsed coverage subjects: ${collapsedOnlySubjectIds.join(", ")}`
+      : null,
+    collapsedSubjectDetails.length
+      ? `coverage details: ${collapsedSubjectDetails.join("; ")}`
       : null,
     repairState.futureFillableGap.hasGap
       ? `fillable gap on ${repairState.futureFillableGap.dateKey} (${repairState.futureFillableGap.openMinutes} min)`
@@ -1120,7 +1135,7 @@ function buildCollapsedCoverageStatusMessage(
 
   return details.length
     ? `Regeneration needs attention: ${details.join("; ")}. Adjust availability or click Regenerate again after fixing the cause.`
-    : "Regeneration could not produce a valid complete horizon. Check planner diagnostics and try again.";
+    : "Regeneration needs attention: planner repair reported an unknown collapsed-coverage invariant. Export user data and regenerate after clearing generated horizon data.";
 }
 
 export function buildCollapsedCoverageRepairBaselineStudyBlocks(
