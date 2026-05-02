@@ -1918,34 +1918,6 @@ function allocateTasksToSlots(options: {
     );
   }
 
-  function hasOpenRealCoverageTask() {
-    return workingTasks.some(
-      (task) =>
-        !!task.subjectId &&
-        REAL_COVERAGE_SUBJECT_ID_SET.has(task.subjectId) &&
-        task.remainingMinutes > 0,
-    );
-  }
-
-  function hasOpenRealCoverageWork() {
-    if (hasOpenRealCoverageTask()) {
-      return true;
-    }
-
-    const unscheduledBySubject = getRealCoverageUnscheduledMinutesBySubject({
-      subjects: options.subjects,
-      topics: options.topics,
-      studyBlocks: [
-        ...(options.priorPlannedBlocks ?? []),
-        ...options.lockedBlocks,
-        ...scheduledBlocks,
-      ],
-      referenceDate: options.coverageReferenceDate ?? options.referenceDate,
-    });
-
-    return Object.values(unscheduledBySubject).some((minutes) => minutes > 0);
-  }
-
   function hasEligibleRealCoverageTask(slotStart: Date) {
     return workingTasks.some(
       (task) =>

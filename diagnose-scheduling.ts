@@ -1,9 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-require-imports */
 import { buildSeedPreferences } from "./src/lib/seed/preferences";
 import { buildSeedSubjects, buildSeedGoals } from "./src/lib/seed/subjects";
 import { buildSeedTopics } from "./src/lib/seed/topics";
 import { generateStudyPlanHorizon } from "./src/lib/scheduler/generator";
-import { toDateKey, startOfPlannerWeek } from "./src/lib/dates/helpers";
-import { addDays } from "date-fns";
+import { startOfPlannerWeek } from "./src/lib/dates/helpers";
 
 const referenceDate = new Date("2026-05-02T12:00:00");
 const subjects = buildSeedSubjects(referenceDate);

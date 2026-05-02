@@ -1,6 +1,5 @@
 import { buildSeedPreferences } from "./src/lib/seed/preferences";
 import { calculateFreeSlots } from "./src/lib/scheduler/free-slots";
-import { addDays } from "date-fns";
 
 const preferences = buildSeedPreferences();
 const weekStart = new Date("2026-11-09T00:00:00"); // A Monday
