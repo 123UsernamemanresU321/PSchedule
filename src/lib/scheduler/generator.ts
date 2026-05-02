@@ -1,6 +1,8 @@
 import { addDays, addMinutes, getISOWeek, isAfter } from "date-fns";
 
 import {
+  IB_REINFORCEMENT_MIN_SESSIONS_PER_WEEK,
+  IB_REINFORCEMENT_MIN_SUBJECT_IDS,
   realCoverageSubjectIds,
   reinforcementSubjectIds,
   softMaintenanceSubjectIds,
@@ -84,6 +86,9 @@ const CORE_IB_FILL_SUBJECT_ORDER: Subject["id"][] = [
 ];
 const REAL_COVERAGE_SUBJECT_ID_SET = new Set<Subject["id"]>([...realCoverageSubjectIds]);
 const REINFORCEMENT_SUBJECT_ID_SET = new Set<Subject["id"]>([...reinforcementSubjectIds]);
+const IB_REINFORCEMENT_MIN_SUBJECT_ID_SET = new Set<Subject["id"]>(
+  IB_REINFORCEMENT_MIN_SUBJECT_IDS as readonly Subject["id"][],
+);
 
 const HARD_SCOPE_PRIORITY_BY_SUBJECT = Object.fromEntries(
   zeroUnscheduledCoverageSubjectIds.map((subjectId, index) => [
@@ -495,6 +500,26 @@ function buildOverflowPracticeBlock(options: {
   };
 }
 
+function isOverflowReinforcementBlock(block: StudyBlock) {
+  return (
+    !!block.subjectId &&
+    REINFORCEMENT_SUBJECT_ID_SET.has(block.subjectId) &&
+    !block.topicId &&
+    block.title.includes("reinforcement")
+  );
+}
+
+function countReinforcementSessionsBySubject(blocks: StudyBlock[]) {
+  return blocks.reduce<Record<string, number>>((counts, block) => {
+    if (!block.subjectId || !isOverflowReinforcementBlock(block)) {
+      return counts;
+    }
+
+    counts[block.subjectId] = (counts[block.subjectId] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
 function fillReinforcementForWeek(options: {
   weekStart: Date;
   weeklyPlan: WeeklyPlan;
@@ -516,20 +541,76 @@ function fillReinforcementForWeek(options: {
   const reinforcementBlocks: StudyBlock[] = [];
   const reinforcementMinutesByDate: Record<string, Record<string, number>> = {};
   const reinforcementMinutesBySubject = recordFromKeys(subjectIds, () => 0);
+  const reinforcementSessionCountBySubject = {
+    ...recordFromKeys(subjectIds, () => 0),
+    ...countReinforcementSessionsBySubject(options.realStudyBlocks),
+  };
   const fillOrder = ([
     "olympiad",
     ...DAILY_FILL_SUBJECT_ORDER.filter((subjectId) => subjectId !== "olympiad"),
   ] satisfies Subject["id"][]).filter((subjectId) => REINFORCEMENT_SUBJECT_ID_SET.has(subjectId));
 
+  function isBeforeFinalDeadline(subjectId: Subject["id"], slotStart: Date) {
+    const finalDeadline = finalDeadlineBySubject[subjectId];
+    return !finalDeadline || slotStart.getTime() <= new Date(`${finalDeadline}T23:59:59`).getTime();
+  }
+
+  function getUnderMinimumIbReinforcementSubjectId(dateKey: string, slotStart: Date) {
+    return ([...IB_REINFORCEMENT_MIN_SUBJECT_IDS] as Subject["id"][])
+      .filter((subjectId) => {
+        if (!subjectMap.has(subjectId) || !REINFORCEMENT_SUBJECT_ID_SET.has(subjectId)) {
+          return false;
+        }
+
+        if (!isBeforeFinalDeadline(subjectId, slotStart)) {
+          return false;
+        }
+
+        return (
+          (reinforcementSessionCountBySubject[subjectId] ?? 0) <
+          IB_REINFORCEMENT_MIN_SESSIONS_PER_WEEK
+        );
+      })
+      .sort((left, right) => {
+        const leftCount = reinforcementSessionCountBySubject[left] ?? 0;
+        const rightCount = reinforcementSessionCountBySubject[right] ?? 0;
+
+        if (leftCount !== rightCount) {
+          return leftCount - rightCount;
+        }
+
+        const leftDateMinutes = reinforcementMinutesByDate[dateKey]?.[left] ?? 0;
+        const rightDateMinutes = reinforcementMinutesByDate[dateKey]?.[right] ?? 0;
+
+        if (leftDateMinutes !== rightDateMinutes) {
+          return leftDateMinutes - rightDateMinutes;
+        }
+
+        const leftTotalMinutes = reinforcementMinutesBySubject[left] ?? 0;
+        const rightTotalMinutes = reinforcementMinutesBySubject[right] ?? 0;
+
+        if (leftTotalMinutes !== rightTotalMinutes) {
+          return leftTotalMinutes - rightTotalMinutes;
+        }
+
+        return DAILY_FILL_SUBJECT_ORDER.indexOf(left) - DAILY_FILL_SUBJECT_ORDER.indexOf(right);
+      })[0] ?? null;
+  }
+
   function getReinforcementSubjectId(dateKey: string, slotStart: Date) {
+    const underMinimumSubjectId = getUnderMinimumIbReinforcementSubjectId(dateKey, slotStart);
+
+    if (underMinimumSubjectId) {
+      return underMinimumSubjectId;
+    }
+
     return fillOrder
       .filter((subjectId) => {
         if (!subjectMap.has(subjectId)) {
           return false;
         }
 
-        const finalDeadline = finalDeadlineBySubject[subjectId];
-        return !finalDeadline || slotStart.getTime() <= new Date(`${finalDeadline}T23:59:59`).getTime();
+        return isBeforeFinalDeadline(subjectId, slotStart);
       })
       .sort((left, right) => {
         const leftDateMinutes = reinforcementMinutesByDate[dateKey]?.[left] ?? 0;
@@ -597,6 +678,8 @@ function fillReinforcementForWeek(options: {
         [subjectId]: (reinforcementMinutesByDate[slot.dateKey]?.[subjectId] ?? 0) + durationMinutes,
       };
       reinforcementMinutesBySubject[subjectId] += durationMinutes;
+      reinforcementSessionCountBySubject[subjectId] =
+        (reinforcementSessionCountBySubject[subjectId] ?? 0) + 1;
       cursor = addMinutes(cursor, durationMinutes);
       remainingSlotMinutes = Math.max(0, remainingSlotMinutes - durationMinutes);
     }
@@ -1841,6 +1924,25 @@ function allocateTasksToSlots(options: {
     );
   }
 
+  function hasOpenRealCoverageWork() {
+    if (hasOpenRealCoverageTask()) {
+      return true;
+    }
+
+    const unscheduledBySubject = getRealCoverageUnscheduledMinutesBySubject({
+      subjects: options.subjects,
+      topics: options.topics,
+      studyBlocks: [
+        ...(options.priorPlannedBlocks ?? []),
+        ...options.lockedBlocks,
+        ...scheduledBlocks,
+      ],
+      referenceDate: options.coverageReferenceDate ?? options.referenceDate,
+    });
+
+    return Object.values(unscheduledBySubject).some((minutes) => minutes > 0);
+  }
+
   function canUseOverflowPracticeSubject(subjectId: Subject["id"], dateKey: string, slotStart: Date) {
     if (!options.allowReinforcement) {
       return false;
@@ -1854,7 +1956,7 @@ function allocateTasksToSlots(options: {
       return false;
     }
 
-    if (hasOpenRealCoverageTask()) {
+    if (hasOpenRealCoverageWork()) {
       return false;
     }
 
@@ -2367,6 +2469,12 @@ function allocateTasksToSlots(options: {
   }
 
   function getOverflowPracticeSubjectId(dateKey: string, slotStart: Date) {
+    const underMinimumIbSubjectId = getUnderMinimumIbOverflowSubjectId(dateKey, slotStart);
+
+    if (underMinimumIbSubjectId) {
+      return underMinimumIbSubjectId;
+    }
+
     const dailyFillOrder = buildDailyFillSubjectOrder({
       dateKey,
       requiredMinutesBySubject,
@@ -2437,6 +2545,44 @@ function allocateTasksToSlots(options: {
 
       return left.localeCompare(right);
     })[0] ?? null;
+  }
+
+  function getReinforcementSessionCountForSubject(subjectId: Subject["id"]) {
+    return [...options.lockedBlocks, ...scheduledBlocks].filter(
+      (block) => block.subjectId === subjectId && isOverflowReinforcementBlock(block),
+    ).length;
+  }
+
+  function getUnderMinimumIbOverflowSubjectId(dateKey: string, slotStart: Date) {
+    return ([...IB_REINFORCEMENT_MIN_SUBJECT_IDS] as Subject["id"][])
+      .filter((subjectId) => {
+        if (!IB_REINFORCEMENT_MIN_SUBJECT_ID_SET.has(subjectId)) {
+          return false;
+        }
+
+        if (getReinforcementSessionCountForSubject(subjectId) >= IB_REINFORCEMENT_MIN_SESSIONS_PER_WEEK) {
+          return false;
+        }
+
+        return canUseOverflowPracticeSubject(subjectId, dateKey, slotStart);
+      })
+      .sort((left, right) => {
+        const leftCount = getReinforcementSessionCountForSubject(left);
+        const rightCount = getReinforcementSessionCountForSubject(right);
+
+        if (leftCount !== rightCount) {
+          return leftCount - rightCount;
+        }
+
+        const leftMinutes = subjectMinutesByDate[dateKey]?.[left] ?? 0;
+        const rightMinutes = subjectMinutesByDate[dateKey]?.[right] ?? 0;
+
+        if (leftMinutes !== rightMinutes) {
+          return leftMinutes - rightMinutes;
+        }
+
+        return DAILY_FILL_SUBJECT_ORDER.indexOf(left) - DAILY_FILL_SUBJECT_ORDER.indexOf(right);
+      })[0] ?? null;
   }
 
   function extendScheduledStudyBlock(block: StudyBlock, extraMinutes: number) {
@@ -3355,19 +3501,30 @@ export function generateStudyPlanForWeek(options: {
   const sickDays = options.sickDays ?? [];
   const focusedDays = options.focusedDays ?? [];
   const focusedWeeks = options.focusedWeeks ?? [];
+  const existingPlannedBlocks = options.existingPlannedBlocks ?? lockedBlocks;
   const focusedSubjectsByDate = buildFocusedSubjectsByDate({
     weekStart,
     focusedDays,
     focusedWeeks,
   });
+  const existingRealCoverageUnscheduledBySubject = getRealCoverageUnscheduledMinutesBySubject({
+    subjects: options.subjects,
+    topics: options.topics,
+    studyBlocks: existingPlannedBlocks,
+    referenceDate,
+  });
+  const coverageRescueSubjectIds =
+    options.allowReinforcement && (existingRealCoverageUnscheduledBySubject.olympiad ?? 0) > 0
+      ? (["olympiad"] satisfies Subject["id"][])
+      : [];
   const availabilityOverrideSubjectIds = Array.from(
     new Set([
       ...Object.values(focusedSubjectsByDate).flat(),
+      ...coverageRescueSubjectIds,
       ...(options.availabilityOverrideSubjectIds ?? []),
     ]),
   ) as Subject["id"][];
   const weekStartKey = toDateKey(weekStart);
-  const existingPlannedBlocks = options.existingPlannedBlocks ?? lockedBlocks;
   const schoolTermTemplate = buildSchoolTermWeekTemplate({
     weekStart,
     topics: options.topics,
@@ -3731,6 +3888,20 @@ export function generateStudyPlanForWeek(options: {
           left.localeCompare(right),
         )
       : [];
+  const coverageRescueBlockedReasonBySubject = Object.fromEntries(
+    coverageRescueSubjectIds
+      .filter((subjectId) =>
+        finalTasks.some(
+          (task) => task.subjectId === subjectId && task.remainingMinutes > 0,
+        ),
+      )
+      .map((subjectId) => [
+        subjectId,
+        finalFreeSlots.some((slot) => slot.durationMinutes >= MIN_ALLOCATABLE_MINUTES)
+          ? "dependency_gate_or_exact_session_fit"
+          : "capacity",
+      ]),
+  );
   const studyBlocks = [...lockedBlocks, ...scheduledBlocks].sort(
     (left, right) => new Date(left.start).getTime() - new Date(right.start).getTime(),
   );
@@ -3752,6 +3923,8 @@ export function generateStudyPlanForWeek(options: {
     usedSundayMinutes,
     fallbackTierUsed,
     fillableGapDateKeys,
+    coverageRescueSubjectIds,
+    coverageRescueBlockedReasonBySubject,
     unscheduledTasks: finalTasks,
     priorPlannedBlocks: existingPlannedBlocks,
     cumulativePlannedBlocks: [...existingPlannedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
@@ -4109,12 +4282,7 @@ function buildComparableStudyBlock(block: StudyBlock) {
 }
 
 function isReinforcementStudyBlock(block: StudyBlock) {
-  return (
-    !!block.subjectId &&
-    REINFORCEMENT_SUBJECT_ID_SET.has(block.subjectId) &&
-    !block.topicId &&
-    block.title.includes("reinforcement")
-  );
+  return isOverflowReinforcementBlock(block);
 }
 
 function areStudyBlockListsEquivalent(left: StudyBlock[], right: StudyBlock[]) {

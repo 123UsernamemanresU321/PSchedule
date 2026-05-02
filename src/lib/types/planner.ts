@@ -242,6 +242,10 @@ export interface WeeklyPlan {
   weekOverloadMinutes: number;
   overscheduledMinutes: number;
   fillableGapDateKeys: string[];
+  coverageRescueSubjectIds?: string[];
+  coverageRescueBlockedReasonBySubject?: Record<string, string>;
+  reinforcementMinimumSatisfiedBySubject?: Record<string, boolean>;
+  lateFillableGapDateKeys?: string[];
   effectiveReservedCommitmentDurations: EffectiveReservedCommitmentDuration[];
   excludedReservedCommitmentRuleIds: string[];
   replanDiagnostics?: ReplanDiagnostics | null;

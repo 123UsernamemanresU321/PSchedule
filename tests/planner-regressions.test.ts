@@ -8154,6 +8154,159 @@ test("post-coverage reinforcement can fill all visible core subjects", () => {
   });
 });
 
+test("post-coverage reinforcement gives each HL school subject at least three weekly sessions before C++ filler", () => {
+  const referenceDate = new Date("2026-11-02T08:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const preferences: Preferences = {
+    ...dataset.preferences,
+    preferredDeepWorkWindows: [],
+    reservedCommitmentRules: [],
+    lockedRecoveryWindows: [],
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: false,
+    },
+    holidaySchedule: {
+      ...dataset.preferences.holidaySchedule,
+      enabled: true,
+      dailyStudyWindow: {
+        start: "09:00",
+        end: "12:00",
+      },
+    },
+  };
+  const completedTopics = dataset.topics.map((topic) => ({
+    ...topic,
+    completedHours: topic.estHours,
+    status: "strong" as const,
+  }));
+
+  const result = generateStudyPlanForWeek({
+    weekStart: new Date("2026-11-02T00:00:00.000Z"),
+    referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: completedTopics,
+    fixedEvents: [],
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    preferences,
+    allowReinforcement: true,
+  });
+  const reinforcementCountBySubject = result.studyBlocks
+    .filter((block) => block.title.includes("reinforcement"))
+    .reduce<Record<string, number>>(
+      (counts, block) => ({
+        ...counts,
+        [block.subjectId ?? "none"]: (counts[block.subjectId ?? "none"] ?? 0) + 1,
+      }),
+      {},
+    );
+
+  ["maths-aa-hl", "physics-hl", "chemistry-hl"].forEach((subjectId) => {
+    assert.ok(
+      (reinforcementCountBySubject[subjectId] ?? 0) >= 3,
+      `expected at least three reinforcement sessions for ${subjectId}`,
+    );
+  });
+});
+
+test("eligible Olympiad roadmap content is pulled forward before reinforcement when real coverage remains", () => {
+  const referenceDate = new Date("2026-11-02T08:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
+
+  assert.ok(olympiadSubject, "expected olympiad subject");
+
+  const preferences: Preferences = {
+    ...dataset.preferences,
+    preferredDeepWorkWindows: [],
+    reservedCommitmentRules: [],
+    lockedRecoveryWindows: [],
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: false,
+    },
+    holidaySchedule: {
+      ...dataset.preferences.holidaySchedule,
+      enabled: true,
+      dailyStudyWindow: {
+        start: "09:00",
+        end: "11:00",
+      },
+    },
+  };
+  const futureRoadmapTopic: Topic = {
+    id: "olympiad-future-roadmap-real-content",
+    subjectId: "olympiad",
+    unitId: "olympiad-future-roadmap",
+    unitTitle: "Olympiad future roadmap",
+    title: "Future roadmap content",
+    subtopics: ["Proof conversion"],
+    estHours: 2,
+    completedHours: 0,
+    difficulty: 4,
+    status: "not_started",
+    mastery: 1,
+    reviewDue: null,
+    lastStudiedAt: null,
+    sourceMaterials: [],
+    preferredBlockTypes: ["standard_focus", "drill"],
+    order: 1,
+    availableFrom: "2027-01-01",
+    dependsOnTopicId: null,
+    sequenceGroup: "olympiad-geo",
+    sequenceStage: "foundation",
+  };
+
+  const result = generateStudyPlanForWeek({
+    weekStart: new Date("2026-11-02T00:00:00.000Z"),
+    referenceDate,
+    goals: [
+      {
+        id: "goal-olympiad-future-roadmap-real-content",
+        title: "Finish future Olympiad real content",
+        subjectId: "olympiad",
+        deadline: "2027-06-30",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [olympiadSubject],
+    topics: [futureRoadmapTopic],
+    completionLogs: [],
+    fixedEvents: [],
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    preferences,
+    allowReinforcement: true,
+  });
+
+  assert.ok(
+    result.studyBlocks.some((block) => block.topicId === futureRoadmapTopic.id),
+    "expected real Olympiad content to be scheduled before reinforcement",
+  );
+  const realTopicEnd = Math.max(
+    ...result.studyBlocks
+      .filter((block) => block.topicId === futureRoadmapTopic.id)
+      .map((block) => new Date(block.end).getTime()),
+  );
+  const firstReinforcementStart = Math.min(
+    ...result.studyBlocks
+      .filter((block) => block.title.includes("reinforcement"))
+      .map((block) => new Date(block.start).getTime()),
+  );
+
+  if (Number.isFinite(firstReinforcementStart)) {
+    assert.ok(
+      firstReinforcementStart >= realTopicEnd,
+      "expected reinforcement only after real Olympiad coverage is placed",
+    );
+  }
+});
+
 test("real core work is scheduled before any reinforcement filler", () => {
   const referenceDate = new Date("2026-04-20T08:00:00.000Z");
   const dataset = buildSeedDataset(referenceDate);

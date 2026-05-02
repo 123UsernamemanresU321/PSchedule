@@ -1,6 +1,11 @@
 import { addDays, differenceInCalendarDays, min as minDate } from "date-fns";
 
-import { subjectIds, zeroUnscheduledCoverageSubjectIds } from "@/lib/constants/planner";
+import {
+  IB_REINFORCEMENT_MIN_SESSIONS_PER_WEEK,
+  IB_REINFORCEMENT_MIN_SUBJECT_IDS,
+  subjectIds,
+  zeroUnscheduledCoverageSubjectIds,
+} from "@/lib/constants/planner";
 import {
   displayHoursFromMinutes,
   endOfPlannerWeek,
@@ -436,6 +441,8 @@ export function buildWeeklyPlan(options: {
   usedSundayMinutes?: number;
   fallbackTierUsed?: number;
   fillableGapDateKeys?: string[];
+  coverageRescueSubjectIds?: string[];
+  coverageRescueBlockedReasonBySubject?: Record<string, string>;
   effectiveReservedCommitmentDurations?: EffectiveReservedCommitmentDuration[];
   excludedReservedCommitmentRuleIds?: string[];
   unscheduledTasks?: Array<{ subjectId: string | null; remainingMinutes: number }>;
@@ -669,6 +676,32 @@ export function buildWeeklyPlan(options: {
         Math.max(0, requiredMinutes - studyCapacityMinutes) / 15,
     ),
   );
+  const reinforcementSessionCountBySubject = options.studyBlocks.reduce<Record<string, number>>(
+    (counts, block) => {
+      if (!block.subjectId || block.topicId || !block.title.includes("reinforcement")) {
+        return counts;
+      }
+
+      counts[block.subjectId] = (counts[block.subjectId] ?? 0) + 1;
+      return counts;
+    },
+    {},
+  );
+  const reinforcementMinimumSatisfiedBySubject = Object.fromEntries(
+    IB_REINFORCEMENT_MIN_SUBJECT_IDS.map((subjectId) => [
+      subjectId,
+      (reinforcementSessionCountBySubject[subjectId] ?? 0) >=
+        IB_REINFORCEMENT_MIN_SESSIONS_PER_WEEK,
+    ]),
+  );
+  const coverageRescueSubjectIds = Array.from(
+    new Set(options.coverageRescueSubjectIds ?? []),
+  ).sort((left, right) => left.localeCompare(right));
+  const coverageRescueBlockedReasonBySubject = {
+    ...(options.coverageRescueBlockedReasonBySubject ?? {}),
+  };
+  const lateFillableGapDateKeys =
+    options.weekStart >= "2026-10-26" ? fillableGapDateKeys : [];
 
   return {
     weekStart: options.weekStart,
@@ -699,6 +732,10 @@ export function buildWeeklyPlan(options: {
     weekOverloadMinutes,
     overscheduledMinutes,
     fillableGapDateKeys,
+    coverageRescueSubjectIds,
+    coverageRescueBlockedReasonBySubject,
+    reinforcementMinimumSatisfiedBySubject,
+    lateFillableGapDateKeys,
     effectiveReservedCommitmentDurations: [...(options.effectiveReservedCommitmentDurations ?? [])].sort(
       (left, right) =>
         left.dateKey.localeCompare(right.dateKey) ||

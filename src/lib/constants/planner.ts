@@ -20,6 +20,12 @@ export const visibleCoreSubjectIds = [
 export const zeroUnscheduledCoverageSubjectIds = visibleCoreSubjectIds;
 export const realCoverageSubjectIds = visibleCoreSubjectIds;
 export const reinforcementSubjectIds = visibleCoreSubjectIds;
+export const IB_REINFORCEMENT_MIN_SESSIONS_PER_WEEK = 3;
+export const IB_REINFORCEMENT_MIN_SUBJECT_IDS = [
+  "maths-aa-hl",
+  "physics-hl",
+  "chemistry-hl",
+] as const;
 
 export const softMaintenanceSubjectIds = ["french-b-sl"] as const;
 
