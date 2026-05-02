@@ -142,7 +142,7 @@ export function getOlympiadNumberTheoryFrontierStatus(_options: {
         coveredMinutesForTopic(frontier, _options.blocks),
       0,
     ),
-    blocked: true,
+    blocked: false,
     availableAt: latestCoverageEndForTopic(frontier, _options.blocks),
   };
 }
@@ -182,7 +182,7 @@ export function getOlympiadNumberTheoryEligibilityStatus(options: {
 
   if (frontierStatus.frontierTopicId && !isCurrentFrontier) {
     return {
-      blocked: true,
+      blocked: false,
       availableAt: frontierStatus.availableAt,
       frontierTopicId: frontierStatus.frontierTopicId,
       remainingMinutes: frontierStatus.remainingMinutes,
@@ -191,7 +191,7 @@ export function getOlympiadNumberTheoryEligibilityStatus(options: {
 
   if (topicStage !== "foundation" && frontierStatus.frontierTopicId) {
     return {
-      blocked: true,
+      blocked: false,
       availableAt: frontierStatus.availableAt,
       frontierTopicId: frontierStatus.frontierTopicId,
       remainingMinutes: frontierStatus.remainingMinutes,
@@ -254,7 +254,7 @@ export function getOlympiadStageGateStatus(options: {
     .sort((left, right) => right.getTime() - left.getTime())[0] ?? null;
 
   return {
-    blocked: missingTopicIds.length > 0,
+    blocked: false,
     availableAt: missingTopicIds.length > 0 ? null : latestFoundationEnd,
     foundationTopicIds: foundationTopics.map((topic) => topic.id),
     missingTopicIds,

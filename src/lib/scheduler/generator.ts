@@ -1946,6 +1946,17 @@ function allocateTasksToSlots(options: {
     return Object.values(unscheduledBySubject).some((minutes) => minutes > 0);
   }
 
+  function hasEligibleRealCoverageTask(slotStart: Date) {
+    return workingTasks.some(
+      (task) =>
+        !!task.subjectId &&
+        REAL_COVERAGE_SUBJECT_ID_SET.has(task.subjectId) &&
+        task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES &&
+        (!task.availableAt || new Date(task.availableAt) <= slotStart) &&
+        isTaskDependencySatisfied(task, slotStart),
+    );
+  }
+
   function canUseOverflowPracticeSubject(subjectId: Subject["id"], dateKey: string, slotStart: Date) {
     if (!options.allowReinforcement) {
       return false;
@@ -1959,7 +1970,7 @@ function allocateTasksToSlots(options: {
       return false;
     }
 
-    if (hasOpenRealCoverageWork()) {
+    if (hasEligibleRealCoverageTask(slotStart)) {
       return false;
     }
 
