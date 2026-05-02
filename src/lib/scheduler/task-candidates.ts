@@ -673,7 +673,8 @@ export function buildTaskCandidates(options: {
           Math.min(topic.completedHours + plannedHours, topic.estHours) /
           Math.max(topic.estHours, 0.25);
 
-        if (coveredRatio < 0.5) {
+        const strictThreshold = topic.subjectId === "maths-aa-hl" ? 0.99 : 0.5;
+        if (coveredRatio < strictThreshold) {
           unmetEarlierTopicCount += 1;
         }
       });
