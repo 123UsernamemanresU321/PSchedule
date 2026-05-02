@@ -4015,6 +4015,7 @@ export function generateStudyPlanHorizon(options: {
   preservedStudyBlockIds?: string[];
   preserveFlexibleFutureBlocks?: boolean;
   availabilityOverrideSubjectIds?: Subject["id"][];
+  allowReinforcement?: boolean;
 }) {
   const startWeek = startOfPlannerWeek(options.startWeek ?? new Date());
   const referenceDate = options.referenceDate ?? new Date();
@@ -4154,6 +4155,7 @@ export function generateStudyPlanHorizon(options: {
         effectiveReservedCommitmentPlan.excludedReservedCommitmentRuleIds,
       reservedCommitmentFallbackTierUsed:
         effectiveReservedCommitmentPlan.fallbackTierUsed,
+      allowReinforcement: options.allowReinforcement ?? true,
       schedulingContext,
     });
 

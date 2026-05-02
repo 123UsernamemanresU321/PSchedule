@@ -748,23 +748,23 @@ function getMockSpecification(phaseId: PhaseId, localWeekIndex: number) {
           };
     case 4:
       return {
-        label: "270-minute IMO-style paper",
-        minutes: 270,
+        label: "240-minute IMO-style paper",
+        minutes: 240,
         problemCount: 3,
         goal: "Become reliable on Day-1 style mixed sets.",
       };
     case 5:
       return {
-        label: "270-minute IMO-style paper",
-        minutes: 270,
+        label: "240-minute IMO-style paper",
+        minutes: 240,
         problemCount: 3,
         goal: "Sustain weekly full-paper realism during camp and assignment season.",
       };
     case 6:
       return localWeekIndex % 2 === 0
         ? {
-            label: "270-minute selection-peak paper",
-            minutes: 270,
+            label: "240-minute selection-peak paper",
+            minutes: 240,
             problemCount: 3,
             goal: "Keep one-day paper sharp between two-day mocks.",
           }
@@ -964,9 +964,9 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
           subjectId: "olympiad",
           unitId: `${unitId}-monthly-mock`,
           unitTitle: `${unitTitle} - Monthly full two-day mock`,
-          title: `Monthly full two-day mock - Day 1 (${weekStart})`,
+          title: "Monthly full two-day mock - Day 1",
           subtopics: [
-            "Run three problems in one uninterrupted 4.5-hour sitting.",
+            "Run the first three-problem set in one uninterrupted 4-hour sitting.",
             "No notes or external help.",
             "Treat it as a selection-level paper, not a training drill.",
           ],
@@ -975,8 +975,8 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
           sequenceGroup: "olympiad-mock",
           sequenceStage,
           sessionMode: "exam",
-          exactSessionMinutes: 270,
-          estHours: 4.5,
+          exactSessionMinutes: 240,
+          estHours: 4,
           difficulty: 5,
           preferredBlockTypes: ["deep_work"],
           sourceMaterials: [
@@ -992,9 +992,9 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
           subjectId: "olympiad",
           unitId: `${unitId}-monthly-mock`,
           unitTitle: `${unitTitle} - Monthly full two-day mock`,
-          title: `Monthly full two-day mock - Day 2 (${addDaysToDateKey(weekStart, 6)})`,
+          title: "Monthly full two-day mock - Day 2",
           subtopics: [
-            "Run the second three-problem set in one uninterrupted 4.5-hour sitting.",
+            "Run the second three-problem set in one uninterrupted 4-hour sitting.",
             "Keep the same contest conditions as Day 1.",
             "Finish with a short performance note before the full postmortem.",
           ],
@@ -1003,8 +1003,8 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
           minDaysAfterDependency: 1,
           maxDaysAfterDependency: 2,
           sessionMode: "exam",
-          exactSessionMinutes: 270,
-          estHours: 4.5,
+          exactSessionMinutes: 240,
+          estHours: 4,
           difficulty: 5,
           preferredBlockTypes: ["deep_work"],
           sourceMaterials: [
@@ -1036,7 +1036,7 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
           unitTitle: `${unitTitle} - Selection-peak full two-day mock`,
           title: `Selection-peak full mock - Day 1`,
           subtopics: [
-            "Run a full 4.5-hour Day 1 paper.",
+            "Run a full 4-hour Day 1 paper.",
             "Hold full selection conditions.",
             "Record the first 45-minute decision points immediately after finishing.",
           ],
@@ -1045,8 +1045,8 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
           sequenceGroup: "olympiad-mock",
           sequenceStage,
           sessionMode: "exam",
-          exactSessionMinutes: 270,
-          estHours: 4.5,
+          exactSessionMinutes: 240,
+          estHours: 4,
           difficulty: 5,
           preferredBlockTypes: ["deep_work"],
           sourceMaterials: [
@@ -1064,7 +1064,7 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
           unitTitle: `${unitTitle} - Selection-peak full two-day mock`,
           title: `Selection-peak full mock - Day 2`,
           subtopics: [
-            "Run a full 4.5-hour Day 2 paper.",
+            "Run a full 4-hour Day 2 paper.",
             "Keep exactly the same contest conditions as Day 1.",
             "Compare pacing, confidence, and finish quality between the two days.",
           ],
@@ -1073,8 +1073,8 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
           minDaysAfterDependency: 1,
           maxDaysAfterDependency: 2,
           sessionMode: "exam",
-          exactSessionMinutes: 270,
-          estHours: 4.5,
+          exactSessionMinutes: 240,
+          estHours: 4,
           difficulty: 5,
           preferredBlockTypes: ["deep_work"],
           sourceMaterials: [
