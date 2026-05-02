@@ -29,7 +29,8 @@ type StrandKey =
   | "number-theory"
   | "combinatorics"
   | "contest"
-  | "assignment";
+  | "assignment"
+  | "mock";
 
 type ModulePlan = {
   title: string;
@@ -932,6 +933,9 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
           mockSpec.goal,
         ],
         availableFrom: addDaysToDateKey(weekStart, 5),
+        dependsOnTopicId: previousStrandTopicIds.mock ?? null,
+        sequenceGroup: "olympiad-mock",
+        sequenceStage,
         sessionMode: "exam",
         exactSessionMinutes: mockSpec.minutes,
         estHours: mockSpec.minutes / 60,
@@ -947,6 +951,7 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
       } satisfies OlympiadSeedTopicBlueprint;
 
       if (pushIfWithinPhase(mockBlueprint)) {
+        previousStrandTopicIds.mock = mockTopicId;
         mockTopicIds.push(mockTopicId);
       }
     }
@@ -966,6 +971,9 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
             "Treat it as a selection-level paper, not a training drill.",
           ],
           availableFrom: addDaysToDateKey(weekStart, 5),
+          dependsOnTopicId: previousStrandTopicIds.mock ?? null,
+          sequenceGroup: "olympiad-mock",
+          sequenceStage,
           sessionMode: "exam",
           exactSessionMinutes: 270,
           estHours: 4.5,
@@ -1011,7 +1019,10 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
       const keptDayTwo = pushIfWithinPhase(monthlyMockDayTwo);
 
       if (keptDayOne && keptDayTwo) {
+        previousStrandTopicIds.mock = monthlyMockDayTwoId;
         mockTopicIds.push(monthlyMockDayTwoId);
+      } else if (keptDayOne) {
+        previousStrandTopicIds.mock = monthlyMockDayOneId;
       }
     }
 
@@ -1030,6 +1041,9 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
             "Record the first 45-minute decision points immediately after finishing.",
           ],
           availableFrom: addDaysToDateKey(weekStart, 5),
+          dependsOnTopicId: previousStrandTopicIds.mock ?? null,
+          sequenceGroup: "olympiad-mock",
+          sequenceStage,
           sessionMode: "exam",
           exactSessionMinutes: 270,
           estHours: 4.5,
@@ -1075,7 +1089,10 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
       const keptDayTwo = pushIfWithinPhase(peakMockDayTwo);
 
       if (keptDayOne && keptDayTwo) {
+        previousStrandTopicIds.mock = peakMockDayTwoId;
         mockTopicIds.push(peakMockDayTwoId);
+      } else if (keptDayOne) {
+        previousStrandTopicIds.mock = peakMockDayOneId;
       }
     }
 
@@ -1178,5 +1195,5 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
     }
   });
 
-  return blueprints;
+  return blueprints.map((bp) => ({ ...bp, availableFrom: null }));
 }
