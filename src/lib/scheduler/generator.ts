@@ -1786,6 +1786,8 @@ interface AllocationPassPolicy {
   minBreakMinutes?: number;
   countAsForcedCoverage?: boolean;
   blockSelectionPolicy?: BlockSelectionPolicy;
+  requiredStudyLayers?: StudyLayer[];
+  label?: string;
 }
 
 function createStudyBlockFromTask(options: {
@@ -1865,6 +1867,7 @@ function allocateTasksToSlots(options: {
   allowReinforcement?: boolean;
   dayStudyCapOverrideMinutesByDate?: Record<string, number>;
   schoolTermTemplate?: ReturnType<typeof buildSchoolTermWeekTemplate>;
+  requiredStudyLayers?: StudyLayer[];
   schedulingContext?: SchedulingRunContext;
 }) {
   const weekStartKey = toDateKey(options.weekStart);
@@ -3153,6 +3156,7 @@ function allocateTasksToSlots(options: {
                   : undefined,
               mustFillEndOfDaySlot,
               strongFocusDemand: focusedDemandStillOpen,
+              requiredStudyLayers: options.requiredStudyLayers,
             });
       const winner = scoredOptions[0];
       const allTargetsMet = allWeeklyTargetsSatisfied();
@@ -3429,6 +3433,16 @@ function buildAutomaticDailyCapBoost(options: {
 function buildAllocationPasses(baseDailyCapBoostMinutes: number) {
   const passes: AllocationPassPolicy[] = [
     {
+      label: "Mock Priority",
+      protectRecovery: true,
+      skipMovableRecovery: true,
+      dailyCapBoostMinutes: baseDailyCapBoostMinutes + 120,
+      minBreakMinutes: undefined,
+      countAsForcedCoverage: false,
+      requiredStudyLayers: ["exam_sim"],
+      heavySessionBoost: 2,
+    },
+    {
       protectRecovery: true,
       skipMovableRecovery: false,
       dailyCapBoostMinutes: baseDailyCapBoostMinutes,
@@ -3492,6 +3506,7 @@ export function generateStudyPlanForWeek(options: {
   excludedReservedCommitmentRuleIds?: string[];
   reservedCommitmentFallbackTierUsed?: number;
   allowReinforcement?: boolean;
+  fillAvailableStudyDays?: boolean;
   schedulingContext?: SchedulingRunContext;
 }): SchedulerResult {
   const weekStart = startOfPlannerWeek(options.weekStart ?? new Date());
@@ -3612,7 +3627,7 @@ export function generateStudyPlanForWeek(options: {
     excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
     schedulingContext: options.schedulingContext,
   });
-  const shouldFillAvailableStudyDays = true;
+  const shouldFillAvailableStudyDays = options.fillAvailableStudyDays ?? true;
   const fullCoverageTasks = buildTaskCandidates({
     topics: options.topics,
     existingPlannedBlocks,
@@ -3725,6 +3740,7 @@ export function generateStudyPlanForWeek(options: {
       protectRecovery: passPolicy.protectRecovery,
       blockSelectionPolicy: passPolicy.blockSelectionPolicy,
       fillAvailableStudyDays: shouldFillAvailableStudyDays,
+      requiredStudyLayers: passPolicy.requiredStudyLayers,
       focusedSubjectsByDate,
       futureFocusedReserveMinutesBySubject: options.futureFocusedReserveMinutesBySubject,
       availabilityOverrideSubjectIds,
@@ -4016,6 +4032,7 @@ export function generateStudyPlanHorizon(options: {
   preserveFlexibleFutureBlocks?: boolean;
   availabilityOverrideSubjectIds?: Subject["id"][];
   allowReinforcement?: boolean;
+  fillAvailableStudyDays?: boolean;
 }) {
   const startWeek = startOfPlannerWeek(options.startWeek ?? new Date());
   const referenceDate = options.referenceDate ?? new Date();
@@ -4062,6 +4079,7 @@ export function generateStudyPlanHorizon(options: {
   let extensionWeeksUsed = 0;
   let finalWeek = configuredEndWeek;
   let remainingTaskCount = 0;
+  const shouldFillAvailableStudyDays = options.fillAvailableStudyDays ?? true;
 
   for (
     let currentWeek = startWeek;
@@ -4155,6 +4173,7 @@ export function generateStudyPlanHorizon(options: {
         effectiveReservedCommitmentPlan.excludedReservedCommitmentRuleIds,
       reservedCommitmentFallbackTierUsed:
         effectiveReservedCommitmentPlan.fallbackTierUsed,
+      fillAvailableStudyDays: shouldFillAvailableStudyDays,
       allowReinforcement: options.allowReinforcement ?? true,
       schedulingContext,
     });
@@ -4509,6 +4528,7 @@ export function generateIncrementalStudyPlanTail(options: {
   const changedWeekStarts = new Set<string>();
   const existingHorizonEndDate =
     options.existingWeeklyPlans.at(-1)?.horizonEndDate ?? toDateKey(configuredEndWeek);
+  const shouldFillAvailableStudyDays = true;
   let effectiveEndWeek = configuredEndWeek;
   let extensionWeeksUsed = 0;
   let finalWeek = configuredEndWeek;
@@ -4605,6 +4625,7 @@ export function generateIncrementalStudyPlanTail(options: {
         effectiveReservedCommitmentPlan.excludedReservedCommitmentRuleIds,
       reservedCommitmentFallbackTierUsed:
         effectiveReservedCommitmentPlan.fallbackTierUsed,
+      fillAvailableStudyDays: shouldFillAvailableStudyDays,
       schedulingContext,
     });
 
