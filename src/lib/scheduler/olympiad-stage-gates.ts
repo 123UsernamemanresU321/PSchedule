@@ -117,7 +117,7 @@ export function getOlympiadNumberTheoryFrontierStatus(_options: {
     .sort((left, right) => left.order - right.order);
   const frontier = foundationTopics.find(
     (topic) =>
-      coveredMinutesForTopic(topic, _options.blocks, _options.cutoff) <
+      coveredMinutesForTopic(topic, _options.blocks) <
       requiredMinutesForTopic(topic) - EPSILON_MINUTES,
   );
 
@@ -139,7 +139,7 @@ export function getOlympiadNumberTheoryFrontierStatus(_options: {
     frontierTopicId: frontier.id,
     remainingMinutes: Math.max(
       requiredMinutesForTopic(frontier) -
-        coveredMinutesForTopic(frontier, _options.blocks, _options.cutoff),
+        coveredMinutesForTopic(frontier, _options.blocks),
       0,
     ),
     blocked: true,
@@ -244,7 +244,7 @@ export function getOlympiadStageGateStatus(options: {
   const missingTopicIds = foundationTopics
     .filter(
       (topic) =>
-        coveredMinutesForTopic(topic, options.blocks, options.cutoff) <
+        coveredMinutesForTopic(topic, options.blocks) <
         requiredMinutesForTopic(topic) - EPSILON_MINUTES,
     )
     .map((topic) => topic.id);
