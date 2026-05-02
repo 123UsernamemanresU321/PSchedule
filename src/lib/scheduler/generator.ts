@@ -2712,7 +2712,7 @@ function allocateTasksToSlots(options: {
     }
 
     const isMicroGap = remainingMinutes < MIN_ALLOCATABLE_MINUTES;
-    const isExtensionAllowed = options.fillAvailableStudyDays && remainingMinutes <= 60;
+    const isExtensionAllowed = options.fillAvailableStudyDays;
 
     if (!isMicroGap && !isExtensionAllowed) {
       return false;
@@ -3177,14 +3177,6 @@ function allocateTasksToSlots(options: {
         ) {
           const overflowSubjectId = getOverflowPracticeSubjectId(slot.dateKey, cursor);
           if (!overflowSubjectId) {
-            if (
-              options.allowLargeGapAbsorption !== false &&
-              absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)
-            ) {
-              remainingSlotMinutes = 0;
-              break;
-            }
-
             remainingSlotMinutes = 0;
             break;
           }
@@ -3359,29 +3351,6 @@ function allocateTasksToSlots(options: {
         winner.blockOption.durationMinutes,
         requiredBreakMinutes,
       );
-      const trailingTailMinutes =
-        remainingSlotMinutes -
-        winner.blockOption.durationMinutes -
-        breakAfterBlock;
-
-      if (
-        winner.task.sessionMode !== "exam" &&
-        breakAfterBlock === 0 &&
-        trailingTailMinutes > 0 &&
-        trailingTailMinutes < MIN_ALLOCATABLE_MINUTES
-      ) {
-        extendScheduledStudyBlock(block, trailingTailMinutes);
-        applyScheduledTaskCoverage(winner.task, trailingTailMinutes);
-        if (topicCompletedByPlacement && winner.task.subjectId) {
-          syncWorkingTasks([winner.task.subjectId]);
-        }
-        cursor = addMinutes(
-          cursor,
-          winner.blockOption.durationMinutes + trailingTailMinutes,
-        );
-        remainingSlotMinutes = 0;
-        continue;
-      }
 
       cursor = addMinutes(
         cursor,
@@ -3399,6 +3368,44 @@ function allocateTasksToSlots(options: {
       }
     }
   });
+
+  function saturateRemainingCapacityGaps() {
+    const allGaps = calculateFreeSlots({
+      weekStart: options.weekStart,
+      fixedEvents: options.fixedEvents,
+      sickDays: options.sickDays ?? [],
+      preferences: options.preferences,
+      blockedStudyBlocks: [...options.lockedBlocks, ...scheduledBlocks],
+      planningStart: options.referenceDate,
+      skipMovableRecovery: true,
+      minimumDurationMinutes: 1,
+      schedulingContext: options.schedulingContext,
+    });
+
+    allGaps.forEach((gap) => {
+      const gapStart = gap.start.getTime();
+      const previousBlock = scheduledBlocks.find((b) => new Date(b.end).getTime() === gapStart);
+
+      if (previousBlock && isExtendableFlexibleStudyBlock(previousBlock)) {
+        const gapMinutes = gap.durationMinutes;
+        extendScheduledStudyBlock(previousBlock, gapMinutes);
+
+        if (previousBlock.topicId) {
+          const task = workingTasks.find((t) => t.id === previousBlock.topicId);
+          if (task) {
+            applyScheduledTaskCoverage(task, gapMinutes);
+            if (task.subjectId) {
+              syncWorkingTasks([task.subjectId]);
+            }
+          }
+        }
+      }
+    });
+  }
+
+  if (options.fillAvailableStudyDays && (options.isFinalPass ?? true)) {
+    saturateRemainingCapacityGaps();
+  }
 
   const absorbedMicroGapDateKeys =
     options.allowLargeGapAbsorption !== false ? compactDailyMicroGaps() : [];
@@ -3427,9 +3434,11 @@ function buildAutomaticDailyCapBoost(options: {
         Math.ceil(Math.max(0, options.requiredMinutes - bufferedCapacityMinutes) / activeDayCount / 15) * 15,
         0,
         120,
-      )
+        )
     : 0;
 }
+
+
 
 function buildAllocationPasses(baseDailyCapBoostMinutes: number) {
   const passes: AllocationPassPolicy[] = [
