@@ -2707,7 +2707,14 @@ function allocateTasksToSlots(options: {
     extensionStart: Date,
     remainingMinutes: number,
   ) {
-    if (remainingMinutes <= 0 || remainingMinutes >= MIN_ALLOCATABLE_MINUTES) {
+    if (remainingMinutes <= 0) {
+      return false;
+    }
+
+    const isMicroGap = remainingMinutes < MIN_ALLOCATABLE_MINUTES;
+    const isExtensionAllowed = options.fillAvailableStudyDays && remainingMinutes <= 60;
+
+    if (!isMicroGap && !isExtensionAllowed) {
       return false;
     }
 
@@ -2729,6 +2736,17 @@ function allocateTasksToSlots(options: {
     }
 
     extendScheduledStudyBlock(previousBlock, remainingMinutes);
+
+    // Apply coverage credit to the task if applicable
+    if (previousBlock.topicId) {
+      const task = workingTasks.find((t) => t.topicId === previousBlock.topicId || t.id === previousBlock.topicId);
+      if (task) {
+        applyScheduledTaskCoverage(task, remainingMinutes);
+        if (task.subjectId) {
+          syncWorkingTasks([task.subjectId]);
+        }
+      }
+    }
 
     return true;
   }
