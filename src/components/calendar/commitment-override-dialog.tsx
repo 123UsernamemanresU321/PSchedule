@@ -183,7 +183,7 @@ export function CommitmentOverrideDialog({
 
   const rule = getCommitmentRule(preferences, ruleId);
   const copy = ruleId ? commitmentCopy[ruleId] : null;
-  const supportsDurationOverride = ruleId === "term-homework";
+  const supportsDurationOverride = ruleId === "term-homework" || ruleId === "piano-practice";
   const supportsTimeOverride = ruleId === "piano-practice" || ruleId === "term-homework";
   const statusDescription = useMemo(() => {
     if (!ruleId) {

@@ -387,6 +387,7 @@ function StudyBlockDrawerPanel({
         }}
         subjects={subjects}
         topics={topics}
+        goals={goals}
         studyBlocks={studyBlocks}
         onClose={() => setScheduleEditorOpen(false)}
         onSave={async (options) => {

@@ -55,6 +55,7 @@ export function CalendarPage() {
   const topics = usePlannerStore((state) => state.topics);
   const weeklyPlans = usePlannerStore((state) => state.weeklyPlans);
   const subjects = usePlannerStore((state) => state.subjects);
+  const goals = usePlannerStore((state) => state.goals);
   const regenerateHorizon = usePlannerStore((state) => state.regenerateHorizon);
   const setCurrentWeekStart = usePlannerStore((state) => state.setCurrentWeekStart);
   const savePlannerFixedEvent = usePlannerStore((state) => state.saveFixedEvent);
@@ -542,6 +543,7 @@ export function CalendarPage() {
         draft={studyBlockEditorDraft}
         subjects={subjects}
         topics={topics}
+        goals={goals}
         studyBlocks={studyBlocks}
         onClose={() => setStudyBlockEditorDraft(null)}
         onSave={async (options) => {

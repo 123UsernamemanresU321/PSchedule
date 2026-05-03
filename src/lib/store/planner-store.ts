@@ -1450,6 +1450,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       topics: snapshot.topics,
       existingPlannedBlocks: snapshot.studyBlocks.filter((candidate) => candidate.id !== block.id),
       subjectDeadlinesById,
+      goals: snapshot.goals,
     });
     const nextCandidate = assignableCandidates.find((candidate) => candidate.topicId === topicId);
 
@@ -1720,6 +1721,7 @@ async function buildManualStudyBlock(options: {
       (candidate) => candidate.id !== draftBlock.id,
     ),
     subjectDeadlinesById,
+    goals: options.snapshot.goals,
     allowCompletedTopics: options.allowEndedPast,
   });
   const nextCandidate = assignableCandidates.find((candidate) => candidate.topicId === options.topicId);
@@ -1936,6 +1938,8 @@ function buildManualAssignmentScoreBreakdown(): StudyBlock["scoreBreakdown"] {
     neglectedSubjectBonus: 0,
     olympiadSlotBonus: 0,
     focusDayBonus: 0,
+    coreSyllabusBonus: 0,
+    orderPenalty: 0,
     badSlotFitPenalty: 0,
     fragmentationPenalty: 0,
     total: 0,

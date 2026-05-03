@@ -139,6 +139,8 @@ export const scoreBreakdownSchema = z.object({
   neglectedSubjectBonus: z.number(),
   olympiadSlotBonus: z.number(),
   focusDayBonus: z.number().optional().default(0),
+  coreSyllabusBonus: z.number().optional().default(0),
+  orderPenalty: z.number().optional().default(0),
   badSlotFitPenalty: z.number(),
   fragmentationPenalty: z.number(),
   total: z.number(),

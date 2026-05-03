@@ -11,7 +11,7 @@ import {
   getOlympiadStrandForTopic,
 } from "@/lib/scheduler/olympiad-performance";
 import { IB_ANCHOR_SUBJECT_IDS } from "@/lib/scheduler/school-term-template";
-import type { CompletionLog, StudyBlock, StudyLayer, TaskCandidate, Topic } from "@/lib/types/planner";
+import type { CompletionLog, Goal, StudyBlock, StudyLayer, TaskCandidate, Topic } from "@/lib/types/planner";
 
 const MIN_ALLOCATABLE_MINUTES = 30;
 const MATHS_AA_SL_HL_FRONTIER_TOPIC_ID = "maths-topic5-aa-integration";
@@ -123,6 +123,21 @@ function isFrenchMaintenanceTopic(topic: Pick<Topic, "subjectId">) {
   return topic.subjectId === "french-b-sl";
 }
 
+function getEarliestGoalDeadline(topic: Topic, goals: Goal[]): string | null {
+  const matchingGoals = goals.filter((goal) => {
+    if (goal.subjectId !== topic.subjectId) return false;
+    if (goal.topicIds && goal.topicIds.length > 0) {
+      return goal.topicIds.includes(topic.id);
+    }
+    return true;
+  });
+
+  if (matchingGoals.length === 0) return null;
+
+  const deadlines = matchingGoals.map((g) => g.deadline).sort();
+  return deadlines[0];
+}
+
 function getTaskStudyLayer(options: {
   topic: Topic;
   kind: TaskCandidate["kind"];
@@ -154,10 +169,13 @@ function buildIbTopicVariantCandidates(options: {
   };
   blockedByEarlierTopics: number;
   subjectDeadlinesById: Record<string, string>;
+  goals: Goal[];
   referenceDate: Date;
 }) {
+  const goalDeadline = getEarliestGoalDeadline(options.topic, options.goals);
   const baseDeadline =
     options.timingWindow.reviewDue ??
+    goalDeadline ??
     options.subjectDeadlinesById[options.topic.subjectId] ??
     new Date(options.referenceDate).toISOString().slice(0, 10);
   const availableAt = options.timingWindow.availableAt
@@ -577,18 +595,20 @@ export function buildTaskCandidates(options: {
   topics: Topic[];
   existingPlannedBlocks?: StudyBlock[];
   completionLogs?: CompletionLog[];
-  referenceDate?: Date;
-  coverageReferenceDate?: Date;
-  subjectDeadlinesById?: Record<string, string>;
+  referenceDate: Date;
+  coverageReferenceDate: Date;
+  subjectDeadlinesById: Record<string, string>;
+  goals: Goal[];
   availabilityOverrideSubjectIds?: string[];
 }) {
   const {
     topics,
     existingPlannedBlocks = [],
     completionLogs = [],
-    referenceDate = new Date(),
-    coverageReferenceDate = referenceDate,
-    subjectDeadlinesById = {},
+    referenceDate,
+    coverageReferenceDate,
+    subjectDeadlinesById,
+    goals,
     availabilityOverrideSubjectIds = [],
   } = options;
   const planningWeekEnd = endOfPlannerWeek(referenceDate);
@@ -731,8 +751,9 @@ export function buildTaskCandidates(options: {
             hasStudyHistory,
             timingWindow,
             blockedByEarlierTopics: blockedByEarlierTopicsById[topic.id] ?? 0,
-            subjectDeadlinesById,
-            referenceDate,
+            subjectDeadlinesById: options.subjectDeadlinesById,
+            goals,
+            referenceDate: options.referenceDate,
           }),
         );
       } else {
@@ -836,6 +857,7 @@ export function getAssignableTaskCandidatesForBlock(options: {
   topics: Topic[];
   existingPlannedBlocks?: StudyBlock[];
   subjectDeadlinesById?: Record<string, string>;
+  goals?: Goal[];
   allowCompletedTopics?: boolean;
 }) {
   const existingPlannedBlocks = options.existingPlannedBlocks ?? [];
@@ -910,6 +932,7 @@ export function getAssignableTaskCandidatesForBlock(options: {
         reviewDue: timingWindow.reviewDue,
         deadline:
           timingWindow.reviewDue ??
+          (options.goals ? getEarliestGoalDeadline(topic, options.goals) : null) ??
           options.subjectDeadlinesById?.[topic.subjectId] ??
           blockStart.toISOString().slice(0, 10),
         lastStudiedAt: topic.lastStudiedAt,

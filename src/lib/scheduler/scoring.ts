@@ -41,6 +41,8 @@ export function scoreTaskCandidate(
       neglectedSubjectBonus: 0,
       olympiadSlotBonus: 0,
       focusDayBonus: 0,
+      coreSyllabusBonus: 0,
+      orderPenalty: 0,
       badSlotFitPenalty: 0,
       fragmentationPenalty: 0,
       total: 0,
@@ -138,7 +140,8 @@ export function scoreTaskCandidate(
     task.subjectId &&
     ["maths-aa-hl", "physics-hl", "chemistry-hl"].includes(task.subjectId);
 
-  const coreSyllabusBonus = isCoreSyllabusLearning ? 500 : 0;
+  const coreSyllabusBonus = isCoreSyllabusLearning ? 1000 : 0;
+  const orderPenalty = task.order ? (task.order - 1) * 2 : 0;
 
   const total =
     priorityWeight +
@@ -150,6 +153,7 @@ export function scoreTaskCandidate(
     olympiadSlotBonus +
     focusDayBonus +
     coreSyllabusBonus -
+    orderPenalty -
     sequencePenalty -
     badSlotFitPenalty -
     fragmentationPenalty;
@@ -164,10 +168,11 @@ export function scoreTaskCandidate(
     olympiadSlotBonus,
     focusDayBonus,
     coreSyllabusBonus,
+    orderPenalty,
     badSlotFitPenalty,
     fragmentationPenalty,
     total: Math.round(total * 10) / 10,
-  } as ScoreBreakdown;
+  } satisfies ScoreBreakdown;
 }
 
 export function buildGeneratedReason(

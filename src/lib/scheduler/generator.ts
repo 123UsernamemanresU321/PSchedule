@@ -400,6 +400,8 @@ function buildRecoveryBlock(slot: CalendarSlot, weekStart: string): StudyBlock {
       neglectedSubjectBonus: 0,
       olympiadSlotBonus: 0,
       focusDayBonus: 0,
+      coreSyllabusBonus: 0,
+      orderPenalty: 0,
       badSlotFitPenalty: 0,
       fragmentationPenalty: 0,
       total: 0,
@@ -482,6 +484,8 @@ function buildOverflowPracticeBlock(options: {
       neglectedSubjectBonus: 0,
       olympiadSlotBonus: 0,
       focusDayBonus: 0,
+      coreSyllabusBonus: 0,
+      orderPenalty: 0,
       badSlotFitPenalty: 0,
       fragmentationPenalty: 0,
       total: 0,
@@ -1531,6 +1535,7 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
     referenceDate,
     coverageReferenceDate: options.horizonStartDate,
     subjectDeadlinesById: options.subjectDeadlinesById,
+    goals: options.goals,
     availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
   });
   const remainingTaskMinutes = Math.round(
@@ -1659,6 +1664,7 @@ function buildFutureFocusedReserveMinutesBySubject(options: {
   effectiveReservedCommitmentDurations?: EffectiveReservedCommitmentDuration[];
   excludedReservedCommitmentRuleIds?: string[];
   schedulingContext?: SchedulingRunContext;
+  goals: Goal[];
   getEffectiveReservedCommitmentPlanForWeek?: (weekStart: Date) => {
     effectiveReservedCommitmentDurations: EffectiveReservedCommitmentDuration[];
     excludedReservedCommitmentRuleIds: string[];
@@ -1695,6 +1701,7 @@ function buildFutureFocusedReserveMinutesBySubject(options: {
     referenceDate: getPlannerReferenceDate(options.currentWeek, options.horizonStartDate),
     coverageReferenceDate: options.horizonStartDate,
     subjectDeadlinesById: options.subjectDeadlinesById,
+    goals: options.goals,
     availabilityOverrideSubjectIds: Array.from(
       new Set([
         ...futureFocusedSubjectIds,
@@ -2277,6 +2284,7 @@ function allocateTasksToSlots(options: {
       referenceDate: options.referenceDate,
       coverageReferenceDate: options.coverageReferenceDate ?? options.referenceDate,
       subjectDeadlinesById,
+      goals: options.goals,
       availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
     });
 
@@ -3626,6 +3634,7 @@ export function generateStudyPlanForWeek(options: {
         referenceDate,
         coverageReferenceDate: horizonStartDate,
         subjectDeadlinesById,
+        goals: options.goals,
         availabilityOverrideSubjectIds,
       }),
     };
@@ -3662,6 +3671,7 @@ export function generateStudyPlanForWeek(options: {
     referenceDate,
     coverageReferenceDate: horizonStartDate,
     subjectDeadlinesById,
+    goals: options.goals,
     availabilityOverrideSubjectIds,
   });
   const olympiadWeekLoadProfile = getOlympiadWeekLoadProfile({
@@ -3714,6 +3724,7 @@ export function generateStudyPlanForWeek(options: {
       referenceDate,
       coverageReferenceDate: horizonStartDate,
       subjectDeadlinesById,
+      goals: options.goals,
       availabilityOverrideSubjectIds,
     });
     const passRequiredHoursBySubject = {
@@ -3824,6 +3835,7 @@ export function generateStudyPlanForWeek(options: {
     referenceDate,
     coverageReferenceDate: horizonStartDate,
     subjectDeadlinesById,
+    goals: options.goals,
     availabilityOverrideSubjectIds,
   });
 
@@ -3909,6 +3921,7 @@ export function generateStudyPlanForWeek(options: {
         referenceDate,
         coverageReferenceDate: horizonStartDate,
         subjectDeadlinesById,
+        goals: options.goals,
         availabilityOverrideSubjectIds,
       });
     }
@@ -4152,6 +4165,7 @@ export function generateStudyPlanHorizon(options: {
       focusedDays: options.focusedDays,
       focusedWeeks: options.focusedWeeks,
       preferences: options.preferences,
+      goals: options.goals,
       subjectDeadlinesById,
       existingPlannedBlocks,
       horizonStartDate,
@@ -4604,6 +4618,7 @@ export function generateIncrementalStudyPlanTail(options: {
       focusedDays: options.focusedDays,
       focusedWeeks: options.focusedWeeks,
       preferences: options.preferences,
+      goals: options.goals,
       subjectDeadlinesById,
       existingPlannedBlocks,
       horizonStartDate,

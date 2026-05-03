@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { studyBlockStatusLabels } from "@/lib/constants/planner";
 import { createDateAtTime, fromDateKey, minutesBetween, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import { getAssignableTaskCandidatesForBlock } from "@/lib/scheduler/task-candidates";
-import type { StudyBlock, Subject, Topic } from "@/lib/types/planner";
+import type { Goal, StudyBlock, Subject, Topic } from "@/lib/types/planner";
 
 export type StudyBlockEditorDraft =
   | {
@@ -31,6 +31,7 @@ interface StudyBlockEditorDialogProps {
   draft: StudyBlockEditorDraft;
   subjects: Subject[];
   topics: Topic[];
+  goals: Goal[];
   studyBlocks: StudyBlock[];
   onClose: () => void;
   onSave: (options: {
@@ -54,6 +55,8 @@ function buildEmptyScoreBreakdown(): StudyBlock["scoreBreakdown"] {
     neglectedSubjectBonus: 0,
     olympiadSlotBonus: 0,
     focusDayBonus: 0,
+    coreSyllabusBonus: 0,
+    orderPenalty: 0,
     badSlotFitPenalty: 0,
     fragmentationPenalty: 0,
     total: 0,
@@ -109,6 +112,7 @@ export function StudyBlockEditorDialog({
   draft,
   subjects,
   topics,
+  goals,
   studyBlocks,
   onClose,
   onSave,
@@ -122,6 +126,7 @@ export function StudyBlockEditorDialog({
       draft={draft}
       subjects={subjects}
       topics={topics}
+      goals={goals}
       studyBlocks={studyBlocks}
       onClose={onClose}
       onSave={onSave}
@@ -133,6 +138,7 @@ function StudyBlockEditorDialogPanel({
   draft,
   subjects,
   topics,
+  goals,
   studyBlocks,
   onClose,
   onSave,
@@ -208,6 +214,7 @@ function StudyBlockEditorDialogPanel({
       topics,
       existingPlannedBlocks: studyBlocks.filter((candidate) => candidate.id !== draftBlock.id),
       subjectDeadlinesById,
+      goals,
       allowCompletedTopics: draft.mode === "create" && range.end.getTime() <= editorOpenedAt,
     })
       .map((candidate) => {
@@ -234,7 +241,7 @@ function StudyBlockEditorDialogPanel({
 
         return left.topic.order - right.topic.order;
       });
-  }, [draft, editorOpenedAt, notes, range, studyBlocks, subjects, topics]);
+  }, [draft, editorOpenedAt, notes, range, studyBlocks, subjects, topics, goals]);
 
   const availableSubjects = useMemo(() => {
     const seen = new Set<string>();
