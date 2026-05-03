@@ -184,7 +184,7 @@ export function CommitmentOverrideDialog({
   const rule = getCommitmentRule(preferences, ruleId);
   const copy = ruleId ? commitmentCopy[ruleId] : null;
   const supportsDurationOverride = ruleId === "term-homework";
-  const supportsTimeOverride = ruleId === "piano-practice";
+  const supportsTimeOverride = ruleId === "piano-practice" || ruleId === "term-homework";
   const statusDescription = useMemo(() => {
     if (!ruleId) {
       return "";
@@ -281,7 +281,7 @@ export function CommitmentOverrideDialog({
             {supportsTimeOverride && mode === "add" ? (
               <div className="space-y-2">
                 <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  Piano start time
+                  <span className="capitalize">{copy.singular}</span> start time
                 </label>
                 <Input
                   data-testid="commitment-override-start-time"
@@ -291,7 +291,7 @@ export function CommitmentOverrideDialog({
                   onChange={(event) => setStartTime(event.target.value)}
                 />
                 <p className="text-sm text-muted-foreground">
-                  Piano will take this slot first, and the planner will move overlapping study later in the day or into the next day when needed.
+                  <span className="capitalize">{copy.singular}</span> will take this slot first, and the planner will move overlapping study later in the day or into the next day when needed.
                 </p>
               </div>
             ) : null}
@@ -356,7 +356,7 @@ function applyCommitmentOverrideWithDuration(
                     Object.entries(rule.durationOverrides ?? {}).filter(([key]) => key !== dateKey),
                   ),
             timeOverrides:
-              ruleId === "piano-practice" && startTime && mode === "add" && startTime !== rule.preferredStart
+              (ruleId === "piano-practice" || ruleId === "term-homework") && startTime && mode === "add" && startTime !== rule.preferredStart
                 ? {
                     ...(rule.timeOverrides ?? {}),
                     [dateKey]: {
