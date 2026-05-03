@@ -132,6 +132,14 @@ export function scoreTaskCandidate(
   const badSlotFitPenalty = blockOption.slotFitPenalty;
   const fragmentationPenalty = blockOption.fragmentationPenalty;
 
+  const isCoreSyllabusLearning =
+    task.kind === "topic" &&
+    task.studyLayer === "learning" &&
+    task.subjectId &&
+    ["maths-aa-hl", "physics-hl", "chemistry-hl"].includes(task.subjectId);
+
+  const coreSyllabusBonus = isCoreSyllabusLearning ? 500 : 0;
+
   const total =
     priorityWeight +
     deadlineUrgency +
@@ -140,7 +148,8 @@ export function scoreTaskCandidate(
     reviewDueBonus +
     neglectedSubjectBonus +
     olympiadSlotBonus +
-    focusDayBonus -
+    focusDayBonus +
+    coreSyllabusBonus -
     sequencePenalty -
     badSlotFitPenalty -
     fragmentationPenalty;
@@ -154,10 +163,11 @@ export function scoreTaskCandidate(
     neglectedSubjectBonus,
     olympiadSlotBonus,
     focusDayBonus,
+    coreSyllabusBonus,
     badSlotFitPenalty,
     fragmentationPenalty,
     total: Math.round(total * 10) / 10,
-  } satisfies ScoreBreakdown;
+  } as ScoreBreakdown;
 }
 
 export function buildGeneratedReason(
@@ -189,6 +199,10 @@ export function buildGeneratedReason(
     {
       label: "this day is focused on this subject",
       value: scoreBreakdown.focusDayBonus,
+    },
+    {
+      label: "core syllabus completion is absolute priority",
+      value: scoreBreakdown.coreSyllabusBonus ?? 0,
     },
   ]
     .filter((reason) => reason.value > 0)

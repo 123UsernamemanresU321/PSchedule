@@ -2465,9 +2465,26 @@ function allocateTasksToSlots(options: {
       dateKey,
       requiredMinutesBySubject,
     });
+
+    const unfinishedCoreIds = Array.from(
+      new Set(
+        workingTasks
+          .filter(
+            (task) =>
+              task.kind === "topic" &&
+              task.studyLayer === "learning" &&
+              task.subjectId &&
+              IB_ANCHOR_SUBJECT_IDS.includes(task.subjectId as (typeof IB_ANCHOR_SUBJECT_IDS)[number]) &&
+              task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES
+          )
+          .map((task) => task.subjectId as Subject["id"])
+      )
+    );
+
     const fillOrder = [
+      ...dailyFillOrder.filter((id) => unfinishedCoreIds.includes(id)),
       "olympiad",
-      ...dailyFillOrder.filter((subjectId) => subjectId !== "olympiad"),
+      ...dailyFillOrder.filter((id) => id !== "olympiad" && !unfinishedCoreIds.includes(id)),
     ] satisfies Subject["id"][];
 
     return [...fillOrder]

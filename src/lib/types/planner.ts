@@ -173,6 +173,7 @@ export interface ScoreBreakdown {
   focusDayBonus: number;
   badSlotFitPenalty: number;
   fragmentationPenalty: number;
+  coreSyllabusBonus?: number;
   total: number;
 }
 
