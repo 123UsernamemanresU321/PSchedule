@@ -81,6 +81,7 @@ export function WeeklyReviewPage() {
         sickDays,
         completionLogs,
         preferences,
+        goals,
         referenceDate: isViewingCurrentWeek ? new Date() : visibleWeekStart,
       })
     : [];

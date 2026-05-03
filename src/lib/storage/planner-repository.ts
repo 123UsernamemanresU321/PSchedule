@@ -1089,6 +1089,7 @@ export function getCollapsedCoverageRepairState(
           completionLogs: snapshot.completionLogs,
           preferences: snapshot.preferences,
           referenceDate,
+          goals: snapshot.goals,
           subjectIds: hardConstraintSubjectIds,
         })
       : {

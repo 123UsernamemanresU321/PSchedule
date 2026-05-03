@@ -205,6 +205,7 @@ export function simulateWhatIf(options: {
     completionLogs: options.snapshot.completionLogs,
     preferences: options.snapshot.preferences,
     referenceDate,
+    goals: options.snapshot.goals,
     subjectIds: [...zeroUnscheduledCoverageSubjectIds],
   });
   const { snapshot: adjustedSnapshot, parsedChanges } = applyChanges(options.snapshot, options.changes);
@@ -239,6 +240,7 @@ export function simulateWhatIf(options: {
     completionLogs: afterSnapshot.completionLogs,
     preferences: afterSnapshot.preferences,
     referenceDate,
+    goals: afterSnapshot.goals,
     subjectIds: [...zeroUnscheduledCoverageSubjectIds],
   });
 

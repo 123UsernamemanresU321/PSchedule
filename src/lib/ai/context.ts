@@ -150,6 +150,7 @@ export function buildWeeklyReviewAiContext(options: {
     sickDays: options.sickDays,
     completionLogs: options.completionLogs,
     preferences: options.preferences,
+    goals: options.goals,
     referenceDate,
   });
   const hierarchyMetrics = getPlanningHierarchyMetrics({
@@ -251,6 +252,7 @@ export function buildDiagnosisAiContext(options: {
     completionLogs: options.completionLogs,
     preferences: options.preferences,
     referenceDate,
+    goals: options.goals,
     subjectIds: [...zeroUnscheduledCoverageSubjectIds],
   });
 

@@ -97,7 +97,7 @@ function createStudyBlock(overrides: Partial<StudyBlock> = {}): StudyBlock {
     intensity: "moderate",
     generatedReason: "test",
     scoreBreakdown: {
-      priorityWeight: 0,
+      priorityWeight: 0, coreSyllabusBonus: 0, orderPenalty: 0,
       deadlineUrgency: 0,
       remainingWorkloadPressure: 0,
       lowMasteryBonus: 0,
@@ -257,6 +257,8 @@ test("paired paper reviews retain their dependency scheduling window", () => {
     existingPlannedBlocks: [existingPracticeBlock],
     referenceDate: new Date("2026-10-05T08:00:00"),
     subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-10-05T08:00:00"),
   });
   const reviewCandidate = candidates.find((candidate) => candidate.topicId === reviewTopic.id);
 
@@ -307,6 +309,8 @@ test("French tune-ups are reserved commitments, not study task candidates", () =
     existingPlannedBlocks: [],
     referenceDate,
     subjectDeadlinesById: { "french-b-sl": "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date(),
   });
   const commitments = expandReservedCommitmentWindowsForWeek(
     startOfPlannerWeek(referenceDate),
@@ -488,6 +492,8 @@ test("dedicated past-paper review topics do not spawn extra review-of-review can
     existingPlannedBlocks: [existingReviewBlock],
     referenceDate: new Date("2026-09-24T10:00:00"),
     subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-09-24T10:00:00"),
   });
 
   assert.equal(candidates.length, 0);
@@ -505,6 +511,8 @@ test("untouched IB anchor topics do not spawn correction or review work", () => 
     completionLogs: [],
     referenceDate: new Date("2026-03-14T08:00:00"),
     subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-14T08:00:00"),
   });
 
   assert.ok(candidates.some((candidate) => candidate.studyLayer === "learning"));
@@ -542,6 +550,8 @@ test("planned or missed IB topic blocks do not count as study history for correc
     completionLogs: [],
     referenceDate: new Date("2026-03-14T08:00:00"),
     subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-14T08:00:00"),
   });
   const missedCandidates = buildTaskCandidates({
     topics: [topic as Topic],
@@ -559,6 +569,8 @@ test("planned or missed IB topic blocks do not count as study history for correc
     ],
     referenceDate: new Date("2026-03-14T08:00:00"),
     subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-14T08:00:00"),
   });
 
   assert.ok(!plannedCandidates.some((candidate) => candidate.studyLayer === "correction"));
@@ -586,6 +598,8 @@ test("IB correction work unlocks only after a topic has real study history", () 
     completionLogs: [],
     referenceDate: new Date("2026-03-14T08:00:00"),
     subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-14T08:00:00"),
   });
 
   assert.ok(
@@ -612,6 +626,8 @@ test("maths topics stay hard-gated in seeded order", () => {
     existingPlannedBlocks: [],
     referenceDate: new Date("2026-03-14T08:00:00"),
     subjectDeadlinesById: { "maths-aa-hl": "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-14T08:00:00"),
   });
 
   assert.equal(blockedCandidates.length, 0);
@@ -632,6 +648,8 @@ test("maths topics stay hard-gated in seeded order", () => {
     existingPlannedBlocks: [slBoundaryBlock],
     referenceDate: new Date("2026-06-02T08:00:00"),
     subjectDeadlinesById: { "maths-aa-hl": "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-06-02T08:00:00"),
   });
 
   assert.ok(unlockedCandidates.length >= 1);
@@ -653,6 +671,8 @@ test("all AA HL-book maths topics stay transitively blocked until the SL book is
     existingPlannedBlocks: [],
     referenceDate: new Date("2026-03-14T08:00:00"),
     subjectDeadlinesById: { "maths-aa-hl": "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-14T08:00:00"),
   });
 
   assert.equal(blockedCandidates.length, 0);
@@ -673,6 +693,8 @@ test("all AA HL-book maths topics stay blocked by the SL frontier eligibility ba
     existingPlannedBlocks: [],
     referenceDate: new Date("2026-03-14T08:00:00"),
     subjectDeadlinesById: { "maths-aa-hl": "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-14T08:00:00"),
   });
 
   assert.equal(blockedCandidates.length, 0);
@@ -706,6 +728,8 @@ test("manual HL progress cannot unlock later Maths AA HL-book topics before the 
     existingPlannedBlocks: [],
     referenceDate: new Date("2026-03-14T08:00:00"),
     subjectDeadlinesById: { "maths-aa-hl": "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-14T08:00:00"),
   }).filter((candidate) => candidate.topicId === nextHlTopic?.id);
 
   assert.equal(blockedCandidates.length, 0);
@@ -726,6 +750,7 @@ test("manual reassignment cannot pull Maths AA HL-book topics ahead of the SL fr
     topics: dataset.topics,
     existingPlannedBlocks: [],
     subjectDeadlinesById: { "maths-aa-hl": "2027-06-30" },
+    goals: [],
   });
 
   assert.ok(
@@ -1697,6 +1722,8 @@ test("topics with remaining hours are still schedulable even if a stale status s
     existingPlannedBlocks: [],
     referenceDate: new Date("2026-03-20T08:00:00"),
     subjectDeadlinesById: { olympiad: "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-20T08:00:00"),
   });
 
   assert.equal(candidates.length, 1);
@@ -1712,6 +1739,8 @@ test("olympiad advanced candidates stay blocked until same-strand foundations ar
     existingPlannedBlocks: [],
     referenceDate: new Date("2026-03-20T08:00:00"),
     subjectDeadlinesById: { olympiad: "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-20T08:00:00"),
   });
 
   assert.equal(
@@ -1737,6 +1766,8 @@ test("olympiad advanced candidates stay blocked until same-strand foundations ar
     existingPlannedBlocks: [],
     referenceDate: new Date("2026-09-07T08:00:00"),
     subjectDeadlinesById: { olympiad: "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-09-07T08:00:00"),
   });
   const advancedCandidate = unlockedCandidates.find(
     (candidate) => candidate.topicId === "olympiad-bplus-number-theory-23",
@@ -1776,6 +1807,8 @@ test("olympiad advanced candidates unlock once foundations are fully placed earl
     existingPlannedBlocks: foundationBlocks,
     referenceDate: new Date("2026-09-07T08:00:00"),
     subjectDeadlinesById: { olympiad: "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-09-07T08:00:00"),
   });
 
   const numberTheoryAdvanced = advancedCandidates.find(
@@ -2096,6 +2129,8 @@ test("number theory frontier keeps later number theory topics blocked until the 
     existingPlannedBlocks: [],
     referenceDate: new Date("2026-03-23T08:00:00"),
     subjectDeadlinesById: { olympiad: "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-23T08:00:00"),
   });
 
   assert.equal(
@@ -2124,6 +2159,8 @@ test("number theory frontier keeps later number theory topics blocked until the 
     existingPlannedBlocks: [frontierCompletionBlock],
     referenceDate: new Date("2026-03-23T08:00:00"),
     subjectDeadlinesById: { olympiad: "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-23T08:00:00"),
   });
 
   assert.equal(
@@ -2759,6 +2796,8 @@ test("olympiad stage gating still works when legacy local topics are missing seq
     existingPlannedBlocks: [],
     referenceDate: new Date("2026-03-20T08:00:00"),
     subjectDeadlinesById: { olympiad: "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-20T08:00:00"),
   });
 
   assert.equal(
@@ -2792,6 +2831,8 @@ test("any incomplete olympiad foundation suppresses all olympiad advanced candid
     existingPlannedBlocks: [],
     referenceDate: new Date("2026-03-20T08:00:00"),
     subjectDeadlinesById: { olympiad: "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-20T08:00:00"),
   });
 
   assert.equal(
@@ -3618,6 +3659,7 @@ test("manual block reassignment only offers topics valid for the fixed slot", ()
     topics,
     existingPlannedBlocks: [],
     subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+    goals: [],
   });
 
   assert.equal(
@@ -3716,6 +3758,7 @@ test("manual block reassignment can target a valid topic even when it is already
     topics,
     existingPlannedBlocks: [laterPlannedBlock],
     subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+    goals: [],
   });
 
   assert.equal(
@@ -3770,6 +3813,7 @@ test("historical manual study assignment can target a topic that is already comp
     existingPlannedBlocks: [],
     subjectDeadlinesById: { "physics-hl": "2027-06-30" },
     allowCompletedTopics: true,
+    goals: [],
   });
 
   assert.equal(
@@ -8592,6 +8636,8 @@ test("serious Olympiad attempts create a rewrite follow-up candidate within 48 h
     completionLogs: [completionLog],
     referenceDate,
     subjectDeadlinesById: { olympiad: "2027-04-06" },
+    goals: [],
+    coverageReferenceDate: new Date(),
   });
   const rewriteCandidate = candidates.find(
     (candidate) => candidate.followUpSourceStudyBlockId === sourceBlock.id,
@@ -8654,6 +8700,8 @@ test("completed rewrite follow-ups satisfy the Olympiad rewrite obligation, but 
     completionLogs: [doneLog],
     referenceDate,
     subjectDeadlinesById: { olympiad: "2027-04-06" },
+    goals: [],
+    coverageReferenceDate: new Date(),
   });
 
   assert.equal(
@@ -8689,6 +8737,8 @@ test("completed rewrite follow-ups satisfy the Olympiad rewrite obligation, but 
     completionLogs: [missedLog],
     referenceDate,
     subjectDeadlinesById: { olympiad: "2027-04-06" },
+    goals: [],
+    coverageReferenceDate: new Date(),
   });
 
   assert.equal(

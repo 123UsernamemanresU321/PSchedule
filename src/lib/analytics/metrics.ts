@@ -598,6 +598,7 @@ function taskFitsSlot(
 export function detectFutureFillableGap(options: {
   subjects: Subject[];
   topics: Topic[];
+  goals: Goal[];
   studyBlocks: StudyBlock[];
   weeklyPlans: WeeklyPlan[];
   fixedEvents: FixedEvent[];
@@ -605,9 +606,11 @@ export function detectFutureFillableGap(options: {
   completionLogs?: CompletionLog[];
   preferences: Preferences;
   referenceDate?: Date;
+  horizonStartDate?: Date;
   subjectIds?: string[];
 }) {
   const referenceDate = options.referenceDate ?? new Date();
+  const horizonStartDate = options.horizonStartDate ?? referenceDate;
   const scopedSubjectIds = options.subjectIds?.length ? new Set(options.subjectIds) : null;
   const futurePlans = [...options.weeklyPlans]
     .filter((plan) => plan.weekStart >= toDateKey(startOfPlannerWeek(referenceDate)))
@@ -643,6 +646,8 @@ export function detectFutureFillableGap(options: {
       existingPlannedBlocks: getFuturePlanningBaselineBlocks(options.studyBlocks, planningStart),
       completionLogs: options.completionLogs,
       referenceDate: planningStart,
+      coverageReferenceDate: horizonStartDate,
+      goals: options.goals,
       subjectDeadlinesById,
     }).filter(
       (task) =>
@@ -680,6 +685,7 @@ export function getWeekFillDiagnostics(options: {
   weekStart: string;
   subjects: Subject[];
   topics: Topic[];
+  goals: Goal[];
   studyBlocks: StudyBlock[];
   weeklyPlans: WeeklyPlan[];
   fixedEvents: FixedEvent[];
@@ -687,8 +693,10 @@ export function getWeekFillDiagnostics(options: {
   completionLogs?: CompletionLog[];
   preferences: Preferences;
   referenceDate?: Date;
+  horizonStartDate?: Date;
 }) {
   const referenceDate = options.referenceDate ?? new Date();
+  const horizonStartDate = options.horizonStartDate ?? referenceDate;
   const weeklyPlan = getWeeklyPlan(options.weeklyPlans, options.weekStart);
   const weekStartDate = fromDateKey(options.weekStart);
   const weekBlocks = options.studyBlocks.filter(
@@ -731,6 +739,8 @@ export function getWeekFillDiagnostics(options: {
       existingPlannedBlocks: getFuturePlanningBaselineBlocks(options.studyBlocks, planningStart),
       completionLogs: options.completionLogs,
       referenceDate: planningStart,
+      coverageReferenceDate: horizonStartDate,
+      goals: options.goals,
       subjectDeadlinesById,
     }).filter((task) => task.remainingMinutes >= 30);
     const fillableGapDetected = openSlots.some((slot) =>
