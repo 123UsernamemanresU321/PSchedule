@@ -1195,5 +1195,5 @@ export function buildOlympiadBPlusBlueprints(): OlympiadSeedTopicBlueprint[] {
     }
   });
 
-  return blueprints.map((bp) => ({ ...bp, availableFrom: null }));
+  return blueprints;
 }

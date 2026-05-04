@@ -38,8 +38,8 @@ export function buildSeedPreferences(): Preferences {
       },
       {
         label: "Dinner reset",
-        start: "19:15",
-        end: "20:00",
+        start: "18:00",
+        end: "18:45",
         days: [0, 1, 2, 3, 4, 5, 6],
         movable: true,
       },
@@ -58,7 +58,7 @@ export function buildSeedPreferences(): Preferences {
         durationMinutes: 60,
         days: [0, 2, 3, 4, 5, 6],
         appliesDuring: "all",
-        preferredStart: "18:00",
+        preferredStart: "19:00",
         timeOverrides: {},
       },
       {

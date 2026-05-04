@@ -63,7 +63,7 @@ export function AiEventAssistantDialog({
             <Textarea
               value={text}
               onChange={(event) => setText(event.target.value)}
-              placeholder="Family dinner next Friday 18:00-20:00 and focus Physics this week."
+              placeholder="Family dinner next Friday 18:00-19:00 and focus Physics this week."
             />
             <div className="flex justify-end">
               <Button

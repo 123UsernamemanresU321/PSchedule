@@ -119,6 +119,8 @@ function normalizeLockedRecoveryWindows(
     ) {
       return {
         ...window,
+        start: "18:00",
+        end: "18:45",
         days: [0, 1, 2, 3, 4, 5, 6],
         movable: true,
         timeOverrides: normalizedTimeOverrides,

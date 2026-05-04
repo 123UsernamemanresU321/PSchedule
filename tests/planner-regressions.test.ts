@@ -7228,21 +7228,13 @@ test("dinner still blocks study slots even in skip movable recovery passes", () 
     skipMovableRecovery: true,
   }).filter((slot) => slot.dateKey === "2026-03-24");
 
-  assert.equal(slots.length, 2);
+  assert.equal(slots.length, 1);
   assert.equal(
     slots[0]?.start.toISOString(),
-    createDateAtTime(fromDateKey("2026-03-24"), "18:00").toISOString(),
+    createDateAtTime(fromDateKey("2026-03-24"), "18:45").toISOString(),
   );
   assert.equal(
     slots[0]?.end.toISOString(),
-    createDateAtTime(fromDateKey("2026-03-24"), "19:15").toISOString(),
-  );
-  assert.equal(
-    slots[1]?.start.toISOString(),
-    createDateAtTime(fromDateKey("2026-03-24"), "20:00").toISOString(),
-  );
-  assert.equal(
-    slots[1]?.end.toISOString(),
     createDateAtTime(fromDateKey("2026-03-24"), "21:30").toISOString(),
   );
 });
@@ -7599,8 +7591,8 @@ test("normalizePreferences upgrades legacy sunday recovery defaults to the new o
     },
     {
       label: "Dinner reset",
-      start: "19:15",
-      end: "20:00",
+      start: "18:00",
+      end: "18:45",
       days: [0, 1, 2, 3, 4, 5, 6],
       movable: true,
       timeOverrides: {},
@@ -8894,11 +8886,11 @@ test("recent poor geometry outcomes drive the active Olympiad weakness spike", (
 test("calendar-derived load state softens heavy school weeks and boosts light weeks for Olympiad pacing", () => {
   const preferences = withConfiguredSchoolTerm(buildSeedPreferences());
   const heavyWeekStart = new Date("2026-04-06T00:00:00");
-  const heavyAssessmentEvent = {
+  const heavyAssessmentEvent: FixedEvent = {
     id: "assessment-marathon",
     title: "Assessment marathon",
-    start: "2026-04-08T14:00:00.000Z",
-    end: "2026-04-08T19:00:00.000Z",
+    start: "2026-04-08T12:00:00.000Z",
+    end: "2026-04-08T17:00:00.000Z",
     recurrence: "none" as const,
     flexibility: "fixed" as const,
     category: "assessment" as const,
