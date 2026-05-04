@@ -78,7 +78,7 @@ import {
 import { validateGeneratedHorizon } from "@/lib/scheduler/validation";
 import { buildBlockPlanContext } from "@/lib/ai/context";
 import { aiBlockPlanResponseSchema } from "@/lib/ai/contracts";
-import type { Preferences, StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
+import type { FixedEvent, Preferences, StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
 
 function createStudyBlock(overrides: Partial<StudyBlock> = {}): StudyBlock {
   return {
