@@ -26,7 +26,7 @@ export function resolveAiCorsOrigin(origin: string | null | undefined) {
     return normalizedRequestOrigin;
   }
 
-  return normalizedRequestOrigin;
+  return null;
 }
 
 export function buildAiCorsHeaders(origin: string | null | undefined) {
