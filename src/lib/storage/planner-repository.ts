@@ -30,6 +30,7 @@ import type {
   SickDay,
   StudyBlock,
   SubjectId,
+  Topic,
   WeeklyPlan,
 } from "@/lib/types/planner";
 
@@ -1678,22 +1679,44 @@ async function syncPlanningSubjectsToCurrentSeed(snapshot: PlannerSnapshot, refe
   const seededSubjects = seedDataset.subjects.filter((subject) =>
     PLANNING_SYNC_SUBJECT_IDS.includes(subject.id),
   );
-  const seededGoals = seedDataset.goals.filter((goal) =>
-    PLANNING_SYNC_SUBJECT_IDS.includes(goal.subjectId as SubjectId),
-  );
-  const seededGoalIds = new Set(seededGoals.map((goal) => goal.id));
-  const seededTopics = seedDataset.topics.filter((topic) =>
-    PLANNING_SYNC_SUBJECT_IDS.includes(topic.subjectId as SubjectId),
-  );
-  const seededTopicIds = new Set(seededTopics.map((topic) => topic.id));
-  const existingMathsTopics = snapshot.topics.filter((topic) => topic.subjectId === "maths-aa-hl");
+  const seededGoals: (typeof seedDataset.goals)[number][] = [];
+  const seededGoalIds = new Set<string>();
+  for (const goal of seedDataset.goals) {
+    if (PLANNING_SYNC_SUBJECT_IDS.includes(goal.subjectId as SubjectId)) {
+      seededGoals.push(goal);
+      seededGoalIds.add(goal.id);
+    }
+  }
+
+  const seededTopics: Topic[] = [];
+  const seededTopicIds = new Set<string>();
+  const seededMathsTopics: Topic[] = [];
+  for (const topic of seedDataset.topics) {
+    if (PLANNING_SYNC_SUBJECT_IDS.includes(topic.subjectId as SubjectId)) {
+      seededTopics.push(topic);
+      seededTopicIds.add(topic.id);
+      if (topic.subjectId === "maths-aa-hl") {
+        seededMathsTopics.push(topic);
+      }
+    }
+  }
+
+  const existingMathsTopics: Topic[] = [];
+  const existingTopicsById = new Map<string, Topic>();
+  for (const topic of snapshot.topics) {
+    existingTopicsById.set(topic.id, topic);
+    if (topic.subjectId === "maths-aa-hl") {
+      existingMathsTopics.push(topic);
+    }
+  }
+
   const mergedMathsTopicsById = new Map(
     buildMigratedMathsTopics({
-      seededTopics: seededTopics.filter((topic) => topic.subjectId === "maths-aa-hl"),
+      seededTopics: seededMathsTopics,
       existingTopics: existingMathsTopics,
     }).map((topic) => [topic.id, topic]),
   );
-  const existingTopicsById = new Map(snapshot.topics.map((topic) => [topic.id, topic]));
+
   const mergedTopics = seededTopics.map((seededTopic) => {
     if (seededTopic.subjectId === "maths-aa-hl") {
       return mergedMathsTopicsById.get(seededTopic.id) ?? normalizeTopicProgress(seededTopic);
@@ -1704,14 +1727,26 @@ async function syncPlanningSubjectsToCurrentSeed(snapshot: PlannerSnapshot, refe
       existingTopicsById.get(seededTopic.id),
     );
   });
-  const obsoleteGoalIds = snapshot.goals
-    .filter((goal) => PLANNING_SYNC_SUBJECT_IDS.includes(goal.subjectId as SubjectId))
-    .filter((goal) => !seededGoalIds.has(goal.id))
-    .map((goal) => goal.id);
-  const obsoleteTopicIds = snapshot.topics
-    .filter((topic) => PLANNING_SYNC_SUBJECT_IDS.includes(topic.subjectId as SubjectId))
-    .filter((topic) => !seededTopicIds.has(topic.id))
-    .map((topic) => topic.id);
+
+  const obsoleteGoalIds: string[] = [];
+  for (const goal of snapshot.goals) {
+    if (
+      PLANNING_SYNC_SUBJECT_IDS.includes(goal.subjectId as SubjectId) &&
+      !seededGoalIds.has(goal.id)
+    ) {
+      obsoleteGoalIds.push(goal.id);
+    }
+  }
+
+  const obsoleteTopicIds: string[] = [];
+  for (const topic of snapshot.topics) {
+    if (
+      PLANNING_SYNC_SUBJECT_IDS.includes(topic.subjectId as SubjectId) &&
+      !seededTopicIds.has(topic.id)
+    ) {
+      obsoleteTopicIds.push(topic.id);
+    }
+  }
 
   await db.transaction(
     "rw",
@@ -1823,27 +1858,37 @@ async function syncExtendedGoalSubjects(snapshot: PlannerSnapshot, referenceDate
     "chemistry-hl",
     OLYMPIAD_SUBJECT_ID,
   ];
-  const existingTopicsById = new Map(snapshot.topics.map((topic) => [topic.id, topic]));
+  const existingTopicsById = new Map<string, Topic>();
+  for (const topic of snapshot.topics) {
+    existingTopicsById.set(topic.id, topic);
+  }
   const seededSubjects = seedDataset.subjects.filter((subject) => syncedSubjectIds.includes(subject.id));
   const seededGoals = seedDataset.goals.filter((goal) => syncedSubjectIds.includes(goal.subjectId as SubjectId));
-  const seededTopicIds = new Set(
-    seedDataset.topics
-      .filter((topic) => syncedSubjectIds.includes(topic.subjectId as SubjectId))
-      .map((topic) => topic.id),
-  );
-  const mergedTopics = seedDataset.topics
-    .filter((topic) => syncedSubjectIds.includes(topic.subjectId as SubjectId))
-    .map((seededTopic) =>
-      mergeSeedTopicProgress(
-        seededTopic,
-        existingTopicsById.get(seededTopic.id),
-      ),
-    );
-  const obsoletePastPaperTopicIds = snapshot.topics
-    .filter((topic) => syncedSubjectIds.includes(topic.subjectId as SubjectId))
-    .filter((topic) => topic.unitId.includes("past-papers"))
-    .filter((topic) => !seededTopicIds.has(topic.id))
-    .map((topic) => topic.id);
+
+  const seededTopicIds = new Set<string>();
+  const mergedTopics: Topic[] = [];
+  for (const topic of seedDataset.topics) {
+    if (syncedSubjectIds.includes(topic.subjectId as SubjectId)) {
+      seededTopicIds.add(topic.id);
+      mergedTopics.push(
+        mergeSeedTopicProgress(
+          topic,
+          existingTopicsById.get(topic.id),
+        ),
+      );
+    }
+  }
+
+  const obsoletePastPaperTopicIds: string[] = [];
+  for (const topic of snapshot.topics) {
+    if (
+      syncedSubjectIds.includes(topic.subjectId as SubjectId) &&
+      topic.unitId.includes("past-papers") &&
+      !seededTopicIds.has(topic.id)
+    ) {
+      obsoletePastPaperTopicIds.push(topic.id);
+    }
+  }
 
   await db.transaction("rw", [db.subjects, db.goals, db.topics, db.meta], async () => {
     if (seededSubjects.length) {
@@ -1877,25 +1922,35 @@ async function syncLanguageMaintenanceSubjects(snapshot: PlannerSnapshot, refere
 
   const seedDataset = buildSeedDataset(referenceDate);
   const syncedSubjectIds: SubjectId[] = ["english-a-sl", "french-b-sl"];
-  const existingTopicsById = new Map(snapshot.topics.map((topic) => [topic.id, topic]));
+  const existingTopicsById = new Map<string, Topic>();
+  for (const topic of snapshot.topics) {
+    existingTopicsById.set(topic.id, topic);
+  }
   const seededSubjects = seedDataset.subjects.filter((subject) => syncedSubjectIds.includes(subject.id));
-  const seededTopicIds = new Set(
-    seedDataset.topics
-      .filter((topic) => syncedSubjectIds.includes(topic.subjectId as SubjectId))
-      .map((topic) => topic.id),
-  );
-  const mergedTopics = seedDataset.topics
-    .filter((topic) => syncedSubjectIds.includes(topic.subjectId as SubjectId))
-    .map((seededTopic) =>
-      mergeSeedTopicProgress(
-        seededTopic,
-        existingTopicsById.get(seededTopic.id),
-      ),
-    );
-  const obsoleteTopicIds = snapshot.topics
-    .filter((topic) => syncedSubjectIds.includes(topic.subjectId as SubjectId))
-    .filter((topic) => !seededTopicIds.has(topic.id))
-    .map((topic) => topic.id);
+
+  const seededTopicIds = new Set<string>();
+  const mergedTopics: Topic[] = [];
+  for (const topic of seedDataset.topics) {
+    if (syncedSubjectIds.includes(topic.subjectId as SubjectId)) {
+      seededTopicIds.add(topic.id);
+      mergedTopics.push(
+        mergeSeedTopicProgress(
+          topic,
+          existingTopicsById.get(topic.id),
+        ),
+      );
+    }
+  }
+
+  const obsoleteTopicIds: string[] = [];
+  for (const topic of snapshot.topics) {
+    if (
+      syncedSubjectIds.includes(topic.subjectId as SubjectId) &&
+      !seededTopicIds.has(topic.id)
+    ) {
+      obsoleteTopicIds.push(topic.id);
+    }
+  }
 
   await db.transaction("rw", [db.subjects, db.topics, db.meta], async () => {
     if (seededSubjects.length) {
@@ -1936,21 +1991,34 @@ async function syncSeedOrderedSubjects(snapshot: PlannerSnapshot, referenceDate:
     "geography-transition",
     "french-b-sl",
   ];
-  const existingTopicsById = new Map(snapshot.topics.map((topic) => [topic.id, topic]));
-  const seededTopics = seedDataset.topics.filter((topic) =>
-    syncedSubjectIds.includes(topic.subjectId as SubjectId),
-  );
-  const seededTopicIds = new Set(seededTopics.map((topic) => topic.id));
-  const mergedTopics = seededTopics.map((seededTopic) =>
-    mergeSeedTopicProgress(
-      seededTopic,
-      existingTopicsById.get(seededTopic.id),
-    ),
-  );
-  const obsoleteTopicIds = snapshot.topics
-    .filter((topic) => syncedSubjectIds.includes(topic.subjectId as SubjectId))
-    .filter((topic) => !seededTopicIds.has(topic.id))
-    .map((topic) => topic.id);
+  const existingTopicsById = new Map<string, Topic>();
+  for (const topic of snapshot.topics) {
+    existingTopicsById.set(topic.id, topic);
+  }
+
+  const seededTopicIds = new Set<string>();
+  const mergedTopics: Topic[] = [];
+  for (const topic of seedDataset.topics) {
+    if (syncedSubjectIds.includes(topic.subjectId as SubjectId)) {
+      seededTopicIds.add(topic.id);
+      mergedTopics.push(
+        mergeSeedTopicProgress(
+          topic,
+          existingTopicsById.get(topic.id),
+        ),
+      );
+    }
+  }
+
+  const obsoleteTopicIds: string[] = [];
+  for (const topic of snapshot.topics) {
+    if (
+      syncedSubjectIds.includes(topic.subjectId as SubjectId) &&
+      !seededTopicIds.has(topic.id)
+    ) {
+      obsoleteTopicIds.push(topic.id);
+    }
+  }
 
   await db.transaction("rw", [db.topics, db.meta], async () => {
     if (obsoleteTopicIds.length) {
