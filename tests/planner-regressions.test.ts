@@ -78,7 +78,7 @@ import {
 import { validateGeneratedHorizon } from "@/lib/scheduler/validation";
 import { buildBlockPlanContext } from "@/lib/ai/context";
 import { aiBlockPlanResponseSchema } from "@/lib/ai/contracts";
-import type { FixedEvent, Preferences, StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
+import type { Preferences, StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
 
 function createStudyBlock(overrides: Partial<StudyBlock> = {}): StudyBlock {
   return {
@@ -8072,7 +8072,7 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
     });
   });
   const result = generateStudyPlanForWeek({
-    weekStart: new Date("2026-08-17T00:00:00.000Z"),
+    weekStart: new Date("2026-08-31T00:00:00.000Z"),
     referenceDate,
     goals: dataset.goals,
     subjects: dataset.subjects,
@@ -8086,7 +8086,7 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
     existingPlannedBlocks: completedSyllabusFrontiers,
   });
   const saturdayBlocks = result.studyBlocks.filter(
-    (block) => block.date === "2026-08-22" && !!block.subjectId,
+    (block) => block.date === "2026-09-05" && !!block.subjectId,
   );
 
   assert.equal(
@@ -8100,7 +8100,7 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
   assert.ok(
     result.studyBlocks.some(
       (block) =>
-        ["2026-08-22", "2026-08-23"].includes(block.date) &&
+        ["2026-09-05", "2026-09-06"].includes(block.date) &&
         block.topicId === "physics-past-papers-week-1-paper-2" &&
         block.studyLayer === "exam_sim",
     ),
@@ -8108,7 +8108,7 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
   assert.ok(
     result.studyBlocks.some(
       (block) =>
-        ["2026-08-22", "2026-08-23"].includes(block.date) &&
+        ["2026-09-05", "2026-09-06"].includes(block.date) &&
         block.topicId === "chemistry-past-papers-week-1-paper-2" &&
         block.studyLayer === "exam_sim",
     ),

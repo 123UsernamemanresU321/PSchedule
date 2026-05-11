@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolveAiCorsOrigin } from "../src/lib/ai/cors.ts";
+import { resolveAiCorsOrigin } from "@/lib/ai/cors";
 
 test("resolveAiCorsOrigin allows LOCAL_DEV_ORIGINS", () => {
   assert.equal(resolveAiCorsOrigin("http://localhost:3000"), "http://localhost:3000");
