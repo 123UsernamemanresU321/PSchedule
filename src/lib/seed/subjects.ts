@@ -148,7 +148,7 @@ export function buildSeedSubjects(referenceDate = new Date()): Subject[] {
 }
 
 export function buildSeedGoals(referenceDate = new Date()): Goal[] {
-  const firstSchoolMilestoneDeadline = `${referenceDate.getFullYear()}-08-14`;
+  const firstSchoolMilestoneDeadline = `${referenceDate.getFullYear()}-08-31`;
   const mathsFirstSchoolMilestoneDeadline = `${referenceDate.getFullYear()}-08-31`;
   const olympiadPhaseOneDeadline = `${referenceDate.getFullYear()}-07-31`;
   const olympiadPhaseTwoDeadline = `${referenceDate.getFullYear()}-09-30`;

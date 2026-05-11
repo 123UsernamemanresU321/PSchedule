@@ -7833,7 +7833,7 @@ test("seeded post-syllabus paper topics keep Maths papers after the August 31 de
     (topic) =>
       topic.sessionMode === "exam" &&
       topic.unitId.includes("past-papers") &&
-      (topic.availableFrom ?? "") < "2026-08-17",
+      (topic.availableFrom ?? "") < "2026-08-31",
   );
   const earlyMathsPaperTopics = dataset.topics.filter(
     (topic) =>
@@ -8886,7 +8886,7 @@ test("recent poor geometry outcomes drive the active Olympiad weakness spike", (
 test("calendar-derived load state softens heavy school weeks and boosts light weeks for Olympiad pacing", () => {
   const preferences = withConfiguredSchoolTerm(buildSeedPreferences());
   const heavyWeekStart = new Date("2026-04-06T00:00:00");
-  const heavyAssessmentEvent: FixedEvent = {
+  const heavyAssessmentEvent = {
     id: "assessment-marathon",
     title: "Assessment marathon",
     start: "2026-04-08T12:00:00.000Z",
