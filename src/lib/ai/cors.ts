@@ -14,6 +14,21 @@ function normalizeOrigin(value: string | null | undefined) {
   }
 }
 
+function splitConfiguredOrigins(value: string | null | undefined) {
+  return (value ?? "")
+    .split(/[\s,]+/)
+    .map((entry) => normalizeOrigin(entry))
+    .filter((entry): entry is string => !!entry);
+}
+
+function getAllowedOriginSet() {
+  return new Set([
+    ...LOCAL_DEV_ORIGINS.map((value) => normalizeOrigin(value) ?? value),
+    ...splitConfiguredOrigins(process.env.AI_ALLOWED_ORIGIN),
+    ...splitConfiguredOrigins(process.env.AI_ALLOWED_ORIGINS),
+  ]);
+}
+
 export function resolveAiCorsOrigin(origin: string | null | undefined) {
   const normalizedRequestOrigin = normalizeOrigin(origin);
 
@@ -21,8 +36,7 @@ export function resolveAiCorsOrigin(origin: string | null | undefined) {
     return null;
   }
 
-  const localOriginSet = new Set(LOCAL_DEV_ORIGINS.map((value) => normalizeOrigin(value) ?? value));
-  if (localOriginSet.has(normalizedRequestOrigin)) {
+  if (getAllowedOriginSet().has(normalizedRequestOrigin)) {
     return normalizedRequestOrigin;
   }
 
