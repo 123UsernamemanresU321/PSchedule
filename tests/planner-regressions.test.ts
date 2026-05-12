@@ -1218,7 +1218,7 @@ test("week pressure state reports overload without implying impossibility", () =
   assert.equal(getWeekPressureState(weeklyPlan).label, "Week over capacity");
 });
 
-test("seeded first-pass school milestones keep Maths on August 31 and other anchors unchanged", () => {
+test("seeded first-pass HL school milestones are August 31", () => {
   const dataset = buildSeedDataset(new Date("2026-04-18T08:00:00"));
   const physicsGoal = dataset.goals.find((goal) => goal.id === "goal-physics-hl");
   const mathsGoal = dataset.goals.find((goal) => goal.id === "goal-maths-aa-hl");
@@ -1228,9 +1228,9 @@ test("seeded first-pass school milestones keep Maths on August 31 and other anch
   const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
   const cppGoal = dataset.goals.find((goal) => goal.id === "goal-cpp-book");
 
-  assert.equal(physicsGoal?.deadline, "2026-08-14");
+  assert.equal(physicsGoal?.deadline, "2026-08-31");
   assert.equal(mathsGoal?.deadline, "2026-08-31");
-  assert.equal(chemistryGoal?.deadline, "2026-08-14");
+  assert.equal(chemistryGoal?.deadline, "2026-08-31");
   assert.equal(olympiadPhaseOneGoal?.deadline, "2026-07-31");
   assert.equal(olympiadFinalGoal?.deadline, "2027-06-30");
   assert.equal(olympiadSubject?.deadline, "2027-06-30");
