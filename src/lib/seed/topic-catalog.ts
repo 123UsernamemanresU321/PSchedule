@@ -258,7 +258,7 @@ function annotateAndRetuneGuideMetadata(blueprints: SeedTopicBlueprint[]) {
     };
   });
 }
-function buildRotatingPaperCycleWeeks(startDate = "2026-08-31") {
+function buildRotatingPaperCycleWeeks(startDate = "2026-09-07") {
   const weeks: Array<{ label: string; availableFrom: string }> = [];
   let cursor = new Date(`${startDate}T00:00:00`);
   const end = new Date("2027-06-28T00:00:00");
@@ -374,7 +374,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
       reviewBlockTypes: ["standard_focus", "review"] as BlockType[],
       sourceLabel: "Maths AA HL past paper set",
       reviewSourceLabel: "Maths AA HL past paper review",
-      firstAvailableFrom: "2026-08-31",
+      firstAvailableFrom: "2026-09-07",
     },
     {
       subjectId: "physics-hl" as const,
@@ -388,7 +388,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
       reviewBlockTypes: ["deep_work", "standard_focus"] as BlockType[],
       sourceLabel: "Physics HL past paper set",
       reviewSourceLabel: "Physics HL past paper review",
-      firstAvailableFrom: "2026-08-31",
+      firstAvailableFrom: "2026-09-07",
     },
     {
       subjectId: "chemistry-hl" as const,
@@ -402,7 +402,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
       reviewBlockTypes: ["deep_work", "standard_focus"] as BlockType[],
       sourceLabel: "Chemistry HL past paper set",
       reviewSourceLabel: "Chemistry HL past paper review",
-      firstAvailableFrom: "2026-08-31",
+      firstAvailableFrom: "2026-09-07",
     },
   ] as const;
 

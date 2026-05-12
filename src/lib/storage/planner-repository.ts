@@ -34,12 +34,12 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-05-02-late-horizon-fill-v61";
+const PLANNING_MODEL_VERSION = "2026-05-12-first-milestones-sept-7-v62";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-30-olympiad-final-june-v12";
 const PREFERENCE_DEFAULTS_VERSION = "2026-05-01-french-tune-up-commitments-v4";
-const EXTENDED_GOALS_VERSION = "2026-04-30-paper-frontiers-v9";
+const EXTENDED_GOALS_VERSION = "2026-05-12-first-milestones-sept-7-v10";
 const LANGUAGE_MAINTENANCE_VERSION = "2026-05-01-french-commitment-maintenance-v4";
 const SEED_TOPIC_ORDERING_VERSION = "2026-05-01-maths-aug31-paper-frontiers-v7";
 const STALE_PLANNING_MODEL_VERSION = "stale";

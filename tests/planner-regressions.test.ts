@@ -234,7 +234,7 @@ function withFakeNow<T>(nowIso: string, callback: () => T): T {
 test("paired paper reviews retain their dependency scheduling window", () => {
   const dataset = buildSeedDataset(new Date("2026-03-13T08:00:00"));
   const reviewTopic = dataset.topics.find(
-    (topic) => topic.id === "physics-past-papers-week-8-paper-2-review",
+    (topic) => topic.id === "physics-past-papers-week-5-paper-2-review",
   );
 
   assert.ok(reviewTopic, "expected seeded review topic");
@@ -247,7 +247,7 @@ test("paired paper reviews retain their dependency scheduling window", () => {
     date: "2026-10-06",
     start: "2026-10-06T08:00:00.000Z",
     end: "2026-10-06T10:30:00.000Z",
-    topicId: "physics-past-papers-week-8-paper-2",
+    topicId: "physics-past-papers-week-5-paper-2",
     title: "Physics HL Week 8 - Paper 2",
     estimatedMinutes: 150,
   });
@@ -263,7 +263,7 @@ test("paired paper reviews retain their dependency scheduling window", () => {
   const reviewCandidate = candidates.find((candidate) => candidate.topicId === reviewTopic.id);
 
   assert.ok(reviewCandidate, "expected a schedulable review candidate");
-  assert.equal(reviewCandidate?.paperCode, "PHY-W08-P2");
+  assert.equal(reviewCandidate?.paperCode, "PHY-W05-P2");
   assert.equal(reviewCandidate?.availableAt?.slice(0, 10), "2026-10-06");
   assert.equal(reviewCandidate?.latestAt?.slice(0, 10), "2026-10-13");
 });
@@ -1218,7 +1218,7 @@ test("week pressure state reports overload without implying impossibility", () =
   assert.equal(getWeekPressureState(weeklyPlan).label, "Week over capacity");
 });
 
-test("seeded first-pass HL school milestones are August 31", () => {
+test("seeded first-pass HL school milestones are September 7", () => {
   const dataset = buildSeedDataset(new Date("2026-04-18T08:00:00"));
   const physicsGoal = dataset.goals.find((goal) => goal.id === "goal-physics-hl");
   const mathsGoal = dataset.goals.find((goal) => goal.id === "goal-maths-aa-hl");
@@ -1228,9 +1228,9 @@ test("seeded first-pass HL school milestones are August 31", () => {
   const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
   const cppGoal = dataset.goals.find((goal) => goal.id === "goal-cpp-book");
 
-  assert.equal(physicsGoal?.deadline, "2026-08-31");
-  assert.equal(mathsGoal?.deadline, "2026-08-31");
-  assert.equal(chemistryGoal?.deadline, "2026-08-31");
+  assert.equal(physicsGoal?.deadline, "2026-09-07");
+  assert.equal(mathsGoal?.deadline, "2026-09-07");
+  assert.equal(chemistryGoal?.deadline, "2026-09-07");
   assert.equal(olympiadPhaseOneGoal?.deadline, "2026-07-31");
   assert.equal(olympiadFinalGoal?.deadline, "2027-06-30");
   assert.equal(olympiadSubject?.deadline, "2027-06-30");
@@ -7790,57 +7790,53 @@ test("configured school-term template adds the weekly full-paper cycle only afte
   );
 
   assert.equal(requirementById["2026-08-22-maths-aa-past-papers-week-1-paper-1-exam"], undefined);
-  assert.equal(
-    requirementById["2026-08-22-physics-past-papers-week-1-paper-2-exam"]?.exactTopicId,
-    "physics-past-papers-week-1-paper-2",
-  );
-  assert.equal(
-    requirementById["2026-08-22-physics-past-papers-week-1-paper-2-correction"]?.exactTopicId,
-    "physics-past-papers-week-1-paper-2-review",
-  );
-  assert.equal(
-    requirementById["2026-08-22-chemistry-past-papers-week-1-paper-2-exam"]?.exactTopicId,
-    "chemistry-past-papers-week-1-paper-2",
-  );
-  assert.equal(
-    requirementById["2026-08-22-chemistry-past-papers-week-1-paper-2-correction"]?.exactTopicId,
-    "chemistry-past-papers-week-1-paper-2-review",
-  );
+  assert.equal(requirementById["2026-08-22-physics-past-papers-week-1-paper-2-exam"], undefined);
+  assert.equal(requirementById["2026-08-22-physics-past-papers-week-1-paper-2-correction"], undefined);
+  assert.equal(requirementById["2026-08-22-chemistry-past-papers-week-1-paper-2-exam"], undefined);
+  assert.equal(requirementById["2026-08-22-chemistry-past-papers-week-1-paper-2-correction"], undefined);
 
-  const mathsStartTemplate = buildSchoolTermWeekTemplate({
-    weekStart: new Date("2026-08-31T00:00:00.000Z"),
+  const paperStartTemplate = buildSchoolTermWeekTemplate({
+    weekStart: new Date("2026-09-07T00:00:00.000Z"),
     topics: dataset.topics,
     preferences,
     existingPlannedBlocks: [],
   });
-  const mathsStartRequirementById = Object.fromEntries(
-    mathsStartTemplate.requirements.map((requirement) => [requirement.id, requirement]),
+  const paperStartRequirementById = Object.fromEntries(
+    paperStartTemplate.requirements.map((requirement) => [requirement.id, requirement]),
   );
 
   assert.equal(
-    mathsStartRequirementById["2026-09-05-maths-aa-past-papers-week-1-paper-1-exam"]?.exactTopicId,
+    paperStartRequirementById["2026-09-12-maths-aa-past-papers-week-1-paper-1-exam"]?.exactTopicId,
     "maths-aa-past-papers-week-1-paper-1",
   );
   assert.equal(
-    mathsStartRequirementById["2026-09-05-maths-aa-past-papers-week-1-paper-1-correction"]?.exactTopicId,
+    paperStartRequirementById["2026-09-12-maths-aa-past-papers-week-1-paper-1-correction"]?.exactTopicId,
     "maths-aa-past-papers-week-1-paper-1-review",
+  );
+  assert.equal(
+    paperStartRequirementById["2026-09-12-physics-past-papers-week-1-paper-2-exam"]?.exactTopicId,
+    "physics-past-papers-week-1-paper-2",
+  );
+  assert.equal(
+    paperStartRequirementById["2026-09-12-chemistry-past-papers-week-1-paper-2-exam"]?.exactTopicId,
+    "chemistry-past-papers-week-1-paper-2",
   );
 });
 
-test("seeded post-syllabus paper topics keep Maths papers after the August 31 deadline", () => {
+test("seeded post-syllabus paper topics start after the September 7 first milestone", () => {
   const dataset = buildSeedDataset(new Date("2026-04-18T08:00:00.000Z"));
   const earlyPaperTopics = dataset.topics.filter(
     (topic) =>
       topic.sessionMode === "exam" &&
       topic.unitId.includes("past-papers") &&
-      (topic.availableFrom ?? "") < "2026-08-31",
+      (topic.availableFrom ?? "") < "2026-09-07",
   );
   const earlyMathsPaperTopics = dataset.topics.filter(
     (topic) =>
       topic.subjectId === "maths-aa-hl" &&
       topic.sessionMode === "exam" &&
       topic.unitId.includes("past-papers") &&
-      (topic.availableFrom ?? "") < "2026-08-31",
+      (topic.availableFrom ?? "") < "2026-09-07",
   );
   const weekOnePaperTopicIds = dataset.topics
     .filter(
@@ -7931,7 +7927,7 @@ test("Maths AA HL first-pass work finishes before post-syllabus paper practice b
       if (
         topic?.subjectId === "maths-aa-hl" &&
         !topic.unitId.includes("past-papers") &&
-        new Date(block.end).getTime() <= new Date("2026-09-01T00:00:00.000Z").getTime()
+        new Date(block.end).getTime() <= new Date("2026-09-08T00:00:00.000Z").getTime()
       ) {
         accumulator[topic.id] = (accumulator[topic.id] ?? 0) + block.estimatedMinutes;
       }
@@ -7949,8 +7945,8 @@ test("Maths AA HL first-pass work finishes before post-syllabus paper practice b
   assert.deepEqual(unfinishedByDeadline.map((topic) => topic.id), []);
   assert.ok(firstMathsPaper, "expected first Maths paper practice block");
   assert.ok(
-    new Date(firstMathsPaper!.start).getTime() >= new Date("2026-08-31T00:00:00.000Z").getTime(),
-    "expected Maths paper practice to start after the August 31 first-pass milestone",
+    new Date(firstMathsPaper!.start).getTime() >= new Date("2026-09-07T00:00:00.000Z").getTime(),
+    "expected Maths paper practice to start after the September 7 first-pass milestone",
   );
 });
 
@@ -8024,20 +8020,24 @@ test("generated configured school-term weeks follow the weekday template, fill S
     ),
   );
   assert.equal(
-    saturdayBlocks.some((block) => block.studyLayer === "exam_sim"),
+    saturdayBlocks.some(
+      (block) => block.studyLayer === "exam_sim" && block.unitTitle?.includes("Paper Practice"),
+    ),
     false,
   );
   assert.ok(
     sundayBlocks.reduce((total, block) => total + block.estimatedMinutes, 0) > 120,
   );
   assert.equal(
-    sundayBlocks.some((block) => block.studyLayer === "exam_sim"),
+    sundayBlocks.some(
+      (block) => block.studyLayer === "exam_sim" && block.unitTitle?.includes("Paper Practice"),
+    ),
     false,
   );
 });
 
-test("generated configured school-term weeks start the full-paper weekend cycle after the syllabus phase", () => {
-  const referenceDate = new Date("2026-08-18T08:00:00.000Z");
+test("generated configured school-term weeks start the full-paper weekend cycle after the September 7 syllabus phase", () => {
+  const referenceDate = new Date("2026-09-01T08:00:00.000Z");
   const dataset = buildSeedDataset(referenceDate);
   const preferences = withConfiguredSchoolTerm(dataset.preferences, {
     terms: [
@@ -8059,10 +8059,10 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
 
     return createStudyBlock({
       id: `${topicId}-completed`,
-      weekStart: "2026-08-10",
-      date: "2026-08-14",
-      start: "2026-08-14T08:00:00.000Z",
-      end: "2026-08-14T10:00:00.000Z",
+      weekStart: "2026-08-31",
+      date: "2026-09-07",
+      start: "2026-09-07T08:00:00.000Z",
+      end: "2026-09-07T10:00:00.000Z",
       subjectId: topic.subjectId,
       topicId: topic.id,
       title: topic.title,
@@ -8072,7 +8072,7 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
     });
   });
   const result = generateStudyPlanForWeek({
-    weekStart: new Date("2026-08-31T00:00:00.000Z"),
+    weekStart: new Date("2026-09-07T00:00:00.000Z"),
     referenceDate,
     goals: dataset.goals,
     subjects: dataset.subjects,
@@ -8086,21 +8086,20 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
     existingPlannedBlocks: completedSyllabusFrontiers,
   });
   const saturdayBlocks = result.studyBlocks.filter(
-    (block) => block.date === "2026-09-05" && !!block.subjectId,
+    (block) => block.date === "2026-09-12" && !!block.subjectId,
   );
 
-  assert.equal(
+  assert.ok(
     saturdayBlocks.some(
       (block) =>
         block.topicId === "maths-aa-past-papers-week-1-paper-1" &&
         block.studyLayer === "exam_sim",
     ),
-    false,
   );
   assert.ok(
     result.studyBlocks.some(
       (block) =>
-        ["2026-09-05", "2026-09-06"].includes(block.date) &&
+        ["2026-09-12", "2026-09-13"].includes(block.date) &&
         block.topicId === "physics-past-papers-week-1-paper-2" &&
         block.studyLayer === "exam_sim",
     ),
@@ -8108,24 +8107,23 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
   assert.ok(
     result.studyBlocks.some(
       (block) =>
-        ["2026-09-05", "2026-09-06"].includes(block.date) &&
+        ["2026-09-12", "2026-09-13"].includes(block.date) &&
         block.topicId === "chemistry-past-papers-week-1-paper-2" &&
         block.studyLayer === "exam_sim",
     ),
   );
-  assert.equal(
+  assert.ok(
     result.studyBlocks.some(
       (block) =>
-        ["2026-08-22", "2026-08-23"].includes(block.date) &&
+        ["2026-09-12", "2026-09-13"].includes(block.date) &&
         block.topicId === "maths-aa-past-papers-week-1-paper-1-review" &&
         block.studyLayer === "correction",
     ),
-    false,
   );
   assert.ok(
     result.studyBlocks.some(
       (block) =>
-        ["2026-08-22", "2026-08-23"].includes(block.date) &&
+        ["2026-09-12", "2026-09-13"].includes(block.date) &&
         block.topicId === "physics-past-papers-week-1-paper-2-review" &&
         block.studyLayer === "correction",
     ),
@@ -8133,7 +8131,7 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
   assert.ok(
     result.studyBlocks.some(
       (block) =>
-        ["2026-08-22", "2026-08-23"].includes(block.date) &&
+        ["2026-09-12", "2026-09-13"].includes(block.date) &&
         block.topicId === "chemistry-past-papers-week-1-paper-2-review" &&
         block.studyLayer === "correction",
     ),
