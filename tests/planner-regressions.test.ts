@@ -946,6 +946,37 @@ test("maths, chemistry, olympiad, and c++ also follow seeded prerequisite order"
     dataset.topics.find((topic) => topic.id === "chem-structure-1-2-nuclear-atom")?.dependsOnTopicId,
     "chem-structure-1-1-particulate",
   );
+  const chemistrySeedTopics = dataset.topics.filter(
+    (topic) => topic.subjectId === "chemistry-hl" && !topic.unitId.includes("past-papers"),
+  );
+  assert.deepEqual([...new Set(chemistrySeedTopics.map((topic) => topic.unitId))], [
+    "chem-structure-1",
+    "chem-structure-2",
+    "chem-structure-3",
+    "chem-reactivity-1",
+    "chem-reactivity-2",
+    "chem-reactivity-3",
+  ]);
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "chem-structure-2-1-ionic")?.dependsOnTopicId,
+    "chem-structure-1-5-ideal-gases",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "chem-structure-3-1-periodic-table")?.dependsOnTopicId,
+    "chem-structure-2-4-materials",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "chem-reactivity-1-1-enthalpy")?.dependsOnTopicId,
+    "chem-structure-3-2-functional-groups",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "chem-reactivity-2-1-amount-change")?.dependsOnTopicId,
+    "chem-reactivity-1-4-entropy",
+  );
+  assert.equal(
+    dataset.topics.find((topic) => topic.id === "chem-reactivity-3-1-proton-transfer")?.dependsOnTopicId,
+    "chem-reactivity-2-3-extent",
+  );
   assert.equal(
     dataset.topics.find((topic) => topic.id === "olympiad-bplus-number-theory-03")?.dependsOnTopicId,
     "olympiad-bplus-number-theory-02",

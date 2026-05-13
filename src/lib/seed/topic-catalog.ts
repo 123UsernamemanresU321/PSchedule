@@ -1356,7 +1356,36 @@ const mathsTopicBlueprints: SeedTopicBlueprint[] = [
   }),
 ];
 
-const chemistryTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
+const chemistrySyllabusUnitOrder = [
+  "chem-structure-1",
+  "chem-structure-2",
+  "chem-structure-3",
+  "chem-reactivity-1",
+  "chem-reactivity-2",
+  "chem-reactivity-3",
+] as const;
+
+function orderChemistryBlueprintsBySyllabusUnits(blueprints: SeedTopicBlueprint[]) {
+  const orderByUnitId = new Map<string, number>(
+    chemistrySyllabusUnitOrder.map((unitId, index) => [unitId, index]),
+  );
+
+  return blueprints
+    .map((blueprint, originalIndex) => ({ blueprint, originalIndex }))
+    .sort((left, right) => {
+      const leftOrder = orderByUnitId.get(left.blueprint.unitId) ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = orderByUnitId.get(right.blueprint.unitId) ?? Number.MAX_SAFE_INTEGER;
+
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+
+      return left.originalIndex - right.originalIndex;
+    })
+    .map(({ blueprint }) => blueprint);
+}
+
+const chemistryTopicBlueprintsRaw: SeedTopicBlueprint[] = [
   {
     id: "chem-structure-1-1-particulate",
     subjectId: "chemistry-hl",
@@ -1687,7 +1716,12 @@ const chemistryTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence([
       textbook("Pearson Chemistry HL 2023", "Use the section aligned to Reactivity 3.4."),
     ],
   },
-], "Follow the seeded Chemistry HL syllabus order strictly before moving to the next topic.");
+];
+
+const chemistryTopicBlueprints: SeedTopicBlueprint[] = chainTopicSequence(
+  orderChemistryBlueprintsBySyllabusUnits(chemistryTopicBlueprintsRaw),
+  "Follow the Chemistry HL syllabus order strictly: Structure 1 -> Structure 2 -> Structure 3 -> Reactivity 1 -> Reactivity 2 -> Reactivity 3.",
+);
 
 const ibSaturdayPaperCycleBlueprints: SeedTopicBlueprint[] = buildRotatingPaperCycleBlueprints();
 
