@@ -6610,6 +6610,13 @@ test("exam periods render exam blocks and delay study until thirty minutes after
       start: "06:00",
       end: "22:00",
     },
+    holidaySchedule: {
+      ...seedPreferences.holidaySchedule,
+      dailyStudyWindow: {
+        start: "06:00",
+        end: "22:00",
+      },
+    },
     reservedCommitmentRules: [],
     lockedRecoveryWindows: [],
     schoolSchedule: {
@@ -6667,10 +6674,39 @@ test("exam periods render exam blocks and delay study until thirty minutes after
     sickDays: [],
   });
   const examDaySlots = slots.filter((slot) => slot.dateKey === "2026-04-14");
+  const examPeriodNoExamDaySlots = slots.filter((slot) => slot.dateKey === "2026-04-15");
+  const commitments = expandReservedCommitmentWindowsForWeek(
+    new Date("2026-04-13T00:00:00"),
+    preferences,
+    [],
+    [],
+    [],
+  );
 
   assert.equal(events.some((event) => event.id === "school-exam:term-2-exams:maths-exam"), true);
   assert.equal(events.some((event) => event.id === "school-exam:term-2-exams:physics-exam"), true);
   assert.equal(events.some((event) => event.id === "school-schedule:2026-04-14"), false);
+  assert.equal(
+    events.some((event) => event.id === "school-schedule:2026-04-15"),
+    false,
+    "expected every date inside an exam period to suppress generated school, even without an exam",
+  );
+  assert.equal(
+    resolveDailyScheduleProfile(new Date("2026-04-15T10:00:00"), preferences).regime,
+    "holiday",
+  );
+  assert.equal(
+    commitments.some(
+      (commitment) => commitment.ruleId === "term-homework" && commitment.dateKey === "2026-04-15",
+    ),
+    false,
+    "expected exam-period weekdays without exam sittings to suppress term homework",
+  );
+  assert.ok(examPeriodNoExamDaySlots.length > 0, "expected exam-period no-exam days to keep study capacity");
+  assert.ok(
+    examPeriodNoExamDaySlots.some((slot) => slot.start < createDateAtTime(fromDateKey("2026-04-15"), "08:00")),
+    "expected an exam-period no-exam day to use the normal study window instead of the school-day block",
+  );
   assert.ok(examDaySlots.length > 0, "expected study capacity after the final exam buffer");
   assert.ok(
     examDaySlots.every((slot) => slot.start >= createDateAtTime(fromDateKey("2026-04-14"), "14:45")),

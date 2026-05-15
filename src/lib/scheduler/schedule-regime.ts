@@ -74,8 +74,21 @@ export function getNoSchoolDay(day: Date, preferences: Preferences) {
   return preferences.schoolSchedule.noSchoolDays.find((entry) => entry.date === dateKey) ?? null;
 }
 
+export function getSchoolExamPeriod(day: Date, preferences: Preferences) {
+  const dateKey = toDateKey(day);
+  return (
+    preferences.schoolSchedule.examPeriods.find(
+      (period) => dateKey >= period.startDate && dateKey <= period.endDate,
+    ) ?? null
+  );
+}
+
 export function isDateInActiveSchoolTerm(day: Date, preferences: Preferences) {
   if (getNoSchoolDay(day, preferences)) {
+    return false;
+  }
+
+  if (getSchoolExamPeriod(day, preferences)) {
     return false;
   }
 
