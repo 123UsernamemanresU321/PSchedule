@@ -612,6 +612,33 @@ test("pure IB syllabus candidate generation ignores stale date gates while prese
   assert.equal(orderedLearningCandidate.latestAt, null);
 });
 
+test("positive sub-30-minute core residues remain schedulable", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
+  const topic = dataset.topics.find((entry) => entry.id === "physics-a1-kinematics");
+
+  assert.ok(topic, "expected seeded Physics A.1 topic");
+
+  const tinyResidueTopic = {
+    ...topic,
+    completedHours: topic.estHours - 0.25,
+  } as Topic;
+  const candidates = buildTaskCandidates({
+    topics: [tinyResidueTopic],
+    existingPlannedBlocks: [],
+    completionLogs: [],
+    referenceDate: new Date("2026-03-14T08:00:00"),
+    subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-14T08:00:00"),
+  });
+  const learningCandidate = candidates.find(
+    (candidate) => candidate.topicId === topic.id && candidate.studyLayer === "learning",
+  );
+
+  assert.ok(learningCandidate, "expected a tiny core residue to produce a real task candidate");
+  assert.equal(learningCandidate.remainingMinutes, 30);
+});
+
 test("planned or missed IB topic blocks do not count as study history for correction work", () => {
   const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
   const topic = dataset.topics.find((entry) => entry.id === "physics-a1-kinematics");
@@ -4191,6 +4218,66 @@ test("collapsed coverage repair state also flags illegal future overlaps", () =>
     repairState.invalidOverlapIssues.length > 0,
     "expected future overlap damage to trigger repair detection",
   );
+});
+
+test("collapsed coverage repair ignores planner-controlled window conflicts that do not involve study blocks", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const overlapDay = new Date("2026-03-24T00:00:00");
+  const preferences = {
+    ...dataset.preferences,
+    lockedRecoveryWindows: [],
+    reservedCommitmentRules: [
+      {
+        id: "term-homework",
+        label: "Homework",
+        durationMinutes: 60,
+        days: [2],
+        appliesDuring: "all" as const,
+        preferredStart: "18:00",
+      },
+    ],
+  };
+  const harmlessStudyBlock = createStudyBlock({
+    id: "harmless-study-block",
+    weekStart: "2026-03-23",
+    date: "2026-03-24",
+    start: createDateAtTime(overlapDay, "08:00").toISOString(),
+    end: createDateAtTime(overlapDay, "09:00").toISOString(),
+    subjectId: null,
+    topicId: null,
+  });
+
+  const repairState = getCollapsedCoverageRepairState(
+    {
+      goals: [],
+      subjects: [],
+      topics: [],
+      fixedEvents: [
+        {
+          id: "fixed-homework-conflict",
+          title: "Family appointment",
+          start: createDateAtTime(overlapDay, "18:15").toISOString(),
+          end: createDateAtTime(overlapDay, "18:45").toISOString(),
+          isAllDay: false,
+          recurrence: "none",
+          flexibility: "fixed",
+          category: "family",
+        },
+      ],
+      sickDays: [],
+      focusedDays: [],
+      focusedWeeks: [],
+      studyBlocks: [harmlessStudyBlock],
+      completionLogs: [],
+      weeklyPlans: [createWeeklyPlan({ weekStart: "2026-03-23" })],
+      preferences,
+    },
+    referenceDate,
+  );
+
+  assert.equal(repairState.invalidOverlapIssues.length, 0);
+  assert.equal(repairState.hasCollapsedCoverage, false);
 });
 
 test("collapsed coverage stale message always includes concrete repair diagnostics", () => {

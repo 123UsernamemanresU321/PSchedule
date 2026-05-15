@@ -949,7 +949,13 @@ export function getScopedReplanPrecheckState(options: {
     preferences: options.snapshot.preferences,
     sickDays: options.snapshot.sickDays,
     referenceDate,
-  }).filter((issue) => issue.severity === "error" && issue.code === "overlap");
+  }).filter(
+    (issue) =>
+      issue.severity === "error" &&
+      issue.code === "overlap" &&
+      typeof issue.blockId === "string" &&
+      issue.blockId.length > 0,
+  );
   const hardConstraintSubjectIds = options.snapshot.subjects
     .filter((subject) =>
       zeroUnscheduledCoverageSubjectIds.includes(
@@ -1014,7 +1020,13 @@ export function getCollapsedCoverageRepairState(
     preferences: snapshot.preferences,
     sickDays: snapshot.sickDays,
     referenceDate,
-  }).filter((issue) => issue.severity === "error" && issue.code === "overlap");
+  }).filter(
+    (issue) =>
+      issue.severity === "error" &&
+      issue.code === "overlap" &&
+      typeof issue.blockId === "string" &&
+      issue.blockId.length > 0,
+  );
   const invalidOverlapBlockIds = Array.from(
     new Set(
       invalidOverlapIssues

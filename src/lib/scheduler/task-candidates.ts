@@ -1,5 +1,6 @@
 import { addDays } from "date-fns";
 
+import { zeroUnscheduledCoverageSubjectIds } from "@/lib/constants/planner";
 import { endOfPlannerWeek, fromDateKey } from "@/lib/dates/helpers";
 import {
   getOlympiadNumberTheoryEligibilityStatus,
@@ -16,6 +17,9 @@ import type { CompletionLog, Goal, StudyBlock, StudyLayer, TaskCandidate, Topic 
 const MIN_ALLOCATABLE_MINUTES = 30;
 const MATHS_AA_SL_HL_FRONTIER_TOPIC_ID = "maths-topic5-aa-integration";
 const DATE_KEY_START_CACHE = new Map<string, Date>();
+const ZERO_UNSCHEDULED_COVERAGE_SUBJECT_ID_SET = new Set<string>(
+  zeroUnscheduledCoverageSubjectIds,
+);
 
 const PAPER_CODE_SUBJECT_PREFIXES: Record<string, string> = {
   "physics-hl": "PHY",
@@ -90,6 +94,10 @@ function isDedicatedReviewTopic(topic: Topic) {
 
 function isIbAnchorSubject(subjectId: Topic["subjectId"]) {
   return IB_ANCHOR_SUBJECT_IDS.includes(subjectId as (typeof IB_ANCHOR_SUBJECT_IDS)[number]);
+}
+
+function isZeroUnscheduledCoverageSubject(subjectId: Topic["subjectId"]) {
+  return ZERO_UNSCHEDULED_COVERAGE_SUBJECT_ID_SET.has(subjectId);
 }
 
 function isPureIbSyllabusTopic(topic: Topic) {
@@ -682,7 +690,11 @@ export function buildTaskCandidates(options: {
       0,
     );
 
-    if (remainingMinutes < MIN_ALLOCATABLE_MINUTES) {
+    if (
+      remainingMinutes <= 0 ||
+      (remainingMinutes < MIN_ALLOCATABLE_MINUTES &&
+        !isZeroUnscheduledCoverageSubject(topic.subjectId))
+    ) {
       return accumulator;
     }
 
