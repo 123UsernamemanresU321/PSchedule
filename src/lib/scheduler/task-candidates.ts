@@ -127,13 +127,8 @@ function getCachedDateKeyStart(dateKey: string) {
   return parsed;
 }
 
-function isSchedulableCoverageStatus(status: StudyBlock["status"]) {
-  return (
-    status === "planned" ||
-    status === "rescheduled" ||
-    status === "done" ||
-    status === "partial"
-  );
+function isPlannedCoverageStatus(status: StudyBlock["status"]) {
+  return status === "planned" || status === "rescheduled";
 }
 
 function isFrenchMaintenanceTopic(topic: Pick<Topic, "subjectId">) {
@@ -365,7 +360,7 @@ function buildExistingBlockCandidateState(
       }
     }
 
-    if (!isSchedulableCoverageStatus(block.status)) {
+    if (!isPlannedCoverageStatus(block.status)) {
       return;
     }
 
@@ -540,7 +535,6 @@ function resolveTopicTimingWindow(
       minDaysAfterDependency == null && maxDaysAfterDependency == null;
     const dependencyBlock = latestScheduledBlockByTopic[topic.dependsOnTopicId];
     const dependencyCompleteFromProgress =
-      requiresDependencyCompletion &&
       !!dependencyTopic &&
       dependencyTopic.completedHours >= dependencyTopic.estHours - 0.001;
 

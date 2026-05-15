@@ -2113,7 +2113,6 @@ function allocateTasksToSlots(options: {
     const requiresDependencyCompletion =
       topic.minDaysAfterDependency == null && topic.maxDaysAfterDependency == null;
     const dependencyCompleteFromProgress =
-      requiresDependencyCompletion &&
       !!dependencyTopic &&
       dependencyTopic.completedHours >= dependencyTopic.estHours - 0.001;
 
@@ -2123,7 +2122,9 @@ function allocateTasksToSlots(options: {
 
     const coveredDependencyMinutes =
       Math.round((dependencyTopic?.completedHours ?? 0) * 60) +
-      eligibleDependencyBlocks.reduce((total, block) => total + block.estimatedMinutes, 0);
+      eligibleDependencyBlocks
+        .filter((block) => block.status === "planned" || block.status === "rescheduled")
+        .reduce((total, block) => total + block.estimatedMinutes, 0);
 
     if (
       requiresDependencyCompletion &&

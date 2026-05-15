@@ -612,6 +612,125 @@ test("pure IB syllabus candidate generation ignores stale date gates while prese
   assert.equal(orderedLearningCandidate.latestAt, null);
 });
 
+test("completed blocks do not double-count topic progress for dependency unlocks", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
+  const physicsA1 = dataset.topics.find((entry) => entry.id === "physics-a1-kinematics");
+  const physicsA2 = dataset.topics.find((entry) => entry.id === "physics-a2-forces-momentum");
+
+  assert.ok(physicsA1, "expected seeded Physics A.1 topic");
+  assert.ok(physicsA2, "expected seeded Physics A.2 topic");
+
+  const incompleteDependency = {
+    ...physicsA1,
+    completedHours: Math.max(0, physicsA1.estHours - 0.25),
+  } as Topic;
+  const doneBlock = createStudyBlock({
+    id: "physics-a1-done-evidence",
+    subjectId: "physics-hl",
+    topicId: physicsA1.id,
+    title: physicsA1.title,
+    status: "done",
+    start: "2026-03-13T08:00:00.000Z",
+    end: "2026-03-13T09:00:00.000Z",
+    estimatedMinutes: 60,
+  });
+
+  const candidates = buildTaskCandidates({
+    topics: [incompleteDependency, physicsA2 as Topic],
+    existingPlannedBlocks: [doneBlock],
+    completionLogs: [],
+    referenceDate: new Date("2026-03-14T08:00:00"),
+    subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-14T08:00:00"),
+  });
+
+  assert.ok(
+    candidates.some((candidate) => candidate.topicId === physicsA1.id),
+    "expected the remaining dependency residue to stay schedulable",
+  );
+  assert.ok(
+    !candidates.some((candidate) => candidate.topicId === physicsA2.id),
+    "expected the dependent topic to stay blocked until topic progress is complete",
+  );
+});
+
+test("completed dependency progress unlocks dependent window when historical block is absent", () => {
+  const dataset = buildSeedDataset(new Date("2026-05-15T08:00:00"));
+  const pairReview = dataset.topics.find(
+    (entry) => entry.id === "olympiad-bplus-pair-review-02",
+  );
+  const groupCritique = dataset.topics.find(
+    (entry) => entry.id === "olympiad-bplus-group-critique-02",
+  );
+
+  assert.ok(pairReview, "expected seeded Olympiad pair review topic");
+  assert.ok(groupCritique, "expected seeded Olympiad group critique topic");
+
+  const completedDependency = {
+    ...pairReview,
+    completedHours: pairReview.estHours,
+    status: "reviewed" as const,
+  } as Topic;
+  const candidates = buildTaskCandidates({
+    topics: [completedDependency, groupCritique as Topic],
+    existingPlannedBlocks: [],
+    completionLogs: [],
+    referenceDate: new Date("2026-05-15T08:00:00"),
+    subjectDeadlinesById: { olympiad: "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-05-15T08:00:00"),
+  });
+
+  assert.ok(
+    candidates.some((candidate) => candidate.topicId === groupCritique.id),
+    "expected completed dependency progress to unlock the dependent critique without requiring an old block",
+  );
+});
+
+test("weekly allocation honors completed dependency progress without a dependency block", () => {
+  const referenceDate = new Date("2026-05-18T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const pairReview = dataset.topics.find(
+    (entry) => entry.id === "olympiad-bplus-pair-review-02",
+  );
+  const groupCritique = dataset.topics.find(
+    (entry) => entry.id === "olympiad-bplus-group-critique-02",
+  );
+
+  assert.ok(pairReview, "expected seeded Olympiad pair review topic");
+  assert.ok(groupCritique, "expected seeded Olympiad group critique topic");
+
+  const result = generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    horizonStartDate: referenceDate,
+    goals: [],
+    subjects: dataset.subjects.filter((subject) => subject.id === "olympiad"),
+    topics: [
+      {
+        ...pairReview,
+        completedHours: pairReview.estHours,
+        status: "reviewed" as const,
+      },
+      groupCritique as Topic,
+    ],
+    completionLogs: [],
+    fixedEvents: [],
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    preferences: dataset.preferences,
+    existingPlannedBlocks: [],
+    fillAvailableStudyDays: true,
+  });
+
+  assert.ok(
+    result.studyBlocks.some((block) => block.topicId === groupCritique.id),
+    "expected weekly allocation to schedule the dependent critique from completed topic progress",
+  );
+});
+
 test("positive sub-30-minute core residues remain schedulable", () => {
   const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
   const topic = dataset.topics.find((entry) => entry.id === "physics-a1-kinematics");
@@ -735,8 +854,12 @@ test("maths topics stay hard-gated in seeded order", () => {
   const hlBookTopic = dataset.topics.find(
     (topic) => topic.id === "maths-topic1-counting-binomial",
   );
+  const slBoundaryTopic = dataset.topics.find(
+    (topic) => topic.id === "maths-topic5-aa-integration",
+  );
 
   assert.ok(hlBookTopic, "expected a seeded HL-book maths topic");
+  assert.ok(slBoundaryTopic, "expected the seeded SL/HL frontier topic");
   assert.equal(hlBookTopic.dependsOnTopicId, "maths-topic5-aa-integration");
 
   const blockedCandidates = buildTaskCandidates({
@@ -760,9 +883,13 @@ test("maths topics stay hard-gated in seeded order", () => {
     estimatedMinutes: 300,
     status: "done",
   });
+  const completedSlBoundaryTopic = {
+    ...slBoundaryTopic,
+    completedHours: slBoundaryTopic.estHours,
+  } as Topic;
 
   const unlockedCandidates = buildTaskCandidates({
-    topics: [hlBookTopic as Topic],
+    topics: [completedSlBoundaryTopic, hlBookTopic as Topic],
     existingPlannedBlocks: [slBoundaryBlock],
     referenceDate: new Date("2026-06-02T08:00:00"),
     subjectDeadlinesById: { "maths-aa-hl": "2027-06-30" },
