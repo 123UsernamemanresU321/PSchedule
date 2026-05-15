@@ -5,6 +5,7 @@ import { AlertTriangle, ArrowRight, CalendarRange, Gauge, Target } from "lucide-
 import { SubjectBadge } from "@/components/planner/subject-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatHoursValue, roundHoursToQuarter } from "@/lib/dates/helpers";
 import type { HorizonRoadmapSummary, Subject } from "@/lib/types/planner";
 
 export function HorizonRoadmap({
@@ -21,7 +22,7 @@ export function HorizonRoadmap({
   compact?: boolean;
 }) {
   const visibleWeeks = compact ? summary.weeks.slice(0, 4) : summary.weeks.slice(0, 8);
-  const paceDelta = Number((summary.totalAssignedHours - summary.totalRequiredHours).toFixed(1));
+  const paceDelta = roundHoursToQuarter(summary.totalAssignedHours - summary.totalRequiredHours);
 
   return (
     <Card className="overflow-hidden border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))]">
@@ -37,7 +38,7 @@ export function HorizonRoadmap({
           </div>
         </div>
         <Badge variant={paceDelta >= 0 ? "success" : "warning"}>
-          {paceDelta >= 0 ? "On pace" : `${Math.abs(paceDelta).toFixed(1)}h behind pace`}
+          {paceDelta >= 0 ? "On pace" : `${formatHoursValue(Math.abs(paceDelta))}h behind pace`}
         </Badge>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -54,14 +55,14 @@ export function HorizonRoadmap({
               <Gauge className="h-3.5 w-3.5" />
               Required pace
             </div>
-            <p className="mt-3 text-3xl font-semibold text-foreground">{summary.totalRequiredHours.toFixed(1)}h</p>
+            <p className="mt-3 text-3xl font-semibold text-foreground">{formatHoursValue(summary.totalRequiredHours)}h</p>
           </div>
           <div className="rounded-md border border-white/8 bg-white/[0.04] p-4">
             <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
               <ArrowRight className="h-3.5 w-3.5" />
               Assigned
             </div>
-            <p className="mt-3 text-3xl font-semibold text-foreground">{summary.totalAssignedHours.toFixed(1)}h</p>
+            <p className="mt-3 text-3xl font-semibold text-foreground">{formatHoursValue(summary.totalAssignedHours)}h</p>
           </div>
           <div className="rounded-md border border-white/8 bg-white/[0.04] p-4">
             <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
@@ -93,7 +94,7 @@ export function HorizonRoadmap({
                   <div>
                     <p className="font-medium text-foreground">{week.weekLabel}</p>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {week.requiredHours.toFixed(1)}h required • {week.assignedHours.toFixed(1)}h assigned • {week.remainingCoreHours.toFixed(1)}h core work still open
+                      {formatHoursValue(week.requiredHours)}h required • {formatHoursValue(week.assignedHours)}h assigned • {formatHoursValue(week.remainingCoreHours)}h core work still open
                     </p>
                   </div>
                   <div className="flex items-center gap-2">

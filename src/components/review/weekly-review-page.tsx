@@ -32,7 +32,7 @@ import {
   getWeeklyPlan,
 } from "@/lib/analytics/metrics";
 import { mainSubjectIds } from "@/lib/constants/planner";
-import { formatWeekRangeLabel, fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
+import { formatHoursValue, formatWeekRangeLabel, fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import {
   getOlympiadWeekLoadProfile,
   getOlympiadWeaknessProfile,
@@ -206,9 +206,9 @@ export function WeeklyReviewPage() {
       />
 
       <div className="grid gap-4 xl:grid-cols-4 md:grid-cols-2">
-        <MetricCard eyebrow="Month target" value={`${hierarchyMetrics.month.plannedHours.toFixed(1)} / ${hierarchyMetrics.month.targetHours.toFixed(1)}h`} detail={`${hierarchyMetrics.month.completedHours.toFixed(1)} hrs completed this month`} tone={hierarchyMetrics.month.coveragePercent >= 100 ? "success" : "default"} />
-        <MetricCard eyebrow="Week slice" value={`${plannedHours.toFixed(1)}h`} detail={`${completedHours.toFixed(1)} hrs completed in the selected week`} tone={completedHours / Math.max(plannedHours, 1) >= 0.8 ? "success" : "warning"} />
-        <MetricCard eyebrow="Carry-over hours" value={carryOverHours.toFixed(1)} detail="hours to reschedule" tone={carryOverHours > 4 ? "warning" : "default"} />
+        <MetricCard eyebrow="Month target" value={`${formatHoursValue(hierarchyMetrics.month.plannedHours)} / ${formatHoursValue(hierarchyMetrics.month.targetHours)}h`} detail={`${formatHoursValue(hierarchyMetrics.month.completedHours)} hrs completed this month`} tone={hierarchyMetrics.month.coveragePercent >= 100 ? "success" : "default"} />
+        <MetricCard eyebrow="Week slice" value={`${formatHoursValue(plannedHours)}h`} detail={`${formatHoursValue(completedHours)} hrs completed in the selected week`} tone={completedHours / Math.max(plannedHours, 1) >= 0.8 ? "success" : "warning"} />
+        <MetricCard eyebrow="Carry-over hours" value={formatHoursValue(carryOverHours)} detail="hours to reschedule" tone={carryOverHours > 4 ? "warning" : "default"} />
         <MetricCard eyebrow="Fill diagnostics" value={fillableGapCount === 0 ? "Healthy" : `${fillableGapCount} gaps`} detail={fillableGapCount === 0 ? "Remaining blanks are either reserved time or there are no eligible tasks left." : "Planner left fillable future time and should rebuild the horizon."} tone={fillableGapCount === 0 ? "success" : "warning"} />
       </div>
 
@@ -228,10 +228,10 @@ export function WeeklyReviewPage() {
                   </Badge>
                 </div>
                 <p className="mt-3 text-sm text-muted-foreground">
-                  Planned {entry.plannedHours.toFixed(1)}h • Completed {entry.completedHours.toFixed(1)}h
+                  Planned {formatHoursValue(entry.plannedHours)}h • Completed {formatHoursValue(entry.completedHours)}h
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Open {entry.openHours.toFixed(1)}h
+                  Open {formatHoursValue(entry.openHours)}h
                 </p>
               </div>
             ))}
@@ -435,16 +435,16 @@ export function WeeklyReviewPage() {
                   ) : null}
                   <p className="mt-3 text-sm text-muted-foreground">
                     {forecast.isFullyScheduled
-                      ? `${forecast.remainingTargetHours.toFixed(1)}h remaining is already covered before the deadline.`
+                      ? `${formatHoursValue(forecast.remainingTargetHours)}h remaining is already covered before the deadline.`
                       : forecast.horizonCompletionDate
-                        ? `All ${forecast.remainingTargetHours.toFixed(1)}h are on the horizon, but completion lands after ${fromDateKey(forecast.deadline).toLocaleDateString()}.`
+                        ? `All ${formatHoursValue(forecast.remainingTargetHours)}h are on the horizon, but completion lands after ${fromDateKey(forecast.deadline).toLocaleDateString()}.`
                         : forecast.lastScheduledDate
                           ? forecast.isCalendarImpossible
-                            ? `${forecast.missingHours.toFixed(1)}h still missing after ${forecast.lastScheduledDate.toLocaleDateString()}.`
-                            : `${forecast.missingHours.toFixed(1)}h still needs scheduling after ${forecast.lastScheduledDate.toLocaleDateString()}.`
+                            ? `${formatHoursValue(forecast.missingHours)}h still missing after ${forecast.lastScheduledDate.toLocaleDateString()}.`
+                            : `${formatHoursValue(forecast.missingHours)}h still needs scheduling after ${forecast.lastScheduledDate.toLocaleDateString()}.`
                           : forecast.isCalendarImpossible
-                            ? `${forecast.missingHours.toFixed(1)}h still missing because there are no future blocks yet.`
-                            : `${forecast.missingHours.toFixed(1)}h still needs more blocks before the deadline.`}
+                            ? `${formatHoursValue(forecast.missingHours)}h still missing because there are no future blocks yet.`
+                            : `${formatHoursValue(forecast.missingHours)}h still needs more blocks before the deadline.`}
                   </p>
                 </div>
               );

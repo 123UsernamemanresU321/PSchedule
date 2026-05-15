@@ -66,6 +66,7 @@ const MIN_ALLOCATABLE_MINUTES = 30;
 const FOCUSED_DAY_RESERVED_SHARE = 0.7;
 const FOCUS_STRICT_TOLERANCE_MINUTES = 10;
 const MAX_HORIZON_EXTENSION_WEEKS = 104;
+const MAX_CHAIN_UNLOCK_CLEANUP_PASSES = 64;
 const CONTINUITY_BONUS = 5.5;
 const SOFT_COMMITMENT_REDUCTION_STEP_MINUTES = 30;
 const SOFT_COMMITMENT_REDUCTION_RULE_ORDER = ["piano-practice", "term-homework"] as const;
@@ -3840,7 +3841,7 @@ export function generateStudyPlanForWeek(options: {
   });
 
   if (shouldFillAvailableStudyDays) {
-    for (let cleanupPass = 0; cleanupPass < 8; cleanupPass += 1) {
+    for (let cleanupPass = 0; cleanupPass < MAX_CHAIN_UNLOCK_CLEANUP_PASSES; cleanupPass += 1) {
       const hasFillableGap = finalFreeSlots.some((slot) => slot.durationMinutes >= MIN_ALLOCATABLE_MINUTES);
 
       if (!hasFillableGap) {

@@ -521,6 +521,97 @@ test("untouched IB anchor topics do not spawn correction or review work", () => 
   assert.ok(!candidates.some((candidate) => candidate.kind === "review"));
 });
 
+test("pure Maths Physics and Chemistry syllabus topics have no date gates", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
+  const pureSyllabusTopics = dataset.topics.filter(
+    (topic) =>
+      ["maths-aa-hl", "physics-hl", "chemistry-hl"].includes(topic.subjectId) &&
+      !topic.unitId.includes("past-papers") &&
+      (topic.sessionMode ?? "flexible") !== "exam" &&
+      !topic.id.endsWith("-review"),
+  );
+
+  assert.ok(pureSyllabusTopics.length > 0, "expected seeded pure syllabus topics");
+  assert.deepEqual(
+    pureSyllabusTopics
+      .filter(
+        (topic) =>
+          topic.availableFrom ||
+          topic.minDaysAfterDependency != null ||
+          topic.maxDaysAfterDependency != null,
+      )
+      .map((topic) => topic.id),
+    [],
+  );
+});
+
+test("pure IB syllabus candidate generation ignores stale date gates while preserving order", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
+  const physicsA1 = dataset.topics.find((entry) => entry.id === "physics-a1-kinematics");
+  const physicsA2 = dataset.topics.find((entry) => entry.id === "physics-a2-forces-momentum");
+
+  assert.ok(physicsA1, "expected seeded Physics A.1 topic");
+  assert.ok(physicsA2, "expected seeded Physics A.2 topic");
+
+  const staleUngatedTopic = {
+    ...physicsA1,
+    availableFrom: "2030-01-01",
+    minDaysAfterDependency: 14,
+    maxDaysAfterDependency: 21,
+    reviewDue: "2026-03-15T00:00:00.000Z",
+  } as Topic;
+  const ungatedCandidates = buildTaskCandidates({
+    topics: [staleUngatedTopic],
+    existingPlannedBlocks: [],
+    completionLogs: [],
+    referenceDate: new Date("2026-03-14T08:00:00"),
+    subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-14T08:00:00"),
+  });
+  const learningCandidate = ungatedCandidates.find(
+    (candidate) => candidate.topicId === physicsA1.id && candidate.studyLayer === "learning",
+  );
+
+  assert.ok(learningCandidate, "expected stale availableFrom not to block pure syllabus content");
+  assert.equal(learningCandidate.availableAt, null);
+  assert.equal(learningCandidate.latestAt, null);
+  assert.equal(learningCandidate.deadline, "2027-06-30");
+
+  const dependencyEnd = "2026-03-14T10:00:00.000Z";
+  const dependencyBlock = createStudyBlock({
+    id: "physics-a1-complete",
+    subjectId: "physics-hl",
+    topicId: physicsA1.id,
+    title: physicsA1.title,
+    start: "2026-03-14T08:00:00.000Z",
+    end: dependencyEnd,
+    estimatedMinutes: Math.round(physicsA1.estHours * 60),
+  });
+  const staleDelayedTopic = {
+    ...physicsA2,
+    availableFrom: "2030-01-01",
+    minDaysAfterDependency: 14,
+    maxDaysAfterDependency: 21,
+  } as Topic;
+  const orderedCandidates = buildTaskCandidates({
+    topics: [staleDelayedTopic],
+    existingPlannedBlocks: [dependencyBlock],
+    completionLogs: [],
+    referenceDate: new Date("2026-03-14T08:00:00"),
+    subjectDeadlinesById: { "physics-hl": "2027-06-30" },
+    goals: [],
+    coverageReferenceDate: new Date("2026-03-14T08:00:00"),
+  });
+  const orderedLearningCandidate = orderedCandidates.find(
+    (candidate) => candidate.topicId === physicsA2.id && candidate.studyLayer === "learning",
+  );
+
+  assert.ok(orderedLearningCandidate, "expected dependency-complete syllabus topic to unlock");
+  assert.equal(orderedLearningCandidate.availableAt, dependencyEnd);
+  assert.equal(orderedLearningCandidate.latestAt, null);
+});
+
 test("planned or missed IB topic blocks do not count as study history for correction work", () => {
   const dataset = buildSeedDataset(new Date("2026-03-14T08:00:00"));
   const topic = dataset.topics.find((entry) => entry.id === "physics-a1-kinematics");
@@ -1717,6 +1808,72 @@ test("weekly allocation keeps filling after sequential topics unlock midweek", (
     result.studyBlocks.some((block) => block.topicId === "physics-a2-forces-momentum"),
     true,
   );
+});
+
+test("weekly allocation does not stop early when extra time can unlock many syllabus topics", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-20T08:00:00"));
+  const subject = dataset.subjects.find((candidate) => candidate.id === "physics-hl");
+  const baseTopic = dataset.topics.find((topic) => topic.id === "physics-a1-kinematics");
+
+  assert.ok(subject, "expected physics subject");
+  assert.ok(baseTopic, "expected base physics topic");
+
+  const sequentialTopics: Topic[] = Array.from({ length: 18 }, (_, index) => {
+    const topicNumber = index + 1;
+    const topicId = `physics-long-chain-${String(topicNumber).padStart(2, "0")}`;
+
+    return {
+      ...baseTopic,
+      id: topicId,
+      unitId: "physics-long-chain",
+      unitTitle: "Physics long chain",
+      title: `Physics long chain ${topicNumber}`,
+      subtopics: [`Long-chain syllabus item ${topicNumber}`],
+      estHours: 1,
+      completedHours: 0,
+      mastery: 1,
+      status: "not_started",
+      dependsOnTopicId:
+        index === 0 ? null : `physics-long-chain-${String(index).padStart(2, "0")}`,
+      availableFrom: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      order: topicNumber,
+    } satisfies Topic;
+  });
+
+  const result = generateStudyPlanForWeek({
+    weekStart: new Date("2026-03-23T08:00:00"),
+    goals: [
+      {
+        id: "goal-physics-long-chain",
+        title: "Finish long sequential physics chain",
+        subjectId: "physics-hl",
+        deadline: "2027-06-30",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [subject],
+    topics: sequentialTopics,
+    fixedEvents: [],
+    sickDays: [],
+    focusedDays: [],
+    preferences: dataset.preferences,
+    lockedBlocks: [],
+    existingPlannedBlocks: [],
+    horizonStartDate: new Date("2026-03-20T08:00:00"),
+    fillAvailableStudyDays: true,
+  });
+
+  const scheduledTopicIds = new Set(
+    result.studyBlocks
+      .filter((block) => block.subjectId === "physics-hl")
+      .map((block) => block.topicId)
+      .filter(Boolean),
+  );
+
+  assert.equal(scheduledTopicIds.size, sequentialTopics.length);
 });
 
 test("topics with remaining hours are still schedulable even if a stale status says strong", () => {

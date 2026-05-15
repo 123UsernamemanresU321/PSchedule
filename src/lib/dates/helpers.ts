@@ -83,6 +83,14 @@ export function hoursFromMinutes(minutes: number) {
   return Math.round((minutes / 60) * 10) / 10;
 }
 
+export function roundHoursToQuarter(hours: number) {
+  return Math.round(Math.max(0, hours) * 4) / 4;
+}
+
+export function ceilHoursToQuarter(hours: number) {
+  return Math.ceil(Math.max(0, hours) * 4 - 1e-9) / 4;
+}
+
 export function displayHoursFromMinutes(
   minutes: number,
   options?: { floorNonZero?: boolean },
@@ -94,15 +102,24 @@ export function displayHoursFromMinutes(
       return 0;
     }
 
-    return Math.max(0.1, Math.ceil((safeMinutes / 60) * 10) / 10);
+    return Math.max(0.25, ceilHoursToQuarter(safeMinutes / 60));
   }
 
-  return hoursFromMinutes(safeMinutes);
+  return roundHoursToQuarter(safeMinutes / 60);
+}
+
+export function formatHoursValue(hours: number) {
+  const roundedHours = roundHoursToQuarter(hours);
+
+  if (Number.isInteger(roundedHours)) {
+    return String(roundedHours);
+  }
+
+  return roundedHours.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 export function formatHoursFromMinutes(minutes: number) {
-  const hours = hoursFromMinutes(minutes);
-  return `${hours.toFixed(hours % 1 === 0 ? 0 : 1)}h`;
+  return `${formatHoursValue(displayHoursFromMinutes(minutes))}h`;
 }
 
 export function formatMinutesRange(start: Date, end: Date) {

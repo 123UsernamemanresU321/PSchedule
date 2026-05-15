@@ -92,6 +92,15 @@ function isIbAnchorSubject(subjectId: Topic["subjectId"]) {
   return IB_ANCHOR_SUBJECT_IDS.includes(subjectId as (typeof IB_ANCHOR_SUBJECT_IDS)[number]);
 }
 
+function isPureIbSyllabusTopic(topic: Topic) {
+  return (
+    isIbAnchorSubject(topic.subjectId) &&
+    !topic.unitId.includes("past-papers") &&
+    (topic.sessionMode ?? "flexible") !== "exam" &&
+    !isDedicatedReviewTopic(topic)
+  );
+}
+
 function isStrictMathsAaHlTopic(topic: Topic) {
   return (
     topic.subjectId === "maths-aa-hl" &&
@@ -173,8 +182,9 @@ function buildIbTopicVariantCandidates(options: {
   referenceDate: Date;
 }) {
   const goalDeadline = getEarliestGoalDeadline(options.topic, options.goals);
+  const pureIbSyllabusTopic = isPureIbSyllabusTopic(options.topic);
   const baseDeadline =
-    options.timingWindow.reviewDue ??
+    (pureIbSyllabusTopic ? null : options.timingWindow.reviewDue) ??
     goalDeadline ??
     options.subjectDeadlinesById[options.topic.subjectId] ??
     new Date(options.referenceDate).toISOString().slice(0, 10);
@@ -192,7 +202,7 @@ function buildIbTopicVariantCandidates(options: {
     sessionMode: options.topic.sessionMode ?? "flexible",
     exactSessionMinutes: options.topic.exactSessionMinutes ?? null,
     availableAt,
-    latestAt: options.timingWindow.latestAt,
+    latestAt: pureIbSyllabusTopic ? null : options.timingWindow.latestAt,
     difficulty: options.topic.difficulty,
     mastery: options.topic.mastery,
     order: options.topic.order,
@@ -419,7 +429,8 @@ function resolveTopicTimingWindow(
   topicById: Map<string, Topic>,
   options?: { allowAvailabilityPullForward?: boolean },
 ) {
-  const roadmapAvailableAt = topic.availableFrom
+  const pureIbSyllabusTopic = isPureIbSyllabusTopic(topic);
+  const roadmapAvailableAt = !pureIbSyllabusTopic && topic.availableFrom
     ? getCachedDateKeyStart(topic.availableFrom)
     : null;
   let availableAt: Date | null = roadmapAvailableAt;
@@ -515,8 +526,10 @@ function resolveTopicTimingWindow(
 
   if (topic.dependsOnTopicId) {
     const dependencyTopic = topicById.get(topic.dependsOnTopicId);
+    const minDaysAfterDependency = pureIbSyllabusTopic ? null : topic.minDaysAfterDependency;
+    const maxDaysAfterDependency = pureIbSyllabusTopic ? null : topic.maxDaysAfterDependency;
     const requiresDependencyCompletion =
-      topic.minDaysAfterDependency == null && topic.maxDaysAfterDependency == null;
+      minDaysAfterDependency == null && maxDaysAfterDependency == null;
     const dependencyBlock = latestScheduledBlockByTopic[topic.dependsOnTopicId];
     const dependencyCompleteFromProgress =
       requiresDependencyCompletion &&
@@ -559,10 +572,10 @@ function resolveTopicTimingWindow(
     }
 
     const dependencyEnd = new Date(dependencyBlock.end);
-    const earliestAllowed = addDays(dependencyEnd, topic.minDaysAfterDependency ?? 0);
+    const earliestAllowed = addDays(dependencyEnd, minDaysAfterDependency ?? 0);
     const latestAllowed =
-      topic.maxDaysAfterDependency != null
-        ? addDays(dependencyEnd, topic.maxDaysAfterDependency)
+      maxDaysAfterDependency != null
+        ? addDays(dependencyEnd, maxDaysAfterDependency)
         : null;
 
     if (!availableAt || earliestAllowed.getTime() > availableAt.getTime()) {

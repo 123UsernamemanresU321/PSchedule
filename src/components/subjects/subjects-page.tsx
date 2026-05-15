@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { getSubjectProgress } from "@/lib/analytics/metrics";
 import { visibleCoreSubjectIds, topicStatusLabels } from "@/lib/constants/planner";
-import { displayHoursFromMinutes } from "@/lib/dates/helpers";
+import { displayHoursFromMinutes, formatHoursValue, roundHoursToQuarter } from "@/lib/dates/helpers";
 import { usePlannerStore } from "@/lib/store/planner-store";
 import type { Topic } from "@/lib/types/planner";
 import { groupBy } from "@/lib/utils";
@@ -159,13 +159,13 @@ export function SubjectsPage() {
                   <div>
                     <p className="uppercase tracking-[0.2em] text-xs">Still unscheduled</p>
                     <p className="mt-2 text-2xl font-semibold text-foreground">
-                      {progress.unscheduledHours.toFixed(1)}
+                      {formatHoursValue(progress.unscheduledHours)}
                     </p>
                   </div>
                   <div className="text-center">
                     <p className="uppercase tracking-[0.2em] text-xs">Already planned</p>
                     <p className="mt-2 text-2xl font-semibold text-foreground">
-                      {progress.scheduledFutureHours.toFixed(1)}
+                      {formatHoursValue(progress.scheduledFutureHours)}
                     </p>
                   </div>
                   <div className="text-right">
@@ -176,7 +176,7 @@ export function SubjectsPage() {
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Total still to learn: {progress.remainingHours.toFixed(1)}h
+                  Total still to learn: {formatHoursValue(progress.remainingHours)}h
                 </p>
               </CardContent>
             </Card>
@@ -227,7 +227,7 @@ export function SubjectsPage() {
                           <div>
                             <p className="font-display text-lg font-semibold">{unitTitle}</p>
                             <p className="mt-1 text-sm text-muted-foreground">
-                              {unscheduledHours.toFixed(1)}h unscheduled • {scheduledFutureHours.toFixed(1)}h already planned • {unitTopics.length} topics
+                              {formatHoursValue(unscheduledHours)}h unscheduled • {formatHoursValue(scheduledFutureHours)}h already planned • {unitTopics.length} topics
                             </p>
                           </div>
                           <div className="min-w-[240px]">
@@ -293,9 +293,9 @@ export function SubjectsPage() {
                                 </div>
                               </div>
                               <div className="text-sm text-muted-foreground">
-                                <p>{unscheduledHours.toFixed(1)}h still unscheduled</p>
+                                <p>{formatHoursValue(unscheduledHours)}h still unscheduled</p>
                                 <p className="mt-1">
-                                  {plannedFutureHours.toFixed(1)}h already planned later
+                                  {formatHoursValue(plannedFutureHours)}h already planned later
                                 </p>
                                 <p className="mt-1">Mastery {topic.mastery}/5</p>
                               </div>
@@ -359,7 +359,7 @@ function TopicCompletedHoursEditor({
         type="number"
         min={0}
         max={topic.estHours}
-        step="0.1"
+        step="0.25"
         value={draftHours}
         onChange={(event) => onDraftHoursChange(event.target.value)}
         className="h-9"
@@ -370,10 +370,10 @@ function TopicCompletedHoursEditor({
         }`}
       >
         {draftState.hasInvalidInput
-          ? `Enter a valid number from 0 to ${topic.estHours.toFixed(1)}h before saving.`
+          ? `Enter a valid number from 0 to ${formatHoursValue(topic.estHours)}h before saving.`
           : draftState.hasChanges
             ? `Unsaved change: ${formatHoursInput(draftState.normalizedHours)}h will apply when you save.`
-            : `0 to ${topic.estHours.toFixed(1)}h`}
+            : `0 to ${formatHoursValue(topic.estHours)}h`}
       </p>
     </div>
   );
@@ -384,7 +384,9 @@ function getTopicCompletedHoursDraftState(topic: Topic, draftHoursInput?: string
   const trimmedDraftHours = draftHours.trim();
   const parsedHours = Number(draftHours);
   const hasValidInput = trimmedDraftHours.length > 0 && Number.isFinite(parsedHours);
-  const normalizedHours = hasValidInput ? clampHours(parsedHours, topic.estHours) : topic.completedHours;
+  const normalizedHours = hasValidInput
+    ? clampHours(roundHoursToQuarter(parsedHours), topic.estHours)
+    : topic.completedHours;
 
   return {
     draftHours,
@@ -399,9 +401,11 @@ function clampHours(value: number, maxHours: number) {
 }
 
 function formatHoursInput(value: number) {
-  if (Number.isInteger(value)) {
-    return String(value);
+  const roundedValue = roundHoursToQuarter(value);
+
+  if (Number.isInteger(roundedValue)) {
+    return String(roundedValue);
   }
 
-  return value.toFixed(2).replace(/\.?0+$/, "");
+  return roundedValue.toFixed(2).replace(/\.?0+$/, "");
 }

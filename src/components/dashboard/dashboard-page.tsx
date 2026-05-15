@@ -30,7 +30,7 @@ import {
   getWeeklyPlan,
 } from "@/lib/analytics/metrics";
 import { mainSubjectIds } from "@/lib/constants/planner";
-import { fromDateKey } from "@/lib/dates/helpers";
+import { formatHoursValue, fromDateKey } from "@/lib/dates/helpers";
 import { usePlannerStore } from "@/lib/store/planner-store";
 
 export function DashboardPage() {
@@ -107,27 +107,27 @@ export function DashboardPage() {
         <MetricCard
           eyebrow="Year target progress"
           value={`${hierarchyMetrics.year.progressPercent}%`}
-          detail={`${hierarchyMetrics.year.completedHours.toFixed(1)} of ${hierarchyMetrics.year.targetHours.toFixed(1)} hrs completed across tracked goals`}
+          detail={`${formatHoursValue(hierarchyMetrics.year.completedHours)} of ${formatHoursValue(hierarchyMetrics.year.targetHours)} hrs completed across tracked goals`}
           accent={<Clock3 className="h-5 w-5 text-primary" />}
         />
         <MetricCard
           eyebrow="Month target"
-          value={`${hierarchyMetrics.month.plannedHours.toFixed(1)} / ${hierarchyMetrics.month.targetHours.toFixed(1)}h`}
-          detail={`${hierarchyMetrics.month.completedHours.toFixed(1)} hrs completed in the current month window`}
+          value={`${formatHoursValue(hierarchyMetrics.month.plannedHours)} / ${formatHoursValue(hierarchyMetrics.month.targetHours)}h`}
+          detail={`${formatHoursValue(hierarchyMetrics.month.completedHours)} hrs completed in the current month window`}
           tone={hierarchyMetrics.month.coveragePercent >= 100 ? "success" : "default"}
           accent={<ArrowUpRight className="h-5 w-5 text-success" />}
         />
         <MetricCard
           eyebrow="Week slice"
-          value={`${hierarchyMetrics.week.plannedHours.toFixed(1)} / ${hierarchyMetrics.week.targetHours.toFixed(1)}h`}
-          detail={`${hierarchyMetrics.week.completedHours.toFixed(1)} hrs completed from today through week-end`}
+          value={`${formatHoursValue(hierarchyMetrics.week.plannedHours)} / ${formatHoursValue(hierarchyMetrics.week.targetHours)}h`}
+          detail={`${formatHoursValue(hierarchyMetrics.week.completedHours)} hrs completed from today through week-end`}
           tone={hierarchyMetrics.week.coveragePercent >= 100 ? "success" : "default"}
           accent={<CheckCircle2 className="h-5 w-5 text-success" />}
         />
         <MetricCard
           eyebrow="Today fill"
-          value={`${hierarchyMetrics.today.plannedHours.toFixed(1)} / ${hierarchyMetrics.today.targetHours.toFixed(1)}h`}
-          detail={`${hierarchyMetrics.today.completedHours.toFixed(1)} hrs completed today`}
+          value={`${formatHoursValue(hierarchyMetrics.today.plannedHours)} / ${formatHoursValue(hierarchyMetrics.today.targetHours)}h`}
+          detail={`${formatHoursValue(hierarchyMetrics.today.completedHours)} hrs completed today`}
           tone={hierarchyMetrics.today.fillPercent >= 100 ? "success" : "default"}
           accent={<Flame className="h-5 w-5 text-warning" />}
         />
@@ -218,16 +218,16 @@ export function DashboardPage() {
                   ) : null}
                   <p className="mt-4 text-sm text-muted-foreground">
                     {forecast.isFullyScheduled
-                      ? `${forecast.remainingTargetHours.toFixed(1)}h remaining is already covered before the deadline.`
+                      ? `${formatHoursValue(forecast.remainingTargetHours)}h remaining is already covered before the deadline.`
                       : forecast.horizonCompletionDate
-                        ? `All ${forecast.remainingTargetHours.toFixed(1)}h are on the horizon, but completion lands after ${format(fromDateKey(forecast.deadline), "d MMM")}.`
+                        ? `All ${formatHoursValue(forecast.remainingTargetHours)}h are on the horizon, but completion lands after ${format(fromDateKey(forecast.deadline), "d MMM")}.`
                         : forecast.lastScheduledDate
                           ? forecast.isCalendarImpossible
-                            ? `${forecast.missingHours.toFixed(1)}h still missing after ${format(forecast.lastScheduledDate, "d MMM")}.`
-                            : `${forecast.missingHours.toFixed(1)}h still needs scheduling after ${format(forecast.lastScheduledDate, "d MMM")}.`
+                            ? `${formatHoursValue(forecast.missingHours)}h still missing after ${format(forecast.lastScheduledDate, "d MMM")}.`
+                            : `${formatHoursValue(forecast.missingHours)}h still needs scheduling after ${format(forecast.lastScheduledDate, "d MMM")}.`
                           : forecast.isCalendarImpossible
-                            ? `${forecast.missingHours.toFixed(1)}h still missing because the horizon has no usable coverage left.`
-                            : `${forecast.missingHours.toFixed(1)}h still needs more blocks before the deadline.`}
+                            ? `${formatHoursValue(forecast.missingHours)}h still missing because the horizon has no usable coverage left.`
+                            : `${formatHoursValue(forecast.missingHours)}h still needs more blocks before the deadline.`}
                   </p>
                 </div>
               );
@@ -319,7 +319,7 @@ export function DashboardPage() {
                 <p className="mt-3 text-base font-medium text-foreground">{topic.title}</p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {topic.reviewDue ? `Review due ${topic.reviewDue}` : "Needs a fresh allocation"} •{" "}
-                  {Math.max(topic.estHours - topic.completedHours, 0).toFixed(1)}h remaining
+                  {formatHoursValue(Math.max(topic.estHours - topic.completedHours, 0))}h remaining
                 </p>
               </div>
             ))}
@@ -363,11 +363,11 @@ export function DashboardPage() {
                 </div>
                 <p className="mt-3 text-2xl font-semibold text-foreground">{progress.completionPercent}%</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {progress.remainingHours.toFixed(1)}h remaining • {progress.completedUnits}/{progress.unitCount} units closed
+                  {formatHoursValue(progress.remainingHours)}h remaining • {progress.completedUnits}/{progress.unitCount} units closed
                 </p>
                 <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
                   <span>{progress.atRiskTopics.length} topic risks</span>
-                  <span>{weeklyPlan?.assignedHoursBySubject[progress.subject.id]?.toFixed(1) ?? "0.0"}h assigned in selected week</span>
+                  <span>{formatHoursValue(weeklyPlan?.assignedHoursBySubject[progress.subject.id] ?? 0)}h assigned in selected week</span>
                 </div>
               </div>
             ))}
