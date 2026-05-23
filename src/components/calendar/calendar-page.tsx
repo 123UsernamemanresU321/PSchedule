@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { addDays, subDays } from "date-fns";
 import {
   BookOpen,
@@ -82,6 +82,7 @@ export function CalendarPage() {
   const [noSchoolDayDraftDate, setNoSchoolDayDraftDate] = useState<string | null>(null);
   const [focusWeekDraftWeekStart, setFocusWeekDraftWeekStart] = useState<string | null>(null);
   const [aiEventAssistantOpen, setAiEventAssistantOpen] = useState(false);
+  const twoDaysAgoTimestamp = useMemo(() => Date.now() - 2 * 24 * 60 * 60 * 1000, []);
   const hasConfiguredConstraints =
     !!fixedEvents.length || !!preferences?.schoolSchedule.enabled || !!preferences?.holidaySchedule.enabled;
   const roadmapSummary = getHorizonRoadmapSummary(weeklyPlans, topics, currentWeekStart);
@@ -371,6 +372,7 @@ export function CalendarPage() {
           studyBlocks={studyBlocks}
           subjects={subjects}
           topics={topics}
+          twoDaysAgoTimestamp={twoDaysAgoTimestamp}
           onManageReservedCommitmentDate={({ dateKey, ruleId }) =>
             setCommitmentOverrideDraft({
               ruleId,

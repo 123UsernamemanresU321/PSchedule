@@ -147,6 +147,7 @@ interface PlannerCalendarProps {
   onManageFocusDay: (dateKey: string) => void;
   onManageNoSchoolDay: (dateKey: string) => void;
   onManageFocusWeek: (weekStart: string) => void;
+  twoDaysAgoTimestamp?: number;
 }
 
 export function PlannerCalendar({
@@ -169,6 +170,7 @@ export function PlannerCalendar({
   onManageFocusDay,
   onManageNoSchoolDay,
   onManageFocusWeek,
+  twoDaysAgoTimestamp,
 }: PlannerCalendarProps) {
   const subjectMap = new Map(subjects.map((subject) => [subject.id, subject]));
   const topicMap = new Map(topics.map((topic) => [topic.id, topic]));
@@ -176,6 +178,16 @@ export function PlannerCalendar({
   const visibleWeekEnd = addDays(visibleWeekStart, 7);
   const visibleFocusedWeek =
     focusedWeeks.find((focusedWeek) => focusedWeek.weekStart === weekStart) ?? null;
+
+  const twoDaysAgo = twoDaysAgoTimestamp ?? 0;
+  const activeStudyBlocks = studyBlocks.filter((block) => {
+    if (block.status === "missed") {
+      const blockEndTime = new Date(block.end).getTime();
+      return blockEndTime >= twoDaysAgo;
+    }
+    return true;
+  });
+
   const expandedFixedEvents = expandPlannerFixedEventsForWeek(visibleWeekStart, fixedEvents, preferences);
   const reservedCommitments = expandReservedCommitmentWindowsForWeek(
     visibleWeekStart,
@@ -190,7 +202,7 @@ export function PlannerCalendar({
     preferences,
     fixedEvents,
     sickDays,
-    studyBlocks.filter((block) => blockFallsInVisibleWeek(block, weekStart)),
+    activeStudyBlocks.filter((block) => blockFallsInVisibleWeek(block, weekStart)),
     false,
     undefined,
     reservedCommitments,
@@ -321,7 +333,7 @@ export function PlannerCalendar({
   ];
   const breakEvents = (preferences.breaksEnabled ?? false)
     ? buildVisibleBreakEvents({
-        studyBlocks,
+        studyBlocks: activeStudyBlocks,
         weekStart,
         minBreakMinutes: preferences.minBreakMinutes,
         blockedIntervals,
@@ -378,7 +390,7 @@ export function PlannerCalendar({
       },
     })),
     ...breakEvents,
-    ...studyBlocks
+    ...activeStudyBlocks
       .filter((block) => blockFallsInVisibleWeek(block, weekStart))
       .map((block) => ({
         id: block.id,
