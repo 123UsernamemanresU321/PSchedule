@@ -430,7 +430,7 @@ function resolveTopicTimingWindow(
   plannedMinutesByTopic: Record<string, number>,
   topics: Topic[],
   topicById: Map<string, Topic>,
-  options?: { allowAvailabilityPullForward?: boolean },
+  options?: { allowAvailabilityPullForward?: boolean; availabilityPullForwardCutoff?: Date },
 ) {
   const pureIbSyllabusTopic = isPureIbSyllabusTopic(topic);
   const roadmapAvailableAt = !pureIbSyllabusTopic && topic.availableFrom
@@ -593,7 +593,9 @@ function resolveTopicTimingWindow(
     options?.allowAvailabilityPullForward &&
     roadmapAvailableAt &&
     availableAt &&
-    availableAt.getTime() === roadmapAvailableAt.getTime()
+    availableAt.getTime() === roadmapAvailableAt.getTime() &&
+    (!options.availabilityPullForwardCutoff ||
+      roadmapAvailableAt.getTime() <= options.availabilityPullForwardCutoff.getTime())
   ) {
     availableAt = null;
   }
@@ -615,6 +617,7 @@ export function buildTaskCandidates(options: {
   subjectDeadlinesById: Record<string, string>;
   goals: Goal[];
   availabilityOverrideSubjectIds?: string[];
+  availabilityPullForwardCutoff?: Date;
 }) {
   const {
     topics,
@@ -627,6 +630,7 @@ export function buildTaskCandidates(options: {
     availabilityOverrideSubjectIds = [],
   } = options;
   const planningWeekEnd = endOfPlannerWeek(referenceDate);
+  const availabilityPullForwardCutoff = options.availabilityPullForwardCutoff ?? planningWeekEnd;
   const weekEnd = addDays(endOfPlannerWeek(referenceDate), 3);
   const completionLogStudyBlockIds = completionLogs.length
     ? new Set(
@@ -671,6 +675,7 @@ export function buildTaskCandidates(options: {
       topicById,
       {
         allowAvailabilityPullForward: availabilityOverrideSubjectIdSet.has(topic.subjectId),
+        availabilityPullForwardCutoff,
       },
     );
     timingWindowByTopicId.set(topic.id, timingWindow);
@@ -738,6 +743,7 @@ export function buildTaskCandidates(options: {
         topicById,
         {
           allowAvailabilityPullForward: availabilityOverrideSubjectIdSet.has(topic.subjectId),
+          availabilityPullForwardCutoff,
         },
       );
 

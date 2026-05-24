@@ -71,6 +71,7 @@ import {
 } from "@/lib/scheduler/olympiad-performance";
 import { buildSchoolTermWeekTemplate } from "@/lib/scheduler/school-term-template";
 import { computeSubjectDeadlineTracks } from "@/lib/scheduler/feasibility";
+import { scoreTaskCandidate } from "@/lib/scheduler/scoring";
 import {
   buildTaskCandidates,
   getAssignableTaskCandidatesForBlock,
@@ -78,7 +79,7 @@ import {
 import { validateGeneratedHorizon } from "@/lib/scheduler/validation";
 import { buildBlockPlanContext } from "@/lib/ai/context";
 import { aiBlockPlanResponseSchema } from "@/lib/ai/contracts";
-import type { Preferences, StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
+import type { CalendarSlot, Preferences, StudyBlock, TaskCandidate, Topic, WeeklyPlan } from "@/lib/types/planner";
 
 function createStudyBlock(overrides: Partial<StudyBlock> = {}): StudyBlock {
   return {
@@ -8095,6 +8096,83 @@ test("final Olympiad phase goal covers the full seeded Olympiad roadmap", () => 
   assert.equal(missingTopics.length, 0);
 });
 
+test("olympiad scoring is not suppressed by global seed order", () => {
+  const referenceDate = new Date("2026-04-20T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
+  const olympiadTopic = dataset.topics.find((topic) => topic.id === "olympiad-bplus-number-theory-03");
+
+  assert.ok(olympiadSubject, "expected Olympiad subject");
+  assert.ok(olympiadTopic, "expected seeded Olympiad topic");
+  assert.ok(olympiadTopic.order > 250, "expected Olympiad topics to have high global seed order");
+
+  const slot: CalendarSlot = {
+    id: "prime-school-slot",
+    start: new Date("2026-04-20T15:30:00.000Z"),
+    end: new Date("2026-04-20T16:30:00.000Z"),
+    dateKey: "2026-04-20",
+    durationMinutes: 60,
+    energy: "prime",
+    dayIndex: 1,
+    scheduleRegime: "school-term",
+    dayStudyCapMinutes: 360,
+    maxHeavySessionsPerDay: 3,
+    sickDaySeverity: null,
+    sickDayDescription: null,
+  };
+  const task: TaskCandidate = {
+    id: olympiadTopic.id,
+    subjectId: "olympiad",
+    topicId: olympiadTopic.id,
+    title: olympiadTopic.title,
+    sessionSummary: null,
+    paperCode: null,
+    unitTitle: olympiadTopic.unitTitle,
+    sourceMaterials: olympiadTopic.sourceMaterials,
+    remainingMinutes: 60,
+    sessionMode: "flexible",
+    exactSessionMinutes: null,
+    availableAt: null,
+    latestAt: null,
+    difficulty: olympiadTopic.difficulty,
+    mastery: olympiadTopic.mastery,
+    order: olympiadTopic.order,
+    blockedByEarlierTopics: 0,
+    reviewDue: null,
+    deadline: olympiadSubject.deadline,
+    lastStudiedAt: null,
+    preferredBlockTypes: olympiadTopic.preferredBlockTypes,
+    intensity: "moderate",
+    kind: "topic",
+    studyLayer: "learning",
+    olympiadStrand: "number-theory",
+    followUpKind: null,
+    followUpSourceStudyBlockId: null,
+    followUpDueAt: null,
+  };
+  const score = scoreTaskCandidate(
+    task,
+    slot,
+    {
+      blockType: "standard_focus",
+      durationMinutes: 60,
+      intensity: "moderate",
+      slotFitPenalty: 0,
+      fragmentationPenalty: 0,
+    },
+    {
+      subjectMap: new Map(dataset.subjects.map((subject) => [subject.id, subject])),
+      preferences: dataset.preferences,
+      requiredMinutesBySubject: { olympiad: 8 * 60 },
+      assignedMinutesBySubject: { olympiad: 0 },
+      referenceDate,
+    },
+  );
+
+  assert.ok(score.orderPenalty <= 24, "expected Olympiad order penalty to be subject-local/capped");
+  assert.ok(score.olympiadSlotBonus >= 11, "expected prime Olympiad slots to receive an active score bump");
+});
+
 test("olympiad B+ seed keeps geometry, algebra, NT, combinatorics, and contest contact inside a school-term week", () => {
   const dataset = buildSeedDataset(new Date("2026-04-07T08:00:00"));
   const firstWeekTopics = dataset.topics.filter(
@@ -8195,6 +8273,9 @@ test("configured school-term template encodes the weekday rotation without a har
 
   assert.equal(template.active, true);
   assert.equal(requirementById["2026-04-20-learning"]?.subjectId, "maths-aa-hl");
+  assert.equal(requirementById["2026-04-20-olympiad-depth"]?.subjectId, "olympiad");
+  assert.ok(requirementById["2026-04-20-olympiad-depth"]?.studyLayers.includes("exam_sim"));
+  assert.equal(requirementById["2026-04-20-olympiad-depth"]?.minimumMinutes, 60);
   assert.equal(requirementById["2026-04-21-learning"]?.subjectId, "physics-hl");
   assert.equal(requirementById["2026-04-22-learning"]?.subjectId, "chemistry-hl");
   assert.equal(requirementById["2026-04-23-learning"]?.subjectId, "maths-aa-hl");
@@ -8203,6 +8284,43 @@ test("configured school-term template encodes the weekday rotation without a har
   assert.equal(requirementById["2026-04-25-paper-cycle-correction"], undefined);
   assert.deepEqual(template.lightReviewOnlyDateKeys, []);
   assert.equal(template.dayStudyCapOverrideMinutesByDate["2026-04-26"], undefined);
+});
+
+test("school-term generation keeps Olympiad distributed while IB syllabus remains open", () => {
+  const referenceDate = new Date("2026-04-20T08:00:00.000Z");
+  const dataset = buildSeedDataset(referenceDate);
+  const result = generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    completionLogs: [],
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: withConfiguredSchoolTerm(dataset.preferences),
+    existingPlannedBlocks: [],
+  });
+  const olympiadBlocks = result.studyBlocks.filter((block) => block.subjectId === "olympiad");
+  const olympiadMinutes = olympiadBlocks.reduce((total, block) => total + block.estimatedMinutes, 0);
+  const olympiadDayCount = new Set(olympiadBlocks.map((block) => block.date)).size;
+
+  assert.ok(olympiadMinutes >= 300, "expected at least five hours of school-term Olympiad continuity");
+  assert.ok(olympiadDayCount >= 4, "expected Olympiad work to be spread across the school week");
+  assert.ok(
+    result.studyBlocks.some((block) => block.subjectId === "maths-aa-hl"),
+    "expected Olympiad continuity not to erase IB syllabus work",
+  );
+  assert.ok(
+    result.studyBlocks.some((block) => block.subjectId === "physics-hl"),
+    "expected Olympiad continuity not to erase IB syllabus work",
+  );
+  assert.ok(
+    result.studyBlocks.some((block) => block.subjectId === "chemistry-hl"),
+    "expected Olympiad continuity not to erase IB syllabus work",
+  );
 });
 
 test("configured school-term template adds the weekly full-paper cycle only after the syllabus phase", () => {

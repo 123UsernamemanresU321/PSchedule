@@ -137,8 +137,8 @@ export function buildSchoolTermWeekTemplate(options: {
           id: `${dateKey}-olympiad-depth`,
           allowedDateKeys: [dateKey],
           subjectId: "olympiad",
-          studyLayers: ["learning"],
-          minimumMinutes: 45,
+          studyLayers: ["learning", "application", "exam_sim", "correction"],
+          minimumMinutes: 60,
         },
         {
           id: `${dateKey}-correction`,

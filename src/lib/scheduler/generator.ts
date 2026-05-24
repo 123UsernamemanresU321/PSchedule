@@ -37,6 +37,7 @@ import type { BlockSelectionPolicy } from "@/lib/scheduler/slot-classifier";
 import { selectBlockOption } from "@/lib/scheduler/slot-classifier";
 import { buildTaskCandidates } from "@/lib/scheduler/task-candidates";
 import {
+  endOfPlannerWeek,
   formatHoursFromMinutes,
   getPlannerHorizonEndDate,
   getPlannerReferenceDate,
@@ -67,14 +68,18 @@ const FOCUSED_DAY_RESERVED_SHARE = 0.7;
 const FOCUS_STRICT_TOLERANCE_MINUTES = 10;
 const MAX_HORIZON_EXTENSION_WEEKS = 104;
 const MAX_CHAIN_UNLOCK_CLEANUP_PASSES = 64;
+const OLYMPIAD_ROADMAP_PULL_FORWARD_DAYS = 21;
+const OLYMPIAD_WEEKLY_CONTINUITY_BONUS = 1100;
+const OLYMPIAD_SCHOOL_TERM_CONTINUITY_BONUS = 1080;
+const OLYMPIAD_SCHOOL_TERM_DAILY_CONTINUITY_LIMIT_MINUTES = 120;
 const CONTINUITY_BONUS = 5.5;
 const SOFT_COMMITMENT_REDUCTION_STEP_MINUTES = 30;
 const SOFT_COMMITMENT_REDUCTION_RULE_ORDER = ["piano-practice", "term-homework"] as const;
 const DAILY_FILL_SUBJECT_ORDER: Subject["id"][] = [
   "maths-aa-hl",
+  "olympiad",
   "physics-hl",
   "chemistry-hl",
-  "olympiad",
   "cpp-book",
   "french-b-sl",
   "english-a-sl",
@@ -1492,8 +1497,8 @@ function buildDailyFillSubjectOrder(options: {
 
   return [
     ...anchorCandidates,
-    ...otherCoreSubjects,
     "olympiad",
+    ...otherCoreSubjects,
     "french-b-sl",
     "cpp-book",
     "english-a-sl",
@@ -1869,6 +1874,7 @@ function allocateTasksToSlots(options: {
   focusedSubjectsByDate?: Record<string, string[]>;
   allowLargeGapAbsorption?: boolean;
   availabilityOverrideSubjectIds?: Subject["id"][];
+  availabilityPullForwardCutoff?: Date;
   olympiadLoadMultiplier?: number;
   olympiadWeaknessStrand?: "geometry" | "algebra" | "number-theory" | "combinatorics" | null;
   isFinalPass?: boolean;
@@ -2288,6 +2294,7 @@ function allocateTasksToSlots(options: {
       subjectDeadlinesById,
       goals: options.goals,
       availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+      availabilityPullForwardCutoff: options.availabilityPullForwardCutoff,
     });
 
     if (!restrictedSubjectIds?.length) {
@@ -2337,6 +2344,20 @@ function allocateTasksToSlots(options: {
     return subjectMinutesByDate[dateKey]?.[subjectId] ?? 0;
   }
 
+  function getSchoolTermOlympiadContinuityTargetMinutes() {
+    const multiplier = options.olympiadLoadMultiplier ?? 1;
+
+    if (multiplier <= 0.75) {
+      return 7 * 60;
+    }
+
+    if (multiplier >= 1.15) {
+      return 9 * 60;
+    }
+
+    return 8 * 60;
+  }
+
   function getDailyFillHierarchyAdjustment(task: TaskCandidate, dateKey: string) {
     if (!task.subjectId) {
       return 0;
@@ -2350,6 +2371,8 @@ function allocateTasksToSlots(options: {
     const requiredMinutes = requiredMinutesBySubject[task.subjectId] ?? 0;
     const assignedMinutesForSubject = assignedMinutesBySubject[task.subjectId] ?? 0;
     const dailyAssignedMinutes = subjectMinutesByDate[dateKey]?.[task.subjectId] ?? 0;
+    const weeklyAssignedMinutes =
+      subjectMinutesByWeekStart[getWeekKeyForDate(dateKey)]?.[task.subjectId] ?? 0;
     const backlogHours = clamp((requiredMinutes - assignedMinutesForSubject) / 60, 0, 6);
     const day = new Date(`${dateKey}T12:00:00`);
 
@@ -2359,6 +2382,19 @@ function allocateTasksToSlots(options: {
         : -8;
 
     adjustment += backlogHours * 1.5;
+
+    if (task.subjectId === "olympiad" && weeklyAssignedMinutes < MIN_ALLOCATABLE_MINUTES) {
+      adjustment += OLYMPIAD_WEEKLY_CONTINUITY_BONUS;
+    }
+
+    if (
+      task.subjectId === "olympiad" &&
+      schoolTermTemplate?.active &&
+      weeklyAssignedMinutes < getSchoolTermOlympiadContinuityTargetMinutes() &&
+      dailyAssignedMinutes < OLYMPIAD_SCHOOL_TERM_DAILY_CONTINUITY_LIMIT_MINUTES
+    ) {
+      adjustment += OLYMPIAD_SCHOOL_TERM_CONTINUITY_BONUS;
+    }
 
     if (softMaintenanceSubjectIds.includes(task.subjectId as (typeof softMaintenanceSubjectIds)[number])) {
       adjustment -= 4;
@@ -3576,6 +3612,11 @@ export function generateStudyPlanForWeek(options: {
       ...(options.availabilityOverrideSubjectIds ?? []),
     ]),
   ) as Subject["id"][];
+  const focusedAvailabilityOverrideSubjectIds = new Set(Object.values(focusedSubjectsByDate).flat());
+  const availabilityPullForwardCutoff =
+    focusedAvailabilityOverrideSubjectIds.size > 0
+      ? addDays(endOfPlannerWeek(weekStart), 7)
+      : addDays(endOfPlannerWeek(weekStart), OLYMPIAD_ROADMAP_PULL_FORWARD_DAYS);
   const weekStartKey = toDateKey(weekStart);
   const schoolTermTemplate = buildSchoolTermWeekTemplate({
     weekStart,
@@ -3638,6 +3679,7 @@ export function generateStudyPlanForWeek(options: {
         subjectDeadlinesById,
         goals: options.goals,
         availabilityOverrideSubjectIds,
+        availabilityPullForwardCutoff,
       }),
     };
   }
@@ -3675,6 +3717,7 @@ export function generateStudyPlanForWeek(options: {
     subjectDeadlinesById,
     goals: options.goals,
     availabilityOverrideSubjectIds,
+    availabilityPullForwardCutoff,
   });
   const olympiadWeekLoadProfile = getOlympiadWeekLoadProfile({
     weekStart,
@@ -3728,6 +3771,7 @@ export function generateStudyPlanForWeek(options: {
       subjectDeadlinesById,
       goals: options.goals,
       availabilityOverrideSubjectIds,
+      availabilityPullForwardCutoff,
     });
     const passRequiredHoursBySubject = {
       ...recordFromKeys(subjectIds, () => 0),
@@ -3784,6 +3828,7 @@ export function generateStudyPlanForWeek(options: {
       focusedSubjectsByDate,
       futureFocusedReserveMinutesBySubject: options.futureFocusedReserveMinutesBySubject,
       availabilityOverrideSubjectIds,
+      availabilityPullForwardCutoff,
       olympiadLoadMultiplier: olympiadWeekLoadProfile.multiplier,
       olympiadWeaknessStrand: olympiadWeaknessProfile.activeStrand,
       isFinalPass: passPolicy === passPolicies[passPolicies.length - 1],
@@ -3839,6 +3884,7 @@ export function generateStudyPlanForWeek(options: {
     subjectDeadlinesById,
     goals: options.goals,
     availabilityOverrideSubjectIds,
+    availabilityPullForwardCutoff,
   });
 
   if (shouldFillAvailableStudyDays) {
@@ -3882,6 +3928,7 @@ export function generateStudyPlanForWeek(options: {
         focusedSubjectsByDate,
         futureFocusedReserveMinutesBySubject: options.futureFocusedReserveMinutesBySubject,
         availabilityOverrideSubjectIds,
+        availabilityPullForwardCutoff,
         olympiadLoadMultiplier: olympiadWeekLoadProfile.multiplier,
         olympiadWeaknessStrand: olympiadWeaknessProfile.activeStrand,
         isFinalPass: true,
@@ -4122,6 +4169,9 @@ export function generateStudyPlanHorizon(options: {
   let finalWeek = configuredEndWeek;
   let remainingTaskCount = 0;
   const shouldFillAvailableStudyDays = options.fillAvailableStudyDays ?? true;
+  const horizonAvailabilityOverrideSubjectIds = Array.from(
+    new Set(["olympiad", ...(options.availabilityOverrideSubjectIds ?? [])]),
+  ) as Subject["id"][];
 
   for (
     let currentWeek = startWeek;
@@ -4154,7 +4204,7 @@ export function generateStudyPlanHorizon(options: {
       lockedBlocks,
       horizonStartDate,
       subjectDeadlinesById,
-      availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+      availabilityOverrideSubjectIds: horizonAvailabilityOverrideSubjectIds,
       schedulingContext,
     });
     const futureFocusedReserveMinutesBySubject = buildFutureFocusedReserveMinutesBySubject({
@@ -4171,7 +4221,7 @@ export function generateStudyPlanHorizon(options: {
       subjectDeadlinesById,
       existingPlannedBlocks,
       horizonStartDate,
-      availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+      availabilityOverrideSubjectIds: horizonAvailabilityOverrideSubjectIds,
       getEffectiveReservedCommitmentPlanForWeek: (candidateWeek) =>
         selectEffectiveReservedCommitmentPlanForWeek({
           currentWeek: candidateWeek,
@@ -4188,7 +4238,7 @@ export function generateStudyPlanHorizon(options: {
           existingPlannedBlocks,
           horizonStartDate,
           subjectDeadlinesById,
-          availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+          availabilityOverrideSubjectIds: horizonAvailabilityOverrideSubjectIds,
           schedulingContext,
         }),
       schedulingContext,
@@ -4209,7 +4259,7 @@ export function generateStudyPlanHorizon(options: {
       existingPlannedBlocks,
       futureFocusedReserveMinutesBySubject,
       horizonStartDate,
-      availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+      availabilityOverrideSubjectIds: horizonAvailabilityOverrideSubjectIds,
       effectiveReservedCommitmentDurations:
         effectiveReservedCommitmentPlan.effectiveReservedCommitmentDurations,
       excludedReservedCommitmentRuleIds:

@@ -25,6 +25,20 @@ export interface ScoringContext {
   referenceDate: Date;
 }
 
+function getOrderPenalty(task: TaskCandidate) {
+  if (!task.order) {
+    return 0;
+  }
+
+  const rawOrderIndex = Math.max(task.order - 1, 0);
+
+  if (task.subjectId === "olympiad") {
+    return Math.min(rawOrderIndex * 0.12, 24);
+  }
+
+  return rawOrderIndex * 2;
+}
+
 export function scoreTaskCandidate(
   task: TaskCandidate,
   slot: CalendarSlot,
@@ -89,12 +103,12 @@ export function scoreTaskCandidate(
     task.subjectId === "olympiad"
       ? (
           slot.energy === "prime"
-            ? 8
+            ? 11
             : slot.energy === "steady"
-              ? 2
-              : -7
+              ? 5
+              : -3
         ) +
-        (((context.olympiadLoadMultiplier ?? 1) - 1) * 24) +
+        (((context.olympiadLoadMultiplier ?? 1) - 1) * 30) +
         (task.olympiadStrand &&
         context.olympiadWeaknessStrand &&
         task.olympiadStrand === context.olympiadWeaknessStrand
@@ -141,7 +155,7 @@ export function scoreTaskCandidate(
     ["maths-aa-hl", "physics-hl", "chemistry-hl"].includes(task.subjectId);
 
   const coreSyllabusBonus = isCoreSyllabusLearning ? 1000 : 0;
-  const orderPenalty = task.order ? (task.order - 1) * 2 : 0;
+  const orderPenalty = getOrderPenalty(task);
 
   const total =
     priorityWeight +
