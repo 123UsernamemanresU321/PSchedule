@@ -34,14 +34,14 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-05-12-first-milestones-sept-7-v62";
+const PLANNING_MODEL_VERSION = "2026-06-02-soft-subject-paper-practice-v63";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-30-olympiad-final-june-v12";
 const PREFERENCE_DEFAULTS_VERSION = "2026-05-01-french-tune-up-commitments-v4";
 const EXTENDED_GOALS_VERSION = "2026-05-12-first-milestones-sept-7-v10";
-const LANGUAGE_MAINTENANCE_VERSION = "2026-05-01-french-commitment-maintenance-v4";
-const SEED_TOPIC_ORDERING_VERSION = "2026-05-13-chemistry-s123-r123-v8";
+const LANGUAGE_MAINTENANCE_VERSION = "2026-06-02-soft-subject-paper-practice-v5";
+const SEED_TOPIC_ORDERING_VERSION = "2026-06-02-soft-subject-paper-practice-v9";
 const STALE_PLANNING_MODEL_VERSION = "stale";
 const AUTO_MARKED_MISSED_NOTE_PREFIX = "Auto-marked missed after the block ended";
 const LAST_HORIZON_GENERATED_AT_META_KEY = "last-horizon-generated-at";
@@ -56,6 +56,7 @@ const PLANNING_SYNC_SUBJECT_IDS: SubjectId[] = [
   "chemistry-hl",
   "olympiad",
   "cpp-book",
+  "english-a-sl",
   "french-b-sl",
   "geography-transition",
 ];
@@ -2000,6 +2001,7 @@ async function syncSeedOrderedSubjects(snapshot: PlannerSnapshot, referenceDate:
     "chemistry-hl",
     "olympiad",
     "cpp-book",
+    "english-a-sl",
     "geography-transition",
     "french-b-sl",
   ];

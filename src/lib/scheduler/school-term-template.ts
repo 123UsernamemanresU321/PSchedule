@@ -10,6 +10,13 @@ export const IB_ANCHOR_SUBJECT_IDS = [
   "chemistry-hl",
 ] as const satisfies SubjectId[];
 
+const WEEKLY_PAPER_PRACTICE_SUBJECT_IDS = [
+  ...IB_ANCHOR_SUBJECT_IDS,
+  "geography-transition",
+  "english-a-sl",
+  "french-b-sl",
+] as const satisfies SubjectId[];
+
 export interface SchoolTermTemplateRequirement {
   id: string;
   allowedDateKeys: string[];
@@ -67,7 +74,7 @@ function findOldestPendingPaperTopics(options: {
 }) {
   const weekStartKey = toDateKey(startOfPlannerWeek(options.weekStart));
 
-  return IB_ANCHOR_SUBJECT_IDS.map(
+  return WEEKLY_PAPER_PRACTICE_SUBJECT_IDS.map(
     (subjectId) =>
       options.topics
         .filter((topic) => topic.subjectId === subjectId)

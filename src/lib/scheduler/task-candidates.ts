@@ -25,6 +25,9 @@ const PAPER_CODE_SUBJECT_PREFIXES: Record<string, string> = {
   "physics-hl": "PHY",
   "maths-aa-hl": "MAA",
   "chemistry-hl": "CHE",
+  "geography-transition": "GEO",
+  "english-a-sl": "ENG",
+  "french-b-sl": "FAI",
 };
 
 function derivePaperCode(topic: Topic) {
@@ -131,8 +134,8 @@ function isPlannedCoverageStatus(status: StudyBlock["status"]) {
   return status === "planned" || status === "rescheduled";
 }
 
-function isFrenchMaintenanceTopic(topic: Pick<Topic, "subjectId">) {
-  return topic.subjectId === "french-b-sl";
+function isFrenchMaintenanceTopic(topic: Pick<Topic, "subjectId" | "unitId">) {
+  return topic.subjectId === "french-b-sl" && topic.unitId === "french-maintenance";
 }
 
 function getEarliestGoalDeadline(topic: Topic, goals: Goal[]): string | null {

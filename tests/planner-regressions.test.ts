@@ -7755,27 +7755,40 @@ test("seed preferences disable automatic study breaks by default", () => {
   assert.equal(preferences.minBreakMinutes, 0);
 });
 
-test("english is no longer auto-seeded for study and french is only light grammar/vocab maintenance", () => {
+test("English Geography and French avoid generic practice before paper season", () => {
   const dataset = buildSeedDataset(new Date("2026-03-19T08:00:00"));
   const englishTopics = dataset.topics.filter((topic) => topic.subjectId === "english-a-sl");
   const frenchTopics = dataset.topics.filter((topic) => topic.subjectId === "french-b-sl");
+  const geographyTopics = dataset.topics.filter((topic) => topic.subjectId === "geography-transition");
+  const englishGenericTopics = englishTopics.filter((topic) => !topic.unitId.includes("past-papers"));
+  const geographyGenericTopics = geographyTopics.filter((topic) => !topic.unitId.includes("past-papers"));
+  const frenchGenericTopics = frenchTopics.filter(
+    (topic) => topic.unitId !== "french-maintenance" && !topic.unitId.includes("past-papers"),
+  );
+  const frenchMaintenanceTopics = frenchTopics.filter((topic) => topic.unitId === "french-maintenance");
+  const frenchPaperTopics = frenchTopics.filter((topic) => topic.unitId.includes("past-papers"));
   const firstFrenchWeekTopics = frenchTopics.filter(
     (topic) => topic.availableFrom && topic.availableFrom >= "2026-03-23" && topic.availableFrom <= "2026-03-29",
   );
 
-  assert.equal(englishTopics.length, 0);
-  assert.ok(frenchTopics.length > 0);
+  assert.equal(englishGenericTopics.length, 0);
+  assert.equal(geographyGenericTopics.length, 0);
+  assert.equal(frenchGenericTopics.length, 0);
+  assert.ok(englishTopics.length > 0);
+  assert.ok(geographyTopics.length > 0);
+  assert.ok(frenchMaintenanceTopics.length > 0);
+  assert.ok(frenchPaperTopics.length > 0);
   assert.equal(firstFrenchWeekTopics.length, 2);
   assert.ok(
-    frenchTopics.every(
+    frenchMaintenanceTopics.every(
       (topic) =>
         topic.title.toLowerCase().includes("grammar") ||
         topic.title.toLowerCase().includes("vocabulary"),
     ),
   );
-  assert.ok(frenchTopics.every((topic) => topic.estHours === 0.5));
+  assert.ok(frenchMaintenanceTopics.every((topic) => topic.estHours === 0.5));
   assert.ok(
-    frenchTopics.every(
+    frenchMaintenanceTopics.every(
       (topic) =>
         topic.availableFrom !== null &&
         topic.availableFrom !== undefined,
@@ -8377,6 +8390,18 @@ test("configured school-term template adds the weekly full-paper cycle only afte
     paperStartRequirementById["2026-09-12-chemistry-past-papers-week-1-paper-2-exam"]?.exactTopicId,
     "chemistry-past-papers-week-1-paper-2",
   );
+  assert.equal(
+    paperStartRequirementById["2026-09-12-geography-past-papers-week-1-paper-1-exam"]?.exactTopicId,
+    "geography-past-papers-week-1-paper-1",
+  );
+  assert.equal(
+    paperStartRequirementById["2026-09-12-english-a-past-papers-week-1-paper-1-exam"]?.exactTopicId,
+    "english-a-past-papers-week-1-paper-1",
+  );
+  assert.equal(
+    paperStartRequirementById["2026-09-12-french-ab-initio-past-papers-week-1-paper-1-exam"]?.exactTopicId,
+    "french-ab-initio-past-papers-week-1-paper-1",
+  );
 });
 
 test("seeded post-syllabus paper topics start after the September 7 first milestone", () => {
@@ -8407,6 +8432,9 @@ test("seeded post-syllabus paper topics start after the September 7 first milest
   assert.deepEqual(earlyMathsPaperTopics.map((topic) => topic.id), []);
   assert.deepEqual(weekOnePaperTopicIds, [
     "chemistry-past-papers-week-1-paper-2",
+    "english-a-past-papers-week-1-paper-1",
+    "french-ab-initio-past-papers-week-1-paper-1",
+    "geography-past-papers-week-1-paper-1",
     "maths-aa-past-papers-week-1-paper-1",
     "physics-past-papers-week-1-paper-2",
   ]);
@@ -8427,6 +8455,33 @@ test("seeded post-syllabus paper topics start after the September 7 first milest
   );
 });
 
+test("English Geography and French seed only post-syllabus paper practice topics", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-18T08:00:00.000Z"));
+  const addedPaperSubjectIds = ["english-a-sl", "geography-transition", "french-b-sl"] as const;
+
+  addedPaperSubjectIds.forEach((subjectId) => {
+    const subjectTopics = dataset.topics.filter((topic) => topic.subjectId === subjectId);
+    const nonMaintenanceTopics = subjectTopics.filter((topic) => topic.unitId !== "french-maintenance");
+    const nonPaperTopics = nonMaintenanceTopics.filter((topic) => !topic.unitId.includes("past-papers"));
+    const firstWeekPaper = nonMaintenanceTopics.find(
+      (topic) => topic.sessionMode === "exam" && topic.unitId.endsWith("past-papers-week-1"),
+    );
+    const firstWeekReview = nonMaintenanceTopics.find(
+      (topic) => topic.dependsOnTopicId === firstWeekPaper?.id,
+    );
+
+    assert.deepEqual(
+      nonPaperTopics.map((topic) => topic.id),
+      [],
+      `expected ${subjectId} to avoid generic practice topics`,
+    );
+    assert.ok(firstWeekPaper, `expected ${subjectId} first weekly paper`);
+    assert.ok(firstWeekReview, `expected ${subjectId} paired paper review`);
+    assert.equal(firstWeekPaper?.availableFrom, "2026-09-07");
+    assert.equal(firstWeekReview?.availableFrom, "2026-09-07");
+  });
+});
+
 test("generated horizon uses French tune-up commitments instead of French study blocks", () => {
   const referenceDate = new Date("2026-04-30T08:00:00.000Z");
   const dataset = buildSeedDataset(referenceDate);
@@ -8443,12 +8498,21 @@ test("generated horizon uses French tune-up commitments instead of French study 
     preferences: dataset.preferences,
   });
   const frenchStudyBlocks = result.studyBlocks.filter((block) => block.subjectId === "french-b-sl");
+  const frenchMaintenanceStudyBlocks = frenchStudyBlocks.filter(
+    (block) => block.topicId?.startsWith("french-maintenance"),
+  );
+  const earlyFrenchStudyBlocks = frenchStudyBlocks.filter((block) => block.date < "2026-09-07");
+  const frenchPaperStudyBlocks = frenchStudyBlocks.filter((block) =>
+    block.topicId?.startsWith("french-ab-initio-past-papers"),
+  );
   const firstWeek = result.weeklyPlans.find((plan) => plan.weekStart === "2026-04-27");
   const frenchTuneUpMinutes = firstWeek?.effectiveReservedCommitmentDurations
     .filter((duration) => duration.ruleId === "french-tune-up")
     .reduce((total, duration) => total + duration.durationMinutes, 0);
 
-  assert.equal(frenchStudyBlocks.length, 0);
+  assert.equal(frenchMaintenanceStudyBlocks.length, 0);
+  assert.equal(earlyFrenchStudyBlocks.length, 0);
+  assert.ok(frenchPaperStudyBlocks.length > 0);
   assert.equal(frenchTuneUpMinutes, 60);
 });
 
@@ -8605,41 +8669,29 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
       },
     ],
   });
-  const completedSyllabusFrontiers = [
-    "maths-topic5-maclaurin-series",
-    "physics-e5-fusion-stars",
-    "chem-reactivity-3-4-electron-pair-sharing",
-  ].map((topicId) => {
-    const topic = dataset.topics.find((candidate) => candidate.id === topicId);
-    assert.ok(topic, `expected seeded frontier topic ${topicId}`);
-
-    return createStudyBlock({
-      id: `${topicId}-completed`,
-      weekStart: "2026-08-31",
-      date: "2026-09-07",
-      start: "2026-09-07T08:00:00.000Z",
-      end: "2026-09-07T10:00:00.000Z",
-      subjectId: topic.subjectId,
-      topicId: topic.id,
-      title: topic.title,
-      unitTitle: topic.unitTitle,
-      estimatedMinutes: Math.round(topic.estHours * 60),
-      status: "done",
-    });
-  });
+  const postSyllabusTopics = dataset.topics.map((topic) =>
+    ["maths-aa-hl", "physics-hl", "chemistry-hl"].includes(topic.subjectId) &&
+    !topic.unitId.includes("past-papers") &&
+    (topic.sessionMode ?? "flexible") !== "exam"
+      ? {
+          ...topic,
+          completedHours: topic.estHours,
+          status: "strong" as const,
+        }
+      : topic,
+  );
   const result = generateStudyPlanForWeek({
     weekStart: new Date("2026-09-07T00:00:00.000Z"),
     referenceDate,
     goals: dataset.goals,
     subjects: dataset.subjects,
-    topics: dataset.topics,
+    topics: postSyllabusTopics,
     completionLogs: [],
     fixedEvents: dataset.fixedEvents,
     sickDays: dataset.sickDays,
     focusedDays: dataset.focusedDays,
     focusedWeeks: dataset.focusedWeeks,
     preferences,
-    existingPlannedBlocks: completedSyllabusFrontiers,
   });
   const saturdayBlocks = result.studyBlocks.filter(
     (block) => block.date === "2026-09-12" && !!block.subjectId,
@@ -8690,6 +8742,30 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
         ["2026-09-12", "2026-09-13"].includes(block.date) &&
         block.topicId === "chemistry-past-papers-week-1-paper-2-review" &&
         block.studyLayer === "correction",
+    ),
+  );
+  assert.ok(
+    result.studyBlocks.some(
+      (block) =>
+        ["2026-09-12", "2026-09-13"].includes(block.date) &&
+        block.topicId === "geography-past-papers-week-1-paper-1" &&
+        block.studyLayer === "exam_sim",
+    ),
+  );
+  assert.ok(
+    result.studyBlocks.some(
+      (block) =>
+        ["2026-09-12", "2026-09-13"].includes(block.date) &&
+        block.topicId === "english-a-past-papers-week-1-paper-1" &&
+        block.studyLayer === "exam_sim",
+    ),
+  );
+  assert.ok(
+    result.studyBlocks.some(
+      (block) =>
+        ["2026-09-12", "2026-09-13"].includes(block.date) &&
+        block.topicId === "french-ab-initio-past-papers-week-1-paper-1" &&
+        block.studyLayer === "exam_sim",
     ),
   );
 });
