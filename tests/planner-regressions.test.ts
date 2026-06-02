@@ -8359,10 +8359,10 @@ test("configured school-term template adds the weekly full-paper cycle only afte
   );
 
   assert.equal(requirementById["2026-08-22-maths-aa-past-papers-week-1-paper-1-exam"], undefined);
-  assert.equal(requirementById["2026-08-22-physics-past-papers-week-1-paper-2-exam"], undefined);
-  assert.equal(requirementById["2026-08-22-physics-past-papers-week-1-paper-2-correction"], undefined);
-  assert.equal(requirementById["2026-08-22-chemistry-past-papers-week-1-paper-2-exam"], undefined);
-  assert.equal(requirementById["2026-08-22-chemistry-past-papers-week-1-paper-2-correction"], undefined);
+  assert.equal(requirementById["2026-08-22-physics-past-papers-week-1-paper-1ab-exam"], undefined);
+  assert.equal(requirementById["2026-08-22-physics-past-papers-week-1-paper-1ab-correction"], undefined);
+  assert.equal(requirementById["2026-08-22-chemistry-past-papers-week-1-paper-1ab-exam"], undefined);
+  assert.equal(requirementById["2026-08-22-chemistry-past-papers-week-1-paper-1ab-correction"], undefined);
 
   const paperStartTemplate = buildSchoolTermWeekTemplate({
     weekStart: new Date("2026-09-07T00:00:00.000Z"),
@@ -8383,12 +8383,12 @@ test("configured school-term template adds the weekly full-paper cycle only afte
     "maths-aa-past-papers-week-1-paper-1-review",
   );
   assert.equal(
-    paperStartRequirementById["2026-09-12-physics-past-papers-week-1-paper-2-exam"]?.exactTopicId,
-    "physics-past-papers-week-1-paper-2",
+    paperStartRequirementById["2026-09-12-physics-past-papers-week-1-paper-1ab-exam"]?.exactTopicId,
+    "physics-past-papers-week-1-paper-1ab",
   );
   assert.equal(
-    paperStartRequirementById["2026-09-12-chemistry-past-papers-week-1-paper-2-exam"]?.exactTopicId,
-    "chemistry-past-papers-week-1-paper-2",
+    paperStartRequirementById["2026-09-12-chemistry-past-papers-week-1-paper-1ab-exam"]?.exactTopicId,
+    "chemistry-past-papers-week-1-paper-1ab",
   );
   assert.equal(
     paperStartRequirementById["2026-09-12-geography-past-papers-week-1-paper-1-exam"]?.exactTopicId,
@@ -8431,12 +8431,12 @@ test("seeded post-syllabus paper topics start after the September 7 first milest
   assert.deepEqual(earlyPaperTopics.map((topic) => topic.id), []);
   assert.deepEqual(earlyMathsPaperTopics.map((topic) => topic.id), []);
   assert.deepEqual(weekOnePaperTopicIds, [
-    "chemistry-past-papers-week-1-paper-2",
+    "chemistry-past-papers-week-1-paper-1ab",
     "english-a-past-papers-week-1-paper-1",
     "french-ab-initio-past-papers-week-1-paper-1",
     "geography-past-papers-week-1-paper-1",
     "maths-aa-past-papers-week-1-paper-1",
-    "physics-past-papers-week-1-paper-2",
+    "physics-past-papers-week-1-paper-1ab",
   ]);
   assert.equal(
     dataset.topics.find((topic) => topic.id === "maths-aa-past-papers-week-1-paper-1")
@@ -8444,15 +8444,53 @@ test("seeded post-syllabus paper topics start after the September 7 first milest
     "maths-topic5-maclaurin-series",
   );
   assert.equal(
-    dataset.topics.find((topic) => topic.id === "physics-past-papers-week-1-paper-2")
+    dataset.topics.find((topic) => topic.id === "physics-past-papers-week-1-paper-1ab")
       ?.dependsOnTopicId,
     "physics-e5-fusion-stars",
   );
   assert.equal(
-    dataset.topics.find((topic) => topic.id === "chemistry-past-papers-week-1-paper-2")
+    dataset.topics.find((topic) => topic.id === "chemistry-past-papers-week-1-paper-1ab")
       ?.dependsOnTopicId,
     "chem-reactivity-3-4-electron-pair-sharing",
   );
+});
+
+test("school paper practice rotates through the papers required by each subject level", () => {
+  const dataset = buildSeedDataset(new Date("2026-04-18T08:00:00.000Z"));
+  const examTopicIdsByWeek = (weekNumber: number) =>
+    dataset.topics
+      .filter(
+        (topic) =>
+          topic.sessionMode === "exam" &&
+          topic.unitId.endsWith(`past-papers-week-${weekNumber}`),
+      )
+      .map((topic) => topic.id)
+      .sort();
+
+  assert.deepEqual(examTopicIdsByWeek(1), [
+    "chemistry-past-papers-week-1-paper-1ab",
+    "english-a-past-papers-week-1-paper-1",
+    "french-ab-initio-past-papers-week-1-paper-1",
+    "geography-past-papers-week-1-paper-1",
+    "maths-aa-past-papers-week-1-paper-1",
+    "physics-past-papers-week-1-paper-1ab",
+  ]);
+  assert.deepEqual(examTopicIdsByWeek(2), [
+    "chemistry-past-papers-week-2-paper-2",
+    "english-a-past-papers-week-2-paper-2",
+    "french-ab-initio-past-papers-week-2-paper-2",
+    "geography-past-papers-week-2-paper-2",
+    "maths-aa-past-papers-week-2-paper-2",
+    "physics-past-papers-week-2-paper-2",
+  ]);
+  assert.deepEqual(examTopicIdsByWeek(3), [
+    "chemistry-past-papers-week-3-paper-1ab",
+    "english-a-past-papers-week-3-paper-1",
+    "french-ab-initio-past-papers-week-3-paper-1",
+    "geography-past-papers-week-3-paper-3",
+    "maths-aa-past-papers-week-3-paper-3",
+    "physics-past-papers-week-3-paper-1ab",
+  ]);
 });
 
 test("English Geography and French seed only post-syllabus paper practice topics", () => {
@@ -8696,6 +8734,30 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
   const saturdayBlocks = result.studyBlocks.filter(
     (block) => block.date === "2026-09-12" && !!block.subjectId,
   );
+  const paperWeekDateKeys = [
+    "2026-09-07",
+    "2026-09-08",
+    "2026-09-09",
+    "2026-09-10",
+    "2026-09-11",
+    "2026-09-12",
+    "2026-09-13",
+  ];
+  const expectedWeeklySchoolPaperSubjectIds = [
+    "maths-aa-hl",
+    "physics-hl",
+    "chemistry-hl",
+    "geography-transition",
+    "english-a-sl",
+    "french-b-sl",
+  ];
+  const schoolPaperBlocks = result.studyBlocks.filter(
+    (block) =>
+      block.studyLayer === "exam_sim" &&
+      block.topicId?.includes("past-papers-week-1") &&
+      paperWeekDateKeys.includes(block.date) &&
+      expectedWeeklySchoolPaperSubjectIds.includes(block.subjectId ?? ""),
+  );
 
   assert.ok(
     saturdayBlocks.some(
@@ -8708,7 +8770,7 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
     result.studyBlocks.some(
       (block) =>
         ["2026-09-12", "2026-09-13"].includes(block.date) &&
-        block.topicId === "physics-past-papers-week-1-paper-2" &&
+        block.topicId === "physics-past-papers-week-1-paper-1ab" &&
         block.studyLayer === "exam_sim",
     ),
   );
@@ -8716,7 +8778,7 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
     result.studyBlocks.some(
       (block) =>
         ["2026-09-12", "2026-09-13"].includes(block.date) &&
-        block.topicId === "chemistry-past-papers-week-1-paper-2" &&
+        block.topicId === "chemistry-past-papers-week-1-paper-1ab" &&
         block.studyLayer === "exam_sim",
     ),
   );
@@ -8732,7 +8794,7 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
     result.studyBlocks.some(
       (block) =>
         ["2026-09-12", "2026-09-13"].includes(block.date) &&
-        block.topicId === "physics-past-papers-week-1-paper-2-review" &&
+        block.topicId === "physics-past-papers-week-1-paper-1ab-review" &&
         block.studyLayer === "correction",
     ),
   );
@@ -8740,7 +8802,7 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
     result.studyBlocks.some(
       (block) =>
         ["2026-09-12", "2026-09-13"].includes(block.date) &&
-        block.topicId === "chemistry-past-papers-week-1-paper-2-review" &&
+        block.topicId === "chemistry-past-papers-week-1-paper-1ab-review" &&
         block.studyLayer === "correction",
     ),
   );
@@ -8763,10 +8825,14 @@ test("generated configured school-term weeks start the full-paper weekend cycle 
   assert.ok(
     result.studyBlocks.some(
       (block) =>
-        ["2026-09-12", "2026-09-13"].includes(block.date) &&
+        paperWeekDateKeys.includes(block.date) &&
         block.topicId === "french-ab-initio-past-papers-week-1-paper-1" &&
         block.studyLayer === "exam_sim",
     ),
+  );
+  assert.deepEqual(
+    schoolPaperBlocks.map((block) => block.subjectId).sort(),
+    expectedWeeklySchoolPaperSubjectIds.slice().sort(),
   );
 });
 
