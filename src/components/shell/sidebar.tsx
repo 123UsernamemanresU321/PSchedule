@@ -27,14 +27,14 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-40 hidden w-[264px] border-r border-white/8 bg-[linear-gradient(180deg,rgba(8,11,23,0.98),rgba(12,18,34,0.94))] px-4 py-6 backdrop-blur lg:flex lg:flex-col">
+    <aside className="fixed inset-y-0 left-0 z-40 hidden w-[264px] border-r border-white/8 bg-[linear-gradient(180deg,rgba(19,19,21,0.98),rgba(8,9,13,0.97))] px-4 py-6 shadow-[18px_0_60px_rgba(0,0,0,0.24)] backdrop-blur lg:flex lg:flex-col">
       <div className="flex items-center gap-3 px-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/90 text-primary-foreground shadow-panel shadow-primary/25">
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-primary/35 bg-[linear-gradient(145deg,hsl(var(--primary)),hsl(var(--subject-maths)))] text-primary-foreground shadow-[0_18px_44px_hsl(var(--primary)/0.22)]">
           <GraduationCap className="h-5 w-5" />
         </div>
         <div>
-          <p className="font-display text-xl font-semibold">Adaptive Study Planner</p>
-          <p className="text-sm text-muted-foreground">IB + Olympiad</p>
+          <p className="font-display text-lg font-semibold leading-tight tracking-[-0.045em]">Adaptive Study Planner</p>
+          <p className="text-sm text-muted-foreground">IB + Olympiad OS</p>
         </div>
       </div>
 
@@ -48,10 +48,10 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium text-muted-foreground transition",
+                "premium-control-ring flex items-center gap-3 rounded-xl border px-4 py-3 text-sm font-medium transition",
                 isActive
-                  ? "bg-primary text-primary-foreground shadow-panel shadow-primary/20"
-                  : "hover:bg-white/4 hover:text-foreground",
+                  ? "border-primary/28 bg-primary/14 text-blue-50 shadow-[0_12px_32px_hsl(var(--primary)/0.12)]"
+                  : "border-transparent text-muted-foreground hover:border-white/10 hover:bg-white/[0.045] hover:text-foreground",
               )}
             >
               <Icon className="h-4 w-4" />
@@ -61,7 +61,7 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="rounded-xl border border-white/8 bg-white/[0.04] px-4 py-4">
+      <div className="premium-subpanel rounded-xl px-4 py-4">
         <div className="flex items-center justify-between">
           <div>
             <p className="font-medium text-foreground">DP1 Plan</p>

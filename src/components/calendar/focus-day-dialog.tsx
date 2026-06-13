@@ -82,7 +82,7 @@ export function FocusDayDialog({
               </div>
               <div className="space-y-2">
                 <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Selected subjects</label>
-                <div className="rounded-sm border border-white/6 bg-white/4 px-4 py-3 text-sm text-foreground">
+                <div className="premium-subpanel rounded-xl px-4 py-3 text-sm text-foreground">
                   {selectedSubjectNames.length
                     ? selectedSubjectNames.join(", ")
                     : "No focus subjects selected yet."}
@@ -100,7 +100,7 @@ export function FocusDayDialog({
                       key={subject.id}
                       type="button"
                       data-testid={`focus-day-subject-${subject.id}`}
-                      className="flex items-start justify-between rounded-sm border px-4 py-3 text-left transition hover:bg-white/6"
+                      className="premium-control-ring flex items-start justify-between rounded-xl border px-4 py-3 text-left transition hover:bg-white/[0.07]"
                       style={
                         isSelected
                           ? getSubjectAccentStyles(subject.id)
@@ -139,7 +139,7 @@ export function FocusDayDialog({
               />
             </div>
 
-            <div className="rounded-sm border border-primary/20 bg-primary/8 px-4 py-3">
+            <div className="rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 shadow-card">
               <p className="text-sm text-foreground">
                 Default behavior: the selected subjects receive about <span className="font-semibold">70%</span> of
                 that day&apos;s planner-generated study time, split by deadline pressure and remaining workload.

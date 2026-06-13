@@ -219,7 +219,7 @@ export function SubjectsPage() {
                   <details
                     key={unitTitle}
                     open={completionPercent < 100}
-                    className="group rounded-md border border-white/6 bg-surface/90"
+                    className="premium-panel group rounded-xl"
                   >
                     <summary className="flex cursor-pointer list-none items-center gap-4 px-5 py-4">
                       <div className="min-w-0 flex-1">
@@ -256,7 +256,7 @@ export function SubjectsPage() {
                           return (
                             <div
                               key={topic.id}
-                              className="grid gap-3 rounded-sm border border-white/6 bg-white/4 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_220px_220px_120px]"
+                              className="premium-subpanel grid gap-3 rounded-xl px-4 py-3 lg:grid-cols-[minmax(0,1fr)_220px_220px_120px]"
                             >
                               <div>
                                 <div className="flex flex-wrap items-center gap-2">
@@ -276,7 +276,7 @@ export function SubjectsPage() {
                                   ).map((subtopic) => (
                                     <span
                                       key={subtopic.label}
-                                      className="rounded-full border border-white/8 bg-white/5 px-2 py-0.5"
+                                      className="rounded-full border border-white/10 bg-white/[0.055] px-2 py-0.5 shadow-inset"
                                     >
                                       {subtopic.label}
                                       {subtopic.syllabusLevel ? (
@@ -366,7 +366,7 @@ function TopicCompletedHoursEditor({
       />
       <p
         className={`text-xs ${
-          draftState.hasInvalidInput ? "text-destructive" : "text-muted-foreground"
+          draftState.hasInvalidInput ? "text-danger" : "text-muted-foreground"
         }`}
       >
         {draftState.hasInvalidInput

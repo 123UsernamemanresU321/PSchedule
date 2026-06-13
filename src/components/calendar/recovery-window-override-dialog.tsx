@@ -149,7 +149,7 @@ export function RecoveryWindowOverrideDialog({
             </Button>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="rounded-sm border border-white/6 bg-white/4 p-4">
+            <div className="premium-subpanel rounded-xl p-4">
               <div className="flex items-center gap-3">
                 <div className="rounded-full border border-white/10 bg-white/6 p-2 text-primary">
                   {icon}
@@ -195,7 +195,7 @@ export function RecoveryWindowOverrideDialog({
               </div>
             </div>
 
-            <div className="rounded-sm border border-white/6 bg-white/4 px-4 py-3">
+            <div className="premium-subpanel rounded-xl px-4 py-3">
               <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Current status</p>
               <p className="mt-2 text-sm text-foreground">{statusDescription}</p>
             </div>

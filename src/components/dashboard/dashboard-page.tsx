@@ -13,7 +13,7 @@ const HoursBarChart = dynamic(
     import("@/components/planner/hours-bar-chart").then((module) => module.HoursBarChart),
   {
     ssr: false,
-    loading: () => <div className="h-full rounded-sm border border-white/6 bg-white/4" />,
+    loading: () => <div className="premium-subpanel h-full rounded-xl" />,
   },
 );
 import { SubjectBadge } from "@/components/planner/subject-badge";
@@ -136,9 +136,9 @@ export function DashboardPage() {
       {aiContext ? <AiCoachCard context={aiContext} /> : null}
 
       {!fixedEvents.length && !preferences?.schoolSchedule.enabled && !preferences?.holidaySchedule.enabled ? (
-        <Card className="border-primary/20 bg-primary/8">
+        <Card className="border-primary/20 bg-primary/10">
           <CardContent className="flex items-start gap-3 pt-5">
-            <div className="rounded-sm border border-primary/25 bg-primary/10 p-2 text-primary">
+            <div className="rounded-lg border border-primary/25 bg-primary/10 p-2 text-primary">
               <CalendarClock className="h-4 w-4" />
             </div>
             <div className="space-y-1">
@@ -177,7 +177,7 @@ export function DashboardPage() {
                 forecast.completionDate ?? forecast.horizonCompletionDate;
 
               return (
-                <div key={forecast.subject.id} className="rounded-sm border border-white/6 bg-white/4 p-4">
+                <div key={forecast.subject.id} className="premium-subpanel rounded-xl p-4">
                   <div className="flex items-center justify-between gap-3">
                     <SubjectBadge subjectId={forecast.subject.id} label={forecast.subject.shortName} />
                     <Badge
@@ -252,7 +252,7 @@ export function DashboardPage() {
                   key={block.id}
                   type="button"
                   onClick={() => selectStudyBlock(block.id)}
-                  className="flex w-full items-center gap-4 rounded-sm border border-white/6 bg-white/4 px-4 py-3 text-left transition hover:border-primary/30 hover:bg-white/6"
+                  className="premium-control-ring flex w-full items-center gap-4 rounded-xl border border-white/8 bg-white/[0.035] px-4 py-3 text-left transition hover:border-primary/30 hover:bg-white/[0.07]"
                 >
                   <div className="w-16 text-sm text-muted-foreground">
                     <div>{format(new Date(block.start), "HH:mm")}</div>
@@ -291,7 +291,7 @@ export function DashboardPage() {
                 </button>
               ))
             ) : (
-              <div className="rounded-sm border border-dashed border-white/10 px-4 py-6 text-sm text-muted-foreground">
+              <div className="premium-empty rounded-xl px-4 py-6 text-sm text-muted-foreground">
                 No blocks scheduled for today.
               </div>
             )}
@@ -310,7 +310,7 @@ export function DashboardPage() {
             {urgentTopics.map(({ topic, subject }) => (
               <div
                 key={topic.id}
-                className="rounded-sm border border-white/6 bg-white/4 px-4 py-3"
+                className="premium-subpanel rounded-xl px-4 py-3"
               >
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-warning" />
@@ -354,7 +354,7 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {subjectProgress.map((progress) => (
-              <div key={progress.subject.id} className="rounded-sm border border-white/6 bg-white/4 p-4">
+              <div key={progress.subject.id} className="premium-subpanel rounded-xl p-4">
                 <div className="flex items-center justify-between gap-3">
                   <SubjectBadge subjectId={progress.subject.id} label={progress.subject.shortName} />
                   <Badge variant={progress.atRiskTopics.length > 2 ? "warning" : "success"}>

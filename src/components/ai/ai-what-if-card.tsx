@@ -108,10 +108,10 @@ export function AiWhatIfCard({
         {error ? <p className="text-sm text-danger">{error}</p> : null}
         {response ? (
           <div className="space-y-4">
-            <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+            <div className="premium-subpanel rounded-xl p-4">
               <p className="text-sm leading-6 text-foreground">{response.summary}</p>
             </div>
-            <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+            <div className="premium-subpanel rounded-xl p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Parsed changes</p>
               <ul className="mt-3 space-y-2 text-sm text-foreground">
                 {response.parsedChanges.map((change) => (
@@ -120,7 +120,7 @@ export function AiWhatIfCard({
               </ul>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+              <div className="premium-subpanel rounded-xl p-4">
                 <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Coverage</p>
                 <p className="mt-3 text-sm text-foreground">
                   Fillable gap: {response.coverage.beforeFillableGap ? "before yes" : "before no"} →{" "}
@@ -131,7 +131,7 @@ export function AiWhatIfCard({
                   {response.coverage.afterHardCoverageFailures.length}
                 </p>
               </div>
-              <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+              <div className="premium-subpanel rounded-xl p-4">
                 <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Recommended tradeoffs</p>
                 <ul className="mt-3 space-y-2 text-sm text-foreground">
                   {response.recommendedTradeoffs.length ? (
@@ -142,11 +142,11 @@ export function AiWhatIfCard({
                 </ul>
               </div>
             </div>
-            <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+            <div className="premium-subpanel rounded-xl p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Subject impacts</p>
               <div className="mt-3 space-y-3">
                 {response.impacts.map((impact) => (
-                  <div key={impact.subjectId} className="rounded-sm border border-white/8 bg-background/30 p-3">
+                  <div key={impact.subjectId} className="premium-subpanel rounded-xl p-3">
                     <div className="flex items-center justify-between gap-3">
                       <p className="font-medium text-foreground">{impact.subjectLabel}</p>
                       <p className="text-sm text-muted-foreground">

@@ -264,7 +264,7 @@ function EventEditorDialogPanel({
           </CardHeader>
           <CardContent className="space-y-4">
             {formError ? (
-              <div className="rounded-sm border border-danger/30 bg-danger/8 px-4 py-3 text-sm text-danger">
+              <div className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger shadow-card">
                 {formError}
               </div>
             ) : null}
@@ -280,7 +280,7 @@ function EventEditorDialogPanel({
                 />
               </div>
               <div className="space-y-2 md:col-span-2">
-                <div className="flex items-center justify-between rounded-sm border border-white/6 bg-white/4 px-4 py-3">
+                <div className="premium-subpanel flex items-center justify-between rounded-xl px-4 py-3">
                   <div>
                     <p className="font-medium text-foreground">All-day event</p>
                     <p className="text-sm text-muted-foreground">
@@ -498,7 +498,7 @@ function EventEditorDialogPanel({
                       Delete event
                     </Button>
                     {showDeleteOptions ? (
-                      <div className="mt-3 w-full max-w-sm rounded-sm border border-white/8 bg-white/4 p-3">
+                      <div className="premium-subpanel mt-3 w-full max-w-sm rounded-xl p-3">
                         <p className="text-sm font-medium text-foreground">Delete recurring event</p>
                         <p className="mt-1 text-sm text-muted-foreground">
                           Choose whether to remove only the selected day or the whole recurring series.

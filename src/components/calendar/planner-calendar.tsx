@@ -407,7 +407,7 @@ export function PlannerCalendar({
 
   return (
     <div
-      className="overflow-hidden rounded-md border border-white/6 bg-[#0d1324]/90 p-4 shadow-panel"
+      className="calendar-shell overflow-hidden rounded-xl p-4"
       data-testid="planner-calendar"
     >
       <FullCalendar
@@ -588,7 +588,7 @@ export function PlannerCalendar({
 
             return (
               <div
-                className={`h-full overflow-hidden rounded-lg border px-3 py-2 text-sm shadow-panel ${severityStyle}`}
+                className={`h-full overflow-hidden rounded-xl border px-3 py-2 text-sm shadow-card ${severityStyle}`}
                 data-testid="calendar-sick-day"
                 data-event-title={eventInfo.event.title}
               >
@@ -603,7 +603,7 @@ export function PlannerCalendar({
 
             return (
               <div
-                className="h-full overflow-hidden rounded-lg border border-warning/35 bg-warning/12 px-3 py-2 text-sm text-warning shadow-panel"
+                className="h-full overflow-hidden rounded-xl border border-warning/35 bg-warning/12 px-3 py-2 text-sm text-warning shadow-card"
                 data-testid="calendar-no-school-day"
                 data-event-title={eventInfo.event.title}
               >
@@ -624,7 +624,7 @@ export function PlannerCalendar({
 
             return (
               <div
-                className="h-full overflow-hidden rounded-lg border border-danger/35 bg-danger/12 px-3 py-2 text-sm text-danger shadow-panel"
+                className="h-full overflow-hidden rounded-xl border border-danger/35 bg-danger/12 px-3 py-2 text-sm text-danger shadow-card"
                 data-testid="calendar-exam-period"
                 data-event-title={eventInfo.event.title}
               >
@@ -644,7 +644,7 @@ export function PlannerCalendar({
 
             return (
               <div
-                className="h-full overflow-hidden rounded-lg border border-primary/35 bg-primary/12 px-3 py-2 text-sm text-primary-foreground shadow-panel"
+                className="h-full overflow-hidden rounded-xl border border-primary/35 bg-primary/12 px-3 py-2 text-sm text-blue-50 shadow-card"
                 data-testid="calendar-focused-day"
                 data-event-title={eventInfo.event.title}
               >
@@ -664,7 +664,7 @@ export function PlannerCalendar({
 
             return (
               <div
-                className="h-full overflow-hidden rounded-lg border border-sky-300/18 bg-sky-300/[0.07] px-3 py-2 text-sm text-sky-50 shadow-panel"
+                className="h-full overflow-hidden rounded-xl border border-sky-300/18 bg-sky-300/[0.07] px-3 py-2 text-sm text-sky-50 shadow-card"
                 data-testid="calendar-focused-week"
                 data-event-title={eventInfo.event.title}
               >
@@ -690,7 +690,7 @@ export function PlannerCalendar({
             if (showCompactTitleOnly) {
               return (
                 <div
-                  className="h-full overflow-hidden rounded-lg border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100"
+                  className="h-full overflow-hidden rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100 shadow-card"
                   data-testid="calendar-recovery-window"
                   data-event-title={window.label}
                 >
@@ -700,7 +700,7 @@ export function PlannerCalendar({
             }
 
             return (
-              <div className="h-full overflow-hidden rounded-sm border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100">
+              <div className="h-full overflow-hidden rounded-xl border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100 shadow-card">
                 <div
                   data-testid="calendar-recovery-window"
                   data-event-title={window.label}
@@ -733,7 +733,7 @@ export function PlannerCalendar({
             if (showCompactTitleOnly) {
               return (
                 <div
-                  className="h-full overflow-hidden rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-sm text-amber-50"
+                  className="h-full overflow-hidden rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-sm text-amber-50 shadow-card"
                   data-testid="calendar-reserved-commitment"
                   data-event-title={commitment.label}
                 >
@@ -744,7 +744,7 @@ export function PlannerCalendar({
 
             return (
               <div
-                className="h-full overflow-hidden rounded-sm border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-sm text-amber-50"
+                className="h-full overflow-hidden rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-sm text-amber-50 shadow-card"
                 data-testid="calendar-reserved-commitment"
                 data-event-title={commitment.label}
               >
@@ -765,7 +765,7 @@ export function PlannerCalendar({
             if (showCompactTitleOnly) {
               return (
                 <div
-                  className="h-full overflow-hidden rounded-lg border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-sm text-amber-100"
+                  className="h-full overflow-hidden rounded-xl border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-sm text-amber-100 shadow-card"
                   data-testid="calendar-break"
                   data-event-title="Break"
                 >
@@ -776,7 +776,7 @@ export function PlannerCalendar({
 
             return (
               <div
-                className="h-full overflow-hidden rounded-sm border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-sm text-amber-100"
+                className="h-full overflow-hidden rounded-xl border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-sm text-amber-100 shadow-card"
                 data-testid="calendar-break"
                 data-event-title="Break"
               >
@@ -797,7 +797,7 @@ export function PlannerCalendar({
             if (showCompactTitleOnly) {
               return (
                 <div
-                  className="h-full overflow-hidden rounded-lg border border-white/8 bg-white/[0.08] px-3 py-2 text-sm text-foreground shadow-panel"
+                  className="h-full overflow-hidden rounded-xl border border-white/10 bg-white/[0.075] px-3 py-2 text-sm text-foreground shadow-card"
                   data-testid="calendar-fixed-event"
                   data-event-title={event.title}
                 >
@@ -808,7 +808,7 @@ export function PlannerCalendar({
 
             return (
               <div
-                className="h-full overflow-hidden rounded-lg border border-white/8 bg-white/[0.08] px-3 py-2 text-sm text-foreground shadow-panel"
+                className="h-full overflow-hidden rounded-xl border border-white/10 bg-white/[0.075] px-3 py-2 text-sm text-foreground shadow-card"
                 data-testid="calendar-fixed-event"
                 data-event-title={event.title}
               >
@@ -854,7 +854,7 @@ export function PlannerCalendar({
           if (showCompactTitleOnly) {
             return (
               <div
-                className="flex h-full min-h-0 flex-col justify-center gap-1 overflow-hidden rounded-lg border px-3 py-2 text-sm shadow-panel"
+                className="flex h-full min-h-0 flex-col justify-center gap-1 overflow-hidden rounded-xl border px-3 py-2 text-sm shadow-card"
                 data-testid="calendar-study-block"
                 data-event-title={block.title}
                 data-paper-code={block.paperCode ?? ""}
@@ -887,7 +887,7 @@ export function PlannerCalendar({
 
           return (
             <div
-              className="flex h-full min-h-0 flex-col gap-2 overflow-hidden rounded-lg border px-3 py-2 text-sm shadow-panel"
+              className="flex h-full min-h-0 flex-col gap-2 overflow-hidden rounded-xl border px-3 py-2 text-sm shadow-card"
               data-testid="calendar-study-block"
               data-event-title={block.title}
               data-paper-code={block.paperCode ?? ""}

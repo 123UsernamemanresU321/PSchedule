@@ -155,7 +155,7 @@ function StudyBlockDrawerPanel({
         onClick={onClose}
         aria-label="Close study block drawer"
       />
-      <aside className="relative flex h-full min-h-0 w-full max-w-xl flex-col border-l border-white/8 bg-[#121725] shadow-panel">
+      <aside className="relative flex h-full min-h-0 w-full max-w-xl flex-col border-l border-white/8 bg-[linear-gradient(180deg,hsl(var(--surface-2)/0.98),hsl(var(--background)/0.98))] shadow-[0_0_72px_rgba(0,0,0,0.5)]">
         <div className="flex items-center justify-between border-b border-white/8 px-6 py-5">
           <div className="space-y-2">
             {subject ? (
@@ -226,21 +226,21 @@ function StudyBlockDrawerPanel({
             </Card>
           ) : null}
 
-          <Card className="border-primary/20 bg-primary/8">
+          <Card className="border-primary/20 bg-primary/10">
             <CardHeader>
               <CardTitle className="text-base">Why this was scheduled</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-sm leading-6 text-foreground">{block.generatedReason}</p>
               <div className="grid grid-cols-2 gap-3 text-sm text-muted-foreground">
-                <div className="rounded-sm border border-white/8 bg-white/4 p-3">
+                <div className="premium-subpanel rounded-xl p-3">
                   <div className="flex items-center gap-2 text-foreground">
                     <Clock3 className="h-4 w-4" />
                     Score
                   </div>
                   <p className="mt-2 text-lg font-semibold text-foreground">{block.scoreBreakdown.total}</p>
                 </div>
-                <div className="rounded-sm border border-white/8 bg-white/4 p-3">
+                <div className="premium-subpanel rounded-xl p-3">
                   <div className="flex items-center gap-2 text-foreground">
                     <Layers3 className="h-4 w-4" />
                     Slot energy
@@ -257,7 +257,7 @@ function StudyBlockDrawerPanel({
             </CardHeader>
             <CardContent className="space-y-3">
               {topic?.guideSummary ? (
-                <div className="rounded-sm border border-primary/20 bg-primary/8 px-4 py-3">
+                <div className="rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 shadow-card">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-sm font-medium text-foreground">Guide-backed focus</p>
                     <SyllabusLevelBadge level={topic.syllabusLevel} className="px-2 py-0.5 text-[10px]" />
@@ -269,7 +269,7 @@ function StudyBlockDrawerPanel({
                 block.sourceMaterials.map((material) => (
                   <div
                     key={`${material.type}-${material.label}`}
-                    className="rounded-sm border border-white/8 bg-white/4 px-4 py-3"
+                    className="premium-subpanel rounded-xl px-4 py-3"
                   >
                     <p className="text-sm font-medium text-foreground">{material.label}</p>
                     <p className="mt-1 text-sm text-muted-foreground">{material.details}</p>
@@ -295,7 +295,7 @@ function StudyBlockDrawerPanel({
                 <p className="text-sm text-muted-foreground">
                   Change the date, time, subject, section, or topic for this block. It still counts as a normal planned study block, and the future horizon rebuilds around it immediately.
                 </p>
-                <div className="rounded-sm border border-white/8 bg-white/4 px-4 py-3">
+                <div className="premium-subpanel rounded-xl px-4 py-3">
                   <p className="text-sm text-foreground">
                     The immediate rebuild keeps this block in the edited slot, but later full regenerations can still move or retarget it like any other planned study block.
                   </p>
@@ -334,7 +334,7 @@ function StudyBlockDrawerPanel({
                   <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
                     Topic difficulty
                   </label>
-                  <div className="flex h-10 items-center rounded-sm border border-white/8 bg-white/4 px-3 text-sm text-foreground">
+                  <div className="flex h-10 items-center rounded-lg border border-white/10 bg-black/20 px-3 text-sm text-foreground shadow-inset">
                     {topic ? `${topic.difficulty}/5` : "Light block"}
                   </div>
                 </div>

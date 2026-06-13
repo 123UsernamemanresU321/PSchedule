@@ -21,7 +21,8 @@ export function PageHeader({
       )}
     >
       <div className="space-y-2">
-        <h1 className="font-display text-3xl font-semibold tracking-[-0.03em] lg:text-[2.15rem]">{title}</h1>
+        <p className="premium-label">Planner command surface</p>
+        <h1 className="font-display text-3xl font-semibold tracking-[-0.045em] text-foreground lg:text-[2.3rem]">{title}</h1>
         {description ? (
           <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
         ) : null}

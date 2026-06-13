@@ -458,14 +458,14 @@ function StudyBlockEditorDialogPanel({
             </div>
 
             {selectedCandidate ? (
-              <div className="rounded-sm border border-white/8 bg-white/4 px-4 py-3">
+              <div className="premium-subpanel rounded-xl px-4 py-3">
                 <p className="text-sm font-medium text-foreground">{selectedCandidate.topic.unitTitle}</p>
                 {selectedCandidate.candidate.sessionSummary ? (
                   <p className="mt-1 text-sm text-muted-foreground">{selectedCandidate.candidate.sessionSummary}</p>
                 ) : null}
               </div>
             ) : (
-              <div className="rounded-sm border border-white/8 bg-white/4 px-4 py-3 text-sm text-muted-foreground">
+              <div className="premium-empty rounded-xl px-4 py-3 text-sm text-muted-foreground">
                 No valid topics fit this exact time and duration yet. Dependency gates, Olympiad frontiers, and exact-duration paper sessions are all enforced here too.
               </div>
             )}
@@ -518,7 +518,7 @@ function StudyBlockEditorDialogPanel({
               </div>
             ) : null}
 
-            <div className="rounded-sm border border-primary/20 bg-primary/8 px-4 py-3">
+            <div className="rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 shadow-card">
               <div className="flex items-start gap-3">
                 <CalendarClock className="mt-0.5 h-4 w-4 text-primary" />
                 <p className="text-sm text-foreground">

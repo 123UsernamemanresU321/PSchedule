@@ -13,7 +13,7 @@ const HoursBarChart = dynamic(
     import("@/components/planner/hours-bar-chart").then((module) => module.HoursBarChart),
   {
     ssr: false,
-    loading: () => <div className="h-full rounded-sm border border-white/6 bg-white/4" />,
+    loading: () => <div className="premium-subpanel h-full rounded-xl" />,
   },
 );
 import { SubjectBadge } from "@/components/planner/subject-badge";
@@ -171,7 +171,7 @@ export function WeeklyReviewPage() {
         description="Review this week as one slice of the month ladder, check day-level fill quality, and confirm the full goal horizon still remains realistic."
         actions={
           <>
-            <div className="flex items-center gap-1 rounded-full border border-white/8 bg-white/4 p-1">
+            <div className="flex items-center gap-1 rounded-full border border-white/10 bg-black/20 p-1 shadow-inset">
               <Button
                 variant="ghost"
                 size="sm"
@@ -220,7 +220,7 @@ export function WeeklyReviewPage() {
         <CardContent>
           <div className="grid gap-4 xl:grid-cols-4 md:grid-cols-2">
             {fillDiagnostics.map((entry) => (
-              <div key={entry.dateKey} className="rounded-sm border border-white/6 bg-white/4 p-4">
+              <div key={entry.dateKey} className="premium-subpanel rounded-xl p-4">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-medium text-foreground">{entry.dateKey}</p>
                   <Badge variant={entry.fillableGapDetected ? "warning" : "muted"}>
@@ -269,7 +269,7 @@ export function WeeklyReviewPage() {
             <CardContent className="space-y-3">
               {carryOverBlocks.length ? (
                 carryOverBlocks.map((block) => (
-                  <div key={block.id} className="rounded-sm border border-white/6 bg-white/4 px-4 py-3">
+                  <div key={block.id} className="premium-subpanel rounded-xl px-4 py-3">
                     <div className="flex items-center justify-between gap-3">
                       <SubjectBadge
                         subjectId={block.subjectId}
@@ -284,7 +284,7 @@ export function WeeklyReviewPage() {
                   </div>
                 ))
               ) : (
-                <div className="rounded-sm border border-dashed border-white/10 px-4 py-6 text-sm text-muted-foreground">
+                <div className="premium-empty rounded-xl px-4 py-6 text-sm text-muted-foreground">
                   No carry-over blocks in the active week.
                 </div>
               )}
@@ -316,7 +316,7 @@ export function WeeklyReviewPage() {
                 </Badge>
               </div>
 
-              <div className="rounded-sm border border-white/6 bg-white/4 px-4 py-3 text-sm text-muted-foreground">
+              <div className="premium-subpanel rounded-xl px-4 py-3 text-sm text-muted-foreground">
                 <p>
                   Active window: {olympiadWeaknessProfile.windowStart} to {olympiadWeaknessProfile.windowEnd}
                 </p>
@@ -332,7 +332,7 @@ export function WeeklyReviewPage() {
                 <p className="text-sm font-medium text-foreground">Pending clean-proof rewrites due within 48h</p>
                 {pendingOlympiadRewrites.length ? (
                   pendingOlympiadRewrites.map((obligation) => (
-                    <div key={obligation.sourceStudyBlockId} className="rounded-sm border border-white/6 bg-white/4 px-4 py-3">
+                    <div key={obligation.sourceStudyBlockId} className="premium-subpanel rounded-xl px-4 py-3">
                       <div className="flex items-center justify-between gap-3">
                         <Badge variant="default">Rewrite follow-up</Badge>
                         <Badge variant={obligation.scheduledBlock ? "success" : "warning"}>
@@ -348,7 +348,7 @@ export function WeeklyReviewPage() {
                     </div>
                   ))
                 ) : (
-                  <div className="rounded-sm border border-dashed border-white/10 px-4 py-6 text-sm text-muted-foreground">
+                  <div className="premium-empty rounded-xl px-4 py-6 text-sm text-muted-foreground">
                     No Olympiad rewrite obligations due in the next 48 hours.
                   </div>
                 )}
@@ -375,7 +375,7 @@ export function WeeklyReviewPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {weeklyPlan?.feasibilityWarnings.length ? (
-            <div className="rounded-sm border border-warning/30 bg-warning/12 px-4 py-3 text-warning">
+            <div className="rounded-xl border border-warning/30 bg-warning/12 px-4 py-3 text-warning shadow-card">
               <div className="flex items-center gap-2 font-medium">
                 <ShieldAlert className="h-4 w-4" />
                 Feasibility warnings
@@ -394,7 +394,7 @@ export function WeeklyReviewPage() {
                 forecast.completionDate ?? forecast.horizonCompletionDate;
 
               return (
-                <div key={forecast.subject.id} className="rounded-sm border border-white/6 bg-white/4 p-4">
+                <div key={forecast.subject.id} className="premium-subpanel rounded-xl p-4">
                   <div className="flex items-center justify-between gap-3">
                     <SubjectBadge subjectId={forecast.subject.id} label={forecast.subject.shortName} />
                     <Badge

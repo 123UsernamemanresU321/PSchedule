@@ -167,7 +167,7 @@ export function CalendarPage() {
         description="Fixed events define the constraints. The planner then fills the remaining goal horizon with ordered study blocks, breaks, and recovery."
         actions={
           <>
-            <div className="flex items-center gap-1 rounded-full border border-white/8 bg-white/4 p-1">
+            <div className="flex items-center gap-1 rounded-full border border-white/10 bg-black/20 p-1 shadow-inset">
               <Button
                 variant="ghost"
                 size="sm"
@@ -331,9 +331,9 @@ export function CalendarPage() {
       </Card>
 
       {!hasConfiguredConstraints ? (
-        <Card className="border-primary/20 bg-primary/8">
+        <Card className="border-primary/20 bg-primary/10">
           <CardContent className="flex items-start gap-3 pt-5">
-            <div className="rounded-sm border border-primary/25 bg-primary/10 p-2 text-primary">
+            <div className="rounded-lg border border-primary/25 bg-primary/10 p-2 text-primary">
               <CalendarClock className="h-4 w-4" />
             </div>
             <div className="space-y-1">

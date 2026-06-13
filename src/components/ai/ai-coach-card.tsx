@@ -76,20 +76,20 @@ export function AiCoachCard({
         {error ? <p className="text-sm text-danger">{error}</p> : null}
         {response ? (
           <>
-            <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+            <div className="premium-subpanel rounded-xl p-4">
               <p className="text-sm leading-6 text-foreground">{response.summary}</p>
             </div>
             <div className="grid gap-4 md:grid-cols-3">
-              <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+              <div className="premium-subpanel rounded-xl p-4">
                 <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Biggest risk</p>
                 <p className="mt-2 text-sm text-foreground">{response.biggestRisk}</p>
               </div>
-              <div className="rounded-sm border border-white/8 bg-white/4 p-4 md:col-span-2">
+              <div className="premium-subpanel rounded-xl p-4 md:col-span-2">
                 <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Smallest corrective action</p>
                 <p className="mt-2 text-sm text-foreground">{response.smallestCorrectiveAction}</p>
               </div>
             </div>
-            <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+            <div className="premium-subpanel rounded-xl p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Top priorities</p>
               <ul className="mt-3 space-y-2 text-sm text-foreground">
                 {response.topPriorities.map((priority) => (

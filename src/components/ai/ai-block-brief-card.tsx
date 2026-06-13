@@ -67,19 +67,19 @@ export function AiBlockBriefCard({
         {error ? <p className="text-sm text-danger">{error}</p> : null}
         {response ? (
           <>
-            <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+            <div className="premium-subpanel rounded-xl p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Goal</p>
               <p className="mt-2 text-sm text-foreground">{response.goal}</p>
             </div>
-            <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+            <div className="premium-subpanel rounded-xl p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Likely mistake pattern</p>
               <p className="mt-2 text-sm text-foreground">{response.likelyMistakePattern}</p>
             </div>
-            <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+            <div className="premium-subpanel rounded-xl p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Success check</p>
               <p className="mt-2 text-sm text-foreground">{response.successCheck}</p>
             </div>
-            <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+            <div className="premium-subpanel rounded-xl p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Post-block reflection</p>
               <p className="mt-2 text-sm text-foreground">{response.postBlockReflectionPrompt}</p>
             </div>

@@ -19,16 +19,16 @@ export function MetricCard({
   return (
     <Card
       className={cn(
-        "h-full overflow-hidden border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))]",
-        tone === "warning" && "ring-1 ring-warning/25",
-        tone === "danger" && "ring-1 ring-danger/25",
-        tone === "success" && "ring-1 ring-success/25",
+        "h-full overflow-hidden",
+        tone === "warning" && "border-warning/25 shadow-[0_0_32px_hsl(var(--warning)/0.06)]",
+        tone === "danger" && "border-danger/25 shadow-[0_0_32px_hsl(var(--danger)/0.06)]",
+        tone === "success" && "border-success/25 shadow-[0_0_32px_hsl(var(--success)/0.06)]",
       )}
     >
       <CardHeader className="flex-row items-start justify-between gap-4 pb-3">
         <div className="space-y-1">
-          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">{eyebrow}</p>
-          <CardTitle className="text-[2.4rem] font-semibold leading-none">{value}</CardTitle>
+          <p className="premium-label">{eyebrow}</p>
+          <CardTitle className="text-[2.45rem] font-semibold leading-none tracking-[-0.055em]">{value}</CardTitle>
         </div>
         {accent}
       </CardHeader>

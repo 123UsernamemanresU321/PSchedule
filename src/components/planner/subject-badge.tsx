@@ -41,7 +41,7 @@ export function SubjectBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium",
+        "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold tracking-[-0.01em] shadow-inset",
         className,
       )}
       style={getSubjectAccentStyles(subjectId)}

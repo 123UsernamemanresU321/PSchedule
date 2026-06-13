@@ -297,7 +297,7 @@ export function SettingsPage() {
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="rounded-sm border border-white/6 bg-white/4 p-4">
+              <div className="premium-subpanel rounded-xl p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="font-medium text-foreground">Use school schedule</p>
@@ -430,7 +430,7 @@ export function SettingsPage() {
                   </div>
                 </div>
                 {form.schoolSchedule.terms.map((term, index) => (
-                  <div key={term.id} className="rounded-sm border border-white/6 bg-white/4 p-4">
+                  <div key={term.id} className="premium-subpanel rounded-xl p-4">
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <p className="text-sm font-medium text-foreground">{term.label}</p>
                       {form.schoolSchedule.terms.length > 1 ? (
@@ -544,7 +544,7 @@ export function SettingsPage() {
                     {form.schoolSchedule.noSchoolDays.map((noSchoolDay, index) => (
                       <div
                         key={noSchoolDay.id}
-                        className="rounded-sm border border-warning/20 bg-warning/10 p-4"
+                        className="rounded-xl border border-warning/20 bg-warning/10 p-4 shadow-card"
                       >
                         <div className="mb-3 flex items-center justify-between gap-3">
                           <p className="text-sm font-medium text-warning">
@@ -643,7 +643,7 @@ export function SettingsPage() {
                     ))}
                   </div>
                 ) : (
-                  <div className="rounded-sm border border-dashed border-white/10 bg-white/4 px-4 py-3 text-sm text-muted-foreground">
+                  <div className="premium-empty rounded-xl px-4 py-3 text-sm text-muted-foreground">
                     No no-school days yet. Use this for protests, long weekends, special closures, or any weekday
                     inside a term that should behave like a weekend/holiday.
                   </div>
@@ -676,7 +676,7 @@ export function SettingsPage() {
                     {form.schoolSchedule.schoolClubs.map((club, index) => (
                       <div
                         key={club.id}
-                        className="rounded-sm border border-white/6 bg-white/4 p-4"
+                        className="premium-subpanel rounded-xl p-4"
                         data-testid="settings-school-club-row"
                       >
                         <div className="mb-3 flex items-center justify-between gap-3">
@@ -876,7 +876,7 @@ export function SettingsPage() {
                     ))}
                   </div>
                 ) : (
-                  <div className="rounded-sm border border-dashed border-white/10 bg-white/4 px-4 py-3 text-sm text-muted-foreground">
+                  <div className="premium-empty rounded-xl px-4 py-3 text-sm text-muted-foreground">
                     No clubs yet. Add each recurring extracurricular once; the planner will generate the valid weeks automatically.
                   </div>
                 )}
@@ -908,7 +908,7 @@ export function SettingsPage() {
                     {form.schoolSchedule.examPeriods.map((period) => (
                       <div
                         key={period.id}
-                        className="rounded-sm border border-danger/20 bg-danger/8 p-4"
+                        className="rounded-xl border border-danger/20 bg-danger/10 p-4 shadow-card"
                         data-testid="settings-exam-period-row"
                       >
                         <div className="mb-3 flex items-center justify-between gap-3">
@@ -958,7 +958,7 @@ export function SettingsPage() {
                             <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Term</label>
                             <select
                               value={period.termId}
-                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                              className="premium-control-ring flex h-10 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-foreground shadow-inset"
                               onChange={(event) =>
                                 setForm({
                                   ...form,
@@ -1039,7 +1039,7 @@ export function SettingsPage() {
                           {period.exams.map((exam) => (
                             <div
                               key={exam.id}
-                              className="grid gap-3 rounded-sm border border-danger/15 bg-background/35 p-3 md:grid-cols-[minmax(0,1fr)_150px_110px_110px_40px]"
+                              className="grid gap-3 rounded-xl border border-danger/15 bg-danger/10 p-3 md:grid-cols-[minmax(0,1fr)_150px_110px_110px_40px]"
                             >
                               <Input
                                 value={exam.title}
@@ -1167,7 +1167,7 @@ export function SettingsPage() {
                             </div>
                           ))}
                           {!period.exams.length ? (
-                            <div className="rounded-sm border border-dashed border-danger/20 bg-background/25 px-4 py-3 text-sm text-muted-foreground">
+                            <div className="rounded-xl border border-dashed border-danger/25 bg-danger/10 px-4 py-3 text-sm text-muted-foreground">
                               No exact exam times yet. Add each paper so the calendar can block it and delay study correctly.
                             </div>
                           ) : null}
@@ -1176,7 +1176,7 @@ export function SettingsPage() {
                     ))}
                   </div>
                 ) : (
-                  <div className="rounded-sm border border-dashed border-white/10 bg-white/4 px-4 py-3 text-sm text-muted-foreground">
+                  <div className="premium-empty rounded-xl px-4 py-3 text-sm text-muted-foreground">
                     No exam periods yet. Add one for Term 2 or Term 4 when you know the exam window.
                   </div>
                 )}
@@ -1192,7 +1192,7 @@ export function SettingsPage() {
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="rounded-sm border border-white/6 bg-white/4 p-4">
+              <div className="premium-subpanel rounded-xl p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="font-medium text-foreground">Use holiday routine outside terms</p>
@@ -1280,7 +1280,7 @@ export function SettingsPage() {
               </div>
               <div className="space-y-4">
                 {form.holidaySchedule.preferredDeepWorkWindows.map((window, index) => (
-                  <div key={`${window.label}-${index}`} className="rounded-sm border border-white/6 bg-white/4 p-4">
+                  <div key={`${window.label}-${index}`} className="premium-subpanel rounded-xl p-4">
                     <p className="font-medium text-foreground">{window.label}</p>
                     <div className="mt-3 grid gap-3 md:grid-cols-2">
                       <div className="space-y-2">
@@ -1337,7 +1337,7 @@ export function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               {form.preferredDeepWorkWindows.map((window, index) => (
-                <div key={`${window.label}-${index}`} className="rounded-sm border border-white/6 bg-white/4 p-4">
+                <div key={`${window.label}-${index}`} className="premium-subpanel rounded-xl p-4">
                   <p className="font-medium text-foreground">{window.label}</p>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
                     <div className="space-y-2">
@@ -1472,7 +1472,7 @@ export function SettingsPage() {
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="rounded-sm border border-white/6 bg-white/4 p-4">
+              <div className="premium-subpanel rounded-xl p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="font-medium text-foreground">Plan study on Sundays</p>
@@ -1519,7 +1519,7 @@ export function SettingsPage() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Effective Sunday cap</label>
-                  <div className="rounded-sm border border-white/6 bg-white/4 px-3 py-2 text-sm text-foreground">
+                  <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-foreground shadow-inset">
                     {((
                       (form.holidaySchedule.enabled
                         ? ((Number(form.holidaySchedule.dailyStudyWindow.end.slice(0, 2)) * 60 +
@@ -1567,7 +1567,7 @@ export function SettingsPage() {
                   return (
                     <div
                       key={sickDay.id}
-                      className="rounded-sm border border-white/6 bg-white/4 p-4"
+                      className="premium-subpanel rounded-xl p-4"
                       data-testid="settings-sick-day-row"
                     >
                       <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_180px]">
@@ -1610,7 +1610,7 @@ export function SettingsPage() {
                           <select
                             value={sickDay.severity}
                             data-testid={`settings-sick-day-severity-${sickDay.id}`}
-                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                            className="premium-control-ring flex h-10 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-foreground shadow-inset"
                             onChange={(event) =>
                               setSickDayDrafts((current) =>
                                 current.map((candidate) =>
@@ -1687,7 +1687,7 @@ export function SettingsPage() {
                   );
                 })
               ) : (
-                <div className="rounded-sm border border-dashed border-white/10 bg-white/3 px-4 py-5 text-sm text-muted-foreground">
+                <div className="premium-empty rounded-xl px-4 py-5 text-sm text-muted-foreground">
                   No sick days added yet.
                 </div>
               )}
@@ -1700,7 +1700,7 @@ export function SettingsPage() {
               <p className="text-sm text-muted-foreground">Weekly slack and recovery protection keep the plan resilient when blocks move.</p>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="rounded-sm border border-white/6 bg-white/4 p-4">
+              <div className="premium-subpanel rounded-xl p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="font-medium text-foreground">Reserve Sunday evening as free time</p>
@@ -1717,7 +1717,7 @@ export function SettingsPage() {
                   />
                 </div>
               </div>
-              <div className="rounded-sm border border-white/6 bg-white/4 p-4">
+              <div className="premium-subpanel rounded-xl p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="font-medium text-foreground">Avoid late-night heavy blocks</p>
@@ -1778,7 +1778,7 @@ export function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               {subjects.map((subject) => (
-                <div key={subject.id} className="grid items-center gap-4 rounded-sm border border-white/6 bg-white/4 p-4 md:grid-cols-[minmax(0,1fr)_120px]">
+                <div key={subject.id} className="premium-subpanel grid items-center gap-4 rounded-xl p-4 md:grid-cols-[minmax(0,1fr)_120px]">
                   <div>
                     <SubjectBadge subjectId={subject.id} label={subject.name} />
                     <p className="mt-2 text-sm text-muted-foreground">{subject.description}</p>

@@ -9,7 +9,7 @@ export function AiAuthNotice({
   message?: string;
 }) {
   return (
-    <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+    <div className="premium-subpanel rounded-xl p-4">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-sm font-medium text-foreground">

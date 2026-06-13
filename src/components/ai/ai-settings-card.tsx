@@ -47,13 +47,13 @@ export function AiSettingsCard() {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+          <div className="premium-subpanel rounded-xl p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Frontend backend URL</p>
             <p className="mt-2 break-all text-sm text-foreground">
               {backendUrl || "NEXT_PUBLIC_AI_BACKEND_URL is not set"}
             </p>
           </div>
-          <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+          <div className="premium-subpanel rounded-xl p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Backend status</p>
             <p className="mt-2 text-sm text-foreground">
               {status
@@ -96,7 +96,7 @@ export function AiSettingsCard() {
           </div>
         </div>
 
-        <div className="rounded-sm border border-primary/20 bg-primary/8 p-4">
+        <div className="rounded-xl border border-primary/20 bg-primary/10 p-4 shadow-card">
           <div className="flex items-start gap-3">
             <Shield className="mt-0.5 h-4 w-4 text-primary" />
             <div className="space-y-1 text-sm text-muted-foreground">
@@ -113,7 +113,7 @@ export function AiSettingsCard() {
           </div>
         </div>
 
-        <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+        <div className="premium-subpanel rounded-xl p-4">
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="font-medium text-foreground">Private AI session</p>

@@ -97,7 +97,7 @@ export function NoSchoolDayDialog({
                 />
               </div>
 
-              <div className="rounded-sm border border-warning/25 bg-warning/10 px-4 py-3">
+              <div className="rounded-xl border border-warning/25 bg-warning/10 px-4 py-3 shadow-card">
                 <div className="flex gap-3 text-sm text-warning">
                   <CalendarX2 className="mt-0.5 h-4 w-4 shrink-0" />
                   <p>
@@ -106,7 +106,7 @@ export function NoSchoolDayDialog({
                 </div>
               </div>
 
-              <div className="rounded-sm border border-white/8 bg-white/4 px-4 py-3">
+              <div className="premium-subpanel rounded-xl px-4 py-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-medium text-foreground">
                     Saved no-school days ({sortedNoSchoolDays.length})

@@ -27,7 +27,7 @@ export function AiBlockPlanCard({
   }
 
   return (
-    <Card className="border-primary/20 bg-primary/8">
+    <Card className="border-primary/20 bg-primary/10">
       <CardHeader className="flex-row items-start justify-between">
         <div>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -76,7 +76,7 @@ export function AiBlockPlanCard({
               <PlanPanel label="If stuck" value={response.ifStuckFallback} />
             </div>
 
-            <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+            <div className="premium-subpanel rounded-xl p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Time budget</p>
               <div className="mt-3 space-y-2">
                 {response.timeBudget.map((item) => (
@@ -92,11 +92,11 @@ export function AiBlockPlanCard({
               </div>
             </div>
 
-            <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+            <div className="premium-subpanel rounded-xl p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Step-by-step plan</p>
               <div className="mt-3 space-y-3">
                 {response.stepByStepPlan.map((step, index) => (
-                  <div key={`${step.title}-${index}`} className="rounded-sm border border-white/8 bg-black/10 p-3">
+                  <div key={`${step.title}-${index}`} className="premium-subpanel rounded-xl p-3">
                     <div className="flex items-center justify-between gap-3">
                       <p className="font-medium text-foreground">{step.title}</p>
                       <Badge variant="default" className="px-2 py-0.5">
@@ -130,7 +130,7 @@ export function AiBlockPlanCard({
 
 function PlanPanel({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+    <div className="premium-subpanel rounded-xl p-4">
       <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{label}</p>
       <p className="mt-2 text-sm leading-6 text-foreground">{value}</p>
     </div>
@@ -139,7 +139,7 @@ function PlanPanel({ label, value }: { label: string; value: string }) {
 
 function ListPanel({ label, values }: { label: string; values: string[] }) {
   return (
-    <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+    <div className="premium-subpanel rounded-xl p-4">
       <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{label}</p>
       <div className="mt-3 space-y-2">
         {values.map((value) => (

@@ -13,7 +13,7 @@ export function TopHeader() {
   const backgroundReplanScope = usePlannerStore((state) => state.backgroundReplanScope);
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-white/8 bg-background/78 px-5 backdrop-blur-xl lg:px-8">
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-white/8 bg-background/78 px-5 shadow-[0_10px_42px_rgba(0,0,0,0.22)] backdrop-blur-xl lg:px-8">
       <div className="flex items-center gap-3">
         <Badge variant="muted" className="gap-1.5">
           <Database className="h-3.5 w-3.5" />

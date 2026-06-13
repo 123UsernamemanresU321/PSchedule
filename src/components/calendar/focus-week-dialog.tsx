@@ -82,7 +82,7 @@ export function FocusWeekDialog({
                   <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
                     Week
                   </label>
-                  <div className="rounded-sm border border-white/6 bg-white/4 px-4 py-3 text-sm text-foreground">
+                  <div className="premium-subpanel rounded-xl px-4 py-3 text-sm text-foreground">
                     {formatWeekRangeLabel(fromDateKey(effectiveWeekStart))}
                   </div>
                 </div>
@@ -90,7 +90,7 @@ export function FocusWeekDialog({
                   <label className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
                     Selected subjects
                   </label>
-                  <div className="rounded-sm border border-white/6 bg-white/4 px-4 py-3 text-sm text-foreground">
+                  <div className="premium-subpanel rounded-xl px-4 py-3 text-sm text-foreground">
                     {selectedSubjectNames.length
                       ? selectedSubjectNames.join(", ")
                       : "No focus subjects selected yet."}
@@ -110,7 +110,7 @@ export function FocusWeekDialog({
                         key={subject.id}
                         type="button"
                         data-testid={`focus-week-subject-${subject.id}`}
-                        className="flex items-start justify-between rounded-sm border px-4 py-3 text-left transition hover:bg-white/6"
+                        className="premium-control-ring flex items-start justify-between rounded-xl border px-4 py-3 text-left transition hover:bg-white/[0.07]"
                         style={
                           isSelected
                             ? getSubjectAccentStyles(subject.id)
@@ -153,7 +153,7 @@ export function FocusWeekDialog({
                 />
               </div>
 
-              <div className="rounded-sm border border-primary/20 bg-primary/8 px-4 py-3">
+              <div className="rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 shadow-card">
                 <p className="text-sm text-foreground">
                   Daily focus still wins on a specific date. Weekly focus fills the rest of the
                   visible week with the same majority-share focus rule.

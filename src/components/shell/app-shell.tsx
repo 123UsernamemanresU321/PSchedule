@@ -29,7 +29,7 @@ export function AppShell({
         <TopHeader />
         <main className="mx-auto max-w-[1680px] px-5 py-7 lg:px-8 lg:py-8">
           {error ? (
-            <Card className="mb-6 flex items-start gap-3 border-danger/30 bg-danger/8 p-4 text-danger">
+            <Card className="mb-6 flex items-start gap-3 border-danger/30 bg-danger/10 p-4 text-danger">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
                 <p className="font-medium">Planner error</p>
@@ -38,7 +38,7 @@ export function AppShell({
             </Card>
           ) : null}
           {initialized && horizonStatus !== "ready" && horizonStatus !== "regenerating" ? (
-            <Card className="mb-6 flex flex-col gap-3 border-warning/30 bg-warning/8 p-4 text-warning sm:flex-row sm:items-center sm:justify-between">
+            <Card className="mb-6 flex flex-col gap-3 border-warning/30 bg-warning/10 p-4 text-warning sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <div>
@@ -61,7 +61,7 @@ export function AppShell({
           ) : null}
           {!initialized && loading ? (
             <div className="flex min-h-[50vh] items-center justify-center">
-              <div className="flex items-center gap-3 rounded-full border border-white/8 bg-white/4 px-4 py-3 text-sm text-muted-foreground">
+              <div className="premium-panel flex items-center gap-3 rounded-full px-4 py-3 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Building the deterministic weekly plan…
               </div>

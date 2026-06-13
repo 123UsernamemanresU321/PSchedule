@@ -56,7 +56,7 @@ export function AiEventAssistantDialog({
           </CardHeader>
           <CardContent className="space-y-4">
             {!token ? (
-              <div className="rounded-sm border border-white/8 bg-white/4 p-4 text-sm text-muted-foreground">
+              <div className="premium-empty rounded-xl p-4 text-sm text-muted-foreground">
                 AI access is private. Sign in from Settings first.
               </div>
             ) : null}
@@ -105,14 +105,14 @@ export function AiEventAssistantDialog({
             </div>
             {error ? <p className="text-sm text-danger">{error}</p> : null}
             {response ? (
-              <div className="space-y-4 rounded-sm border border-white/8 bg-white/4 p-4">
+              <div className="premium-subpanel space-y-4 rounded-xl p-4">
                 <p className="text-sm text-foreground">{response.summary}</p>
                 {response.clarifyingQuestion ? (
                   <p className="text-sm text-warning">{response.clarifyingQuestion}</p>
                 ) : null}
                 <div className="space-y-2">
                   {response.actions.map((action, index) => (
-                    <div key={`${action.kind}-${index}`} className="rounded-sm border border-white/8 bg-background/40 p-3 text-sm text-foreground">
+                    <div key={`${action.kind}-${index}`} className="premium-subpanel rounded-xl p-3 text-sm text-foreground">
                       {action.kind === "fixed_event" ? (
                         <p>
                           Fixed event: {action.event.title} from {new Date(action.event.start).toLocaleString()} to{" "}

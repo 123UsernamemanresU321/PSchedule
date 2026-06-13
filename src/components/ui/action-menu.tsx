@@ -74,7 +74,7 @@ export function ActionMenu({
       {open ? (
         <div
           className={cn(
-            "absolute top-full z-40 mt-2 min-w-[13.5rem] overflow-hidden rounded-2xl border border-white/10 bg-[#121929]/96 p-1.5 shadow-[0_20px_45px_rgba(3,7,18,0.45)] backdrop-blur-xl",
+            "premium-panel-strong absolute top-full z-40 mt-2 min-w-[13.5rem] overflow-hidden rounded-xl p-1.5",
             align === "end" ? "right-0" : "left-0",
           )}
           role="menu"
@@ -85,7 +85,7 @@ export function ActionMenu({
               type="button"
               role="menuitem"
               data-testid={item.testId}
-              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-foreground transition hover:bg-white/8"
+              className="premium-control-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-foreground transition hover:bg-white/8"
               onClick={() => {
                 setOpen(false);
                 item.onSelect();

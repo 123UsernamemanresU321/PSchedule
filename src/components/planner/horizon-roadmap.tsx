@@ -25,10 +25,10 @@ export function HorizonRoadmap({
   const paceDelta = roundHoursToQuarter(summary.totalAssignedHours - summary.totalRequiredHours);
 
   return (
-    <Card className="overflow-hidden border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))]">
+    <Card className="overflow-hidden">
       <CardHeader className="flex-row items-start justify-between gap-4">
         <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/8 px-3 py-1 text-xs font-medium text-primary">
+          <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-blue-100 shadow-inset">
             <CalendarRange className="h-3.5 w-3.5" />
             Horizon through {summary.weeks[0]?.horizonEndDate ?? summary.endWeek}
           </div>
@@ -43,28 +43,28 @@ export function HorizonRoadmap({
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="grid gap-3 md:grid-cols-4">
-          <div className="rounded-md border border-white/8 bg-white/[0.04] p-4">
+          <div className="premium-subpanel rounded-xl p-4">
             <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
               <Target className="h-3.5 w-3.5" />
               Weeks left
             </div>
             <p className="mt-3 text-3xl font-semibold text-foreground">{summary.weeksRemaining}</p>
           </div>
-          <div className="rounded-md border border-white/8 bg-white/[0.04] p-4">
+          <div className="premium-subpanel rounded-xl p-4">
             <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
               <Gauge className="h-3.5 w-3.5" />
               Required pace
             </div>
             <p className="mt-3 text-3xl font-semibold text-foreground">{formatHoursValue(summary.totalRequiredHours)}h</p>
           </div>
-          <div className="rounded-md border border-white/8 bg-white/[0.04] p-4">
+          <div className="premium-subpanel rounded-xl p-4">
             <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
               <ArrowRight className="h-3.5 w-3.5" />
               Assigned
             </div>
             <p className="mt-3 text-3xl font-semibold text-foreground">{formatHoursValue(summary.totalAssignedHours)}h</p>
           </div>
-          <div className="rounded-md border border-white/8 bg-white/[0.04] p-4">
+          <div className="premium-subpanel rounded-xl p-4">
             <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
               <AlertTriangle className="h-3.5 w-3.5" />
               Risk weeks
@@ -88,7 +88,7 @@ export function HorizonRoadmap({
             return (
               <div
                 key={week.weekStart}
-                className="rounded-md border border-white/8 bg-white/[0.03] px-4 py-4"
+                className="premium-subpanel rounded-xl px-4 py-4"
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -106,7 +106,7 @@ export function HorizonRoadmap({
                     </span>
                   </div>
                 </div>
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/8">
+                <div className="mt-3 h-2.5 overflow-hidden rounded-full border border-white/8 bg-black/25 shadow-inset">
                   <div
                     className="h-full rounded-full bg-[linear-gradient(90deg,rgba(59,130,246,0.95),rgba(45,212,191,0.95))]"
                     style={{ width: `${Math.min(ratio * 100, 100)}%` }}

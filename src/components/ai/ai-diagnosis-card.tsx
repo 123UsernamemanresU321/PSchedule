@@ -78,11 +78,11 @@ export function AiDiagnosisCard({
         {error ? <p className="text-sm text-danger">{error}</p> : null}
         {response ? (
           <>
-            <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+            <div className="premium-subpanel rounded-xl p-4">
               <p className="text-sm leading-6 text-foreground">{response.summary}</p>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+              <div className="premium-subpanel rounded-xl p-4">
                 <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Root causes</p>
                 <ul className="mt-3 space-y-2 text-sm text-foreground">
                   {response.rootCauses.map((cause) => (
@@ -90,7 +90,7 @@ export function AiDiagnosisCard({
                   ))}
                 </ul>
               </div>
-              <div className="rounded-sm border border-white/8 bg-white/4 p-4">
+              <div className="premium-subpanel rounded-xl p-4">
                 <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Recommended actions</p>
                 <ul className="mt-3 space-y-2 text-sm text-foreground">
                   {response.recommendedActions.map((action) => (
@@ -100,7 +100,7 @@ export function AiDiagnosisCard({
               </div>
             </div>
             {response.warnings.length ? (
-              <div className="rounded-sm border border-warning/20 bg-warning/10 p-4">
+              <div className="rounded-xl border border-warning/20 bg-warning/10 p-4 shadow-card">
                 <p className="text-xs uppercase tracking-[0.2em] text-warning">Warnings</p>
                 <ul className="mt-3 space-y-2 text-sm text-foreground">
                   {response.warnings.map((warning) => (

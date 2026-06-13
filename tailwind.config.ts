@@ -14,6 +14,7 @@ const config: Config = {
         foreground: "hsl(var(--foreground))",
         surface: "hsl(var(--surface))",
         "surface-2": "hsl(var(--surface-2))",
+        "surface-3": "hsl(var(--surface-3))",
         border: "hsl(var(--border))",
         muted: "hsl(var(--muted))",
         "muted-foreground": "hsl(var(--muted-foreground))",
@@ -56,8 +57,9 @@ const config: Config = {
         xl: "32px",
       },
       boxShadow: {
-        panel: "0 24px 56px rgba(2, 6, 23, 0.42)",
-        inset: "inset 0 1px 0 rgba(255, 255, 255, 0.04)",
+        panel: "var(--shadow-panel)",
+        card: "var(--shadow-card)",
+        inset: "inset 0 1px 0 rgba(255, 255, 255, 0.06)",
       },
       fontFamily: {
         sans: ["var(--font-body)"],
