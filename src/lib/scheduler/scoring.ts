@@ -153,8 +153,15 @@ export function scoreTaskCandidate(
     task.studyLayer === "learning" &&
     task.subjectId &&
     ["maths-aa-hl", "physics-hl", "chemistry-hl"].includes(task.subjectId);
+  const isOlympiadBplusContentLearning =
+    task.kind === "topic" &&
+    task.subjectId === "olympiad" &&
+    task.studyLayer === "learning" &&
+    task.sessionMode !== "exam" &&
+    !!task.olympiadStrand;
 
-  const coreSyllabusBonus = isCoreSyllabusLearning ? 1000 : 0;
+  const coreSyllabusBonus =
+    isCoreSyllabusLearning || isOlympiadBplusContentLearning ? 1000 : 0;
   const orderPenalty = getOrderPenalty(task);
 
   const total =
@@ -220,7 +227,7 @@ export function buildGeneratedReason(
       value: scoreBreakdown.focusDayBonus,
     },
     {
-      label: "core syllabus completion is absolute priority",
+      label: "core content completion is absolute priority",
       value: scoreBreakdown.coreSyllabusBonus ?? 0,
     },
   ]

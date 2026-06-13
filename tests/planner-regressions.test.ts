@@ -8186,6 +8186,49 @@ test("olympiad scoring is not suppressed by global seed order", () => {
   assert.ok(score.olympiadSlotBonus >= 11, "expected prime Olympiad slots to receive an active score bump");
 });
 
+test("full mixed horizon schedules Olympiad B+ content before stale mock backlog dominates", () => {
+  const referenceDate = new Date("2026-06-13T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const result = generateStudyPlanHorizon({
+    startWeek: referenceDate,
+    referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    completionLogs: [],
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+    existingStudyBlocks: [],
+  });
+  const topicById = new Map(dataset.topics.map((topic) => [topic.id, topic]));
+  const firstOlympiadBlocks = result.studyBlocks
+    .filter((block) => block.subjectId === "olympiad")
+    .slice(0, 12);
+  const strandContentBlocks = firstOlympiadBlocks.filter((block) => {
+    const topic = block.topicId ? topicById.get(block.topicId) : null;
+    return (
+      topic?.subjectId === "olympiad" &&
+      ["olympiad-geo", "olympiad-alg", "olympiad-nt", "olympiad-combi"].includes(
+        topic.sequenceGroup ?? "",
+      ) &&
+      (topic.sessionMode ?? "flexible") !== "exam"
+    );
+  });
+  const strandCount = new Set(
+    strandContentBlocks.map((block) => topicById.get(block.topicId ?? "")?.sequenceGroup),
+  ).size;
+
+  assert.ok(
+    strandContentBlocks.length >= 4 && strandCount >= 3,
+    `expected early Olympiad blocks to include multiple B+ strand content sessions, got ${firstOlympiadBlocks
+      .map((block) => block.title)
+      .join(" | ")}`,
+  );
+});
+
 test("olympiad B+ seed keeps geometry, algebra, NT, combinatorics, and contest contact inside a school-term week", () => {
   const dataset = buildSeedDataset(new Date("2026-04-07T08:00:00"));
   const firstWeekTopics = dataset.topics.filter(

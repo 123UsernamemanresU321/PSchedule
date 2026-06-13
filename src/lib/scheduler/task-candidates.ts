@@ -119,6 +119,23 @@ function isStrictMathsAaHlTopic(topic: Topic) {
   );
 }
 
+function isOlympiadStrandContentTopic(topic: Topic) {
+  return (
+    topic.subjectId === "olympiad" &&
+    !!getOlympiadStrandForTopic(topic) &&
+    (topic.sessionMode ?? "flexible") !== "exam" &&
+    !isDedicatedReviewTopic(topic)
+  );
+}
+
+function canPullForwardRoadmapAvailability(topic: Topic) {
+  if (topic.subjectId !== "olympiad") {
+    return true;
+  }
+
+  return isOlympiadStrandContentTopic(topic);
+}
+
 function getCachedDateKeyStart(dateKey: string) {
   const cached = DATE_KEY_START_CACHE.get(dateKey);
   if (cached) {
@@ -594,6 +611,7 @@ function resolveTopicTimingWindow(
 
   if (
     options?.allowAvailabilityPullForward &&
+    canPullForwardRoadmapAvailability(topic) &&
     roadmapAvailableAt &&
     availableAt &&
     availableAt.getTime() === roadmapAvailableAt.getTime() &&
@@ -620,7 +638,7 @@ export function buildTaskCandidates(options: {
   subjectDeadlinesById: Record<string, string>;
   goals: Goal[];
   availabilityOverrideSubjectIds?: string[];
-  availabilityPullForwardCutoff?: Date;
+  availabilityPullForwardCutoff?: Date | null;
 }) {
   const {
     topics,
@@ -633,7 +651,10 @@ export function buildTaskCandidates(options: {
     availabilityOverrideSubjectIds = [],
   } = options;
   const planningWeekEnd = endOfPlannerWeek(referenceDate);
-  const availabilityPullForwardCutoff = options.availabilityPullForwardCutoff ?? planningWeekEnd;
+  const availabilityPullForwardCutoff =
+    options.availabilityPullForwardCutoff === null
+      ? undefined
+      : options.availabilityPullForwardCutoff ?? planningWeekEnd;
   const weekEnd = addDays(endOfPlannerWeek(referenceDate), 3);
   const completionLogStudyBlockIds = completionLogs.length
     ? new Set(

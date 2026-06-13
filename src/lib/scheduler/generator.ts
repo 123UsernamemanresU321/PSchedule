@@ -71,6 +71,7 @@ const MAX_CHAIN_UNLOCK_CLEANUP_PASSES = 64;
 const OLYMPIAD_ROADMAP_PULL_FORWARD_DAYS = 21;
 const OLYMPIAD_WEEKLY_CONTINUITY_BONUS = 1100;
 const OLYMPIAD_SCHOOL_TERM_CONTINUITY_BONUS = 1080;
+const OLYMPIAD_NON_CONTENT_CONTINUITY_MULTIPLIER = 0.15;
 const OLYMPIAD_SCHOOL_TERM_DAILY_CONTINUITY_LIMIT_MINUTES = 120;
 const CONTINUITY_BONUS = 5.5;
 const SOFT_COMMITMENT_REDUCTION_STEP_MINUTES = 30;
@@ -1874,7 +1875,7 @@ function allocateTasksToSlots(options: {
   focusedSubjectsByDate?: Record<string, string[]>;
   allowLargeGapAbsorption?: boolean;
   availabilityOverrideSubjectIds?: Subject["id"][];
-  availabilityPullForwardCutoff?: Date;
+  availabilityPullForwardCutoff?: Date | null;
   olympiadLoadMultiplier?: number;
   olympiadWeaknessStrand?: "geometry" | "algebra" | "number-theory" | "combinatorics" | null;
   isFinalPass?: boolean;
@@ -2358,6 +2359,25 @@ function allocateTasksToSlots(options: {
     return 8 * 60;
   }
 
+  function isOlympiadBplusContentTask(task: TaskCandidate) {
+    return (
+      task.subjectId === "olympiad" &&
+      task.kind === "topic" &&
+      task.studyLayer === "learning" &&
+      task.sessionMode !== "exam" &&
+      !!task.olympiadStrand &&
+      !task.followUpKind
+    );
+  }
+
+  function getOlympiadContinuityBonus(task: TaskCandidate, baseBonus: number) {
+    if (isOlympiadBplusContentTask(task)) {
+      return baseBonus;
+    }
+
+    return baseBonus * OLYMPIAD_NON_CONTENT_CONTINUITY_MULTIPLIER;
+  }
+
   function getDailyFillHierarchyAdjustment(task: TaskCandidate, dateKey: string) {
     if (!task.subjectId) {
       return 0;
@@ -2384,7 +2404,7 @@ function allocateTasksToSlots(options: {
     adjustment += backlogHours * 1.5;
 
     if (task.subjectId === "olympiad" && weeklyAssignedMinutes < MIN_ALLOCATABLE_MINUTES) {
-      adjustment += OLYMPIAD_WEEKLY_CONTINUITY_BONUS;
+      adjustment += getOlympiadContinuityBonus(task, OLYMPIAD_WEEKLY_CONTINUITY_BONUS);
     }
 
     if (
@@ -2393,7 +2413,7 @@ function allocateTasksToSlots(options: {
       weeklyAssignedMinutes < getSchoolTermOlympiadContinuityTargetMinutes() &&
       dailyAssignedMinutes < OLYMPIAD_SCHOOL_TERM_DAILY_CONTINUITY_LIMIT_MINUTES
     ) {
-      adjustment += OLYMPIAD_SCHOOL_TERM_CONTINUITY_BONUS;
+      adjustment += getOlympiadContinuityBonus(task, OLYMPIAD_SCHOOL_TERM_CONTINUITY_BONUS);
     }
 
     if (softMaintenanceSubjectIds.includes(task.subjectId as (typeof softMaintenanceSubjectIds)[number])) {
@@ -3613,10 +3633,18 @@ export function generateStudyPlanForWeek(options: {
     ]),
   ) as Subject["id"][];
   const focusedAvailabilityOverrideSubjectIds = new Set(Object.values(focusedSubjectsByDate).flat());
-  const availabilityPullForwardCutoff =
-    focusedAvailabilityOverrideSubjectIds.size > 0
-      ? addDays(endOfPlannerWeek(weekStart), 7)
-      : addDays(endOfPlannerWeek(weekStart), OLYMPIAD_ROADMAP_PULL_FORWARD_DAYS);
+  const hasCoverageRescueOlympiadPullForward = coverageRescueSubjectIds.includes("olympiad");
+  const availabilityPullForwardCutoff = (() => {
+    if (hasCoverageRescueOlympiadPullForward) {
+      return null;
+    }
+
+    if (focusedAvailabilityOverrideSubjectIds.size > 0) {
+      return addDays(endOfPlannerWeek(weekStart), 7);
+    }
+
+    return addDays(endOfPlannerWeek(weekStart), OLYMPIAD_ROADMAP_PULL_FORWARD_DAYS);
+  })();
   const weekStartKey = toDateKey(weekStart);
   const schoolTermTemplate = buildSchoolTermWeekTemplate({
     weekStart,
@@ -3972,6 +4000,7 @@ export function generateStudyPlanForWeek(options: {
         subjectDeadlinesById,
         goals: options.goals,
         availabilityOverrideSubjectIds,
+        availabilityPullForwardCutoff,
       });
     }
   }
