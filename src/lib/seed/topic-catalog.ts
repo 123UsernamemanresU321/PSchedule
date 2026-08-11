@@ -258,7 +258,7 @@ function annotateAndRetuneGuideMetadata(blueprints: SeedTopicBlueprint[]) {
     };
   });
 }
-function buildRotatingPaperCycleWeeks(startDate = "2026-09-07") {
+function buildRotatingPaperCycleWeeks(startDate = "2026-11-02") {
   const weeks: Array<{ label: string; availableFrom: string }> = [];
   let cursor = new Date(`${startDate}T00:00:00`);
   const end = new Date("2027-06-28T00:00:00");
@@ -370,7 +370,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
       reviewBlockTypes: ["standard_focus", "review"] as BlockType[],
       sourceLabel: "Maths AA HL past paper set",
       reviewSourceLabel: "Maths AA HL past paper review",
-      firstAvailableFrom: "2026-09-07",
+      firstAvailableFrom: "2026-11-02",
       paperSpecs: [
         { paperIdSuffix: "paper-1", paperLabel: "Paper 1", durationMinutes: 120, reviewDurationMinutes: 90 },
         { paperIdSuffix: "paper-2", paperLabel: "Paper 2", durationMinutes: 120, reviewDurationMinutes: 90 },
@@ -385,7 +385,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
       reviewBlockTypes: ["deep_work", "standard_focus"] as BlockType[],
       sourceLabel: "Physics HL past paper set",
       reviewSourceLabel: "Physics HL past paper review",
-      firstAvailableFrom: "2026-09-07",
+      firstAvailableFrom: "2026-11-02",
       paperSpecs: [
         { paperIdSuffix: "paper-1ab", paperLabel: "Paper 1A/1B", durationMinutes: 150, reviewDurationMinutes: 90 },
         { paperIdSuffix: "paper-2", paperLabel: "Paper 2", durationMinutes: 150, reviewDurationMinutes: 120 },
@@ -399,7 +399,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
       reviewBlockTypes: ["deep_work", "standard_focus"] as BlockType[],
       sourceLabel: "Chemistry HL past paper set",
       reviewSourceLabel: "Chemistry HL past paper review",
-      firstAvailableFrom: "2026-09-07",
+      firstAvailableFrom: "2026-11-02",
       paperSpecs: [
         { paperIdSuffix: "paper-1ab", paperLabel: "Paper 1A/1B", durationMinutes: 150, reviewDurationMinutes: 90 },
         { paperIdSuffix: "paper-2", paperLabel: "Paper 2", durationMinutes: 150, reviewDurationMinutes: 120 },
@@ -413,7 +413,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
       reviewBlockTypes: ["drill", "review"] as BlockType[],
       sourceLabel: "Geography HL past paper set",
       reviewSourceLabel: "Geography HL past paper review",
-      firstAvailableFrom: "2026-09-07",
+      firstAvailableFrom: "2026-11-02",
       paperSpecs: [
         { paperIdSuffix: "paper-1", paperLabel: "Paper 1", durationMinutes: 135, reviewDurationMinutes: 90 },
         { paperIdSuffix: "paper-2", paperLabel: "Paper 2", durationMinutes: 75, reviewDurationMinutes: 60 },
@@ -428,7 +428,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
       reviewBlockTypes: ["drill", "review"] as BlockType[],
       sourceLabel: "English A SL past paper set",
       reviewSourceLabel: "English A SL past paper review",
-      firstAvailableFrom: "2026-09-07",
+      firstAvailableFrom: "2026-11-02",
       paperSpecs: [
         { paperIdSuffix: "paper-1", paperLabel: "Paper 1", durationMinutes: 75, reviewDurationMinutes: 60 },
         { paperIdSuffix: "paper-2", paperLabel: "Paper 2", durationMinutes: 105, reviewDurationMinutes: 75 },
@@ -442,7 +442,7 @@ function buildRotatingPaperCycleBlueprints(): SeedTopicBlueprint[] {
       reviewBlockTypes: ["review", "drill"] as BlockType[],
       sourceLabel: "French Ab Initio past paper set",
       reviewSourceLabel: "French Ab Initio past paper review",
-      firstAvailableFrom: "2026-09-07",
+      firstAvailableFrom: "2026-11-02",
       paperSpecs: [
         { paperIdSuffix: "paper-1", paperLabel: "Paper 1", durationMinutes: 60, reviewDurationMinutes: 45 },
         { paperIdSuffix: "paper-2", paperLabel: "Paper 2", durationMinutes: 105, reviewDurationMinutes: 60 },

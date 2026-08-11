@@ -34,14 +34,14 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-06-02-school-paper-rotation-v64";
+const PLANNING_MODEL_VERSION = "2026-08-11-hl-milestones-oct-31-v65";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-30-olympiad-final-june-v12";
 const PREFERENCE_DEFAULTS_VERSION = "2026-05-01-french-tune-up-commitments-v4";
-const EXTENDED_GOALS_VERSION = "2026-05-12-first-milestones-sept-7-v10";
+const EXTENDED_GOALS_VERSION = "2026-08-11-first-milestones-oct-31-v11";
 const LANGUAGE_MAINTENANCE_VERSION = "2026-06-02-school-paper-rotation-v6";
-const SEED_TOPIC_ORDERING_VERSION = "2026-06-02-school-paper-rotation-v10";
+const SEED_TOPIC_ORDERING_VERSION = "2026-08-11-school-paper-start-nov-2-v11";
 const STALE_PLANNING_MODEL_VERSION = "stale";
 const AUTO_MARKED_MISSED_NOTE_PREFIX = "Auto-marked missed after the block ended";
 const LAST_HORIZON_GENERATED_AT_META_KEY = "last-horizon-generated-at";
