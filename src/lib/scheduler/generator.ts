@@ -198,6 +198,14 @@ function isCapacityBlockingStudyBlock(block: StudyBlock) {
   return !!block.subjectId || isPlannedStudyBreakBlock(block);
 }
 
+export function reclaimGenericRecoveryBlocksForForcedCoverage(
+  blocks: StudyBlock[],
+) {
+  return blocks.filter(
+    (block) => !!block.subjectId || isPlannedStudyBreakBlock(block),
+  );
+}
+
 const HARD_SCOPE_PRIORITY_BY_SUBJECT = Object.fromEntries(
   zeroUnscheduledCoverageSubjectIds.map((subjectId, index) => [
     subjectId,
@@ -4533,14 +4541,8 @@ export function generateStudyPlanForWeek(options: {
         (block) => !block.subjectId && !isPlannedStudyBreakBlock(block),
       )
     ) {
-      const reclaimedRecoveryIds = new Set(
-        scheduledBlocks
-          .filter(
-            (block) => !block.subjectId && !isPlannedStudyBreakBlock(block),
-          )
-          .map((block) => block.id),
-      );
-      const preservedBlocks = scheduledBlocks.filter((block) => !reclaimedRecoveryIds.has(block.id));
+      const preservedBlocks =
+        reclaimGenericRecoveryBlocksForForcedCoverage(scheduledBlocks);
       scheduledBlocks.length = 0;
       scheduledBlocks.push(...preservedBlocks);
     }

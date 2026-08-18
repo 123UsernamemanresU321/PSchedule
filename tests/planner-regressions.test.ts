@@ -33,6 +33,7 @@ import {
   generateStudyPlanHorizon,
   getPlanningHorizonEndWeek,
   getInlineBreakMinutes,
+  reclaimGenericRecoveryBlocksForForcedCoverage,
   selectEffectiveReservedCommitmentPlanForWeek,
   shouldPreserveStudyBlockOnRegeneration,
 } from "@/lib/scheduler/generator";
@@ -1108,7 +1109,7 @@ test("complete post-break probing preserves an exact template continuation", () 
   assertNoStudyBlockOverlaps(result.studyBlocks);
 });
 
-test("configured 30-minute breaks survive late forced coverage and recovery reclamation", () => {
+test("configured 30-minute breaks survive late forced coverage", () => {
   const baseFixture = buildBreakAllocationFixture({ breaksEnabled: true });
   const exactTopic: Topic = {
     ...baseFixture.topics[0],
@@ -1164,11 +1165,58 @@ test("configured 30-minute breaks survive late forced coverage and recovery recl
   );
   assert.ok(exactBlock);
   assert.equal(breakBlocks[0].end, exactBlock.start);
-  assert.equal(
-    result.studyBlocks.some((block) => block.title === "Recovery / buffer"),
-    false,
-  );
+  assert.ok(result.weeklyPlan.forcedCoverageMinutes >= exactBlock.estimatedMinutes);
   assertNoStudyBlockOverlaps(result.studyBlocks);
+});
+
+test("forced coverage reclaims generic recovery but preserves a planned break", () => {
+  const dateKey = "2026-08-17";
+  const recoveryBlock = createStudyBlock({
+    id: "generic-recovery-before-forced-coverage",
+    date: dateKey,
+    start: "2026-08-17T08:00:00.000Z",
+    end: "2026-08-17T08:30:00.000Z",
+    subjectId: null,
+    topicId: null,
+    title: "Recovery / buffer",
+    blockType: "recovery",
+    intensity: "light",
+    estimatedMinutes: 30,
+  });
+  const plannedBreak = buildPlannedStudyBreakBlock({
+    weekStart: dateKey,
+    dateKey,
+    start: new Date("2026-08-17T08:30:00.000Z"),
+    durationMinutes: 30,
+    slotEnergy: "steady",
+  });
+  const studyBlock = createStudyBlock({
+    id: "study-before-forced-coverage",
+    date: dateKey,
+    start: "2026-08-17T09:00:00.000Z",
+    end: "2026-08-17T09:30:00.000Z",
+    estimatedMinutes: 30,
+  });
+  const beforeForcedCoverage = [recoveryBlock, plannedBreak, studyBlock];
+
+  assert.equal(
+    beforeForcedCoverage.some(
+      (block) =>
+        block.title === "Recovery / buffer" &&
+        !isPlannedStudyBreakBlock(block),
+    ),
+    true,
+  );
+  assert.equal(beforeForcedCoverage.some(isPlannedStudyBreakBlock), true);
+
+  const afterForcedCoverage = reclaimGenericRecoveryBlocksForForcedCoverage(
+    beforeForcedCoverage,
+  );
+  const remainingIds = afterForcedCoverage.map((block) => block.id);
+
+  assert.equal(remainingIds.includes(recoveryBlock.id), false);
+  assert.equal(remainingIds.includes(plannedBreak.id), true);
+  assert.equal(remainingIds.includes(studyBlock.id), true);
 });
 
 test("planned breaks survive cleanup and saturation across a dependency chain", () => {
@@ -1320,45 +1368,208 @@ test("micro-gap absorption cannot cross a configured 30-minute cadence boundary"
   assert.equal(preservedBreak?.end, breakBlock.end);
 });
 
-test("30-minute continuity resets only at effective pauses and never crosses dates", () => {
-  const firstDayStudy = createStudyBlock({
-    id: "first-day-continuity",
-    date: "2026-08-18",
-    start: "2026-08-18T09:00:00.000Z",
-    end: "2026-08-18T10:30:00.000Z",
-    estimatedMinutes: 90,
+test("generated study inserts a 30-minute break after a 29-minute hard pause", () => {
+  const fixture = buildBreakAllocationFixture({
+    breaksEnabled: true,
+    minBreakMinutes: 30,
+    studyWindowEnd: "12:00",
+    naturalPause: { start: "10:30", end: "10:59" },
   });
-  const subEffectivePause = getStudyContinuityContext({
-    blocks: [firstDayStudy],
-    dateKey: "2026-08-18",
-    cursor: new Date("2026-08-18T10:45:00.000Z"),
-    resetMinutes: 30,
+  const result = generateStudyPlanForWeek({
+    ...fixture,
+    completionLogs: [],
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    existingPlannedBlocks: [],
+    fillAvailableStudyDays: true,
   });
-  const effectivePause = getStudyContinuityContext({
-    blocks: [firstDayStudy],
-    dateKey: "2026-08-18",
-    cursor: new Date("2026-08-18T11:00:00.000Z"),
-    resetMinutes: 30,
-  });
-  const nextDate = getStudyContinuityContext({
-    blocks: [
-      firstDayStudy,
-      createStudyBlock({
-        id: "next-day-adjacent",
-        date: "2026-08-19",
-        start: "2026-08-19T00:00:00.000Z",
-        end: "2026-08-19T00:30:00.000Z",
-        estimatedMinutes: 30,
-      }),
-    ],
-    dateKey: "2026-08-19",
-    cursor: new Date("2026-08-19T00:30:00.000Z"),
-    resetMinutes: 30,
-  });
+  const pauseStart = createDateAtTime(fixture.weekStart, "10:30");
+  const pauseEnd = createDateAtTime(fixture.weekStart, "10:59");
+  const subjectBlocks = result.studyBlocks.filter((block) => block.subjectId);
+  const studyBeforePause = subjectBlocks.filter(
+    (block) => new Date(block.end).getTime() <= pauseStart.getTime(),
+  );
+  const continuation = subjectBlocks.find(
+    (block) => new Date(block.start).getTime() >= pauseEnd.getTime(),
+  );
+  const plannedBreak = result.studyBlocks.find(
+    (block) =>
+      isPlannedStudyBreakBlock(block) &&
+      new Date(block.start).getTime() >= pauseEnd.getTime(),
+  );
 
-  assert.equal(subEffectivePause.continuousStudyMinutes, 90);
-  assert.equal(effectivePause.continuousStudyMinutes, 0);
-  assert.equal(nextDate.continuousStudyMinutes, 30);
+  assert.equal(
+    studyBeforePause.reduce((total, block) => total + block.estimatedMinutes, 0),
+    90,
+  );
+  assert.ok(continuation);
+  assert.ok(plannedBreak);
+  assert.equal(plannedBreak.estimatedMinutes, 30);
+  assert.equal(plannedBreak.start, pauseEnd.toISOString());
+  assert.equal(plannedBreak.end, continuation.start);
+  assertNoStudyBlockOverlaps(result.studyBlocks);
+});
+
+test("generated study does not duplicate a break after a 30-minute hard pause", () => {
+  const fixture = buildBreakAllocationFixture({
+    breaksEnabled: true,
+    minBreakMinutes: 30,
+    studyWindowEnd: "12:00",
+    naturalPause: { start: "10:30", end: "11:00" },
+  });
+  const result = generateStudyPlanForWeek({
+    ...fixture,
+    completionLogs: [],
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    existingPlannedBlocks: [],
+    fillAvailableStudyDays: true,
+  });
+  const pauseStart = createDateAtTime(fixture.weekStart, "10:30");
+  const pauseEnd = createDateAtTime(fixture.weekStart, "11:00");
+  const subjectBlocks = result.studyBlocks.filter((block) => block.subjectId);
+  const studyBeforePause = subjectBlocks.filter(
+    (block) => new Date(block.end).getTime() <= pauseStart.getTime(),
+  );
+  const continuation = subjectBlocks.find(
+    (block) => new Date(block.start).getTime() >= pauseEnd.getTime(),
+  );
+
+  assert.equal(
+    studyBeforePause.reduce((total, block) => total + block.estimatedMinutes, 0),
+    90,
+  );
+  assert.ok(continuation);
+  assert.equal(continuation.start, pauseEnd.toISOString());
+  assert.equal(result.studyBlocks.some(isPlannedStudyBreakBlock), false);
+  assertNoStudyBlockOverlaps(result.studyBlocks);
+});
+
+test("generated study continuity never carries between consecutive dates", () => {
+  const weekStart = new Date("2026-08-17T00:00:00");
+  const referenceDate = createDateAtTime(weekStart, "00:00");
+  const nextDate = addDays(weekStart, 1);
+  const dataset = buildSeedDataset(referenceDate);
+  const physicsSubject = dataset.subjects.find(
+    (subject) => subject.id === "physics-hl",
+  );
+  const baseTopic = dataset.topics.find(
+    (topic) =>
+      topic.subjectId === "physics-hl" &&
+      !topic.unitId.includes("past-papers"),
+  );
+  assert.ok(physicsSubject);
+  assert.ok(baseTopic);
+  const studyWindow = { start: "00:00", end: "01:00" };
+  const preferences: Preferences = {
+    ...dataset.preferences,
+    breaksEnabled: true,
+    minBreakMinutes: 30,
+    weeklyBufferRatio: 0,
+    dailyStudyWindow: studyWindow,
+    preferredDeepWorkWindows: [],
+    reservedCommitmentRules: [],
+    lockedRecoveryWindows: [],
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: false,
+    },
+    holidaySchedule: {
+      ...dataset.preferences.holidaySchedule,
+      enabled: true,
+      dailyStudyWindow: studyWindow,
+      preferredDeepWorkWindows: [],
+    },
+  };
+  const topic: Topic = {
+    ...baseTopic,
+    id: "physics-consecutive-date-break-boundary",
+    unitId: "physics-consecutive-date-break-boundary",
+    unitTitle: "Consecutive date break boundary",
+    title: "Consecutive date break boundary",
+    estHours: 0.5,
+    completedHours: 0,
+    availableFrom: null,
+    dependsOnTopicId: null,
+    minDaysAfterDependency: null,
+    maxDaysAfterDependency: null,
+    sessionMode: "flexible",
+    exactSessionMinutes: null,
+    order: 1,
+  };
+  const priorDateStudy = createStudyBlock({
+    id: "prior-date-continuous-study",
+    weekStart: toDateKey(weekStart),
+    date: toDateKey(weekStart),
+    start: createDateAtTime(weekStart, "22:30").toISOString(),
+    end: createDateAtTime(nextDate, "00:00").toISOString(),
+    subjectId: "cpp-book",
+    topicId: "prior-date-continuous-study",
+    estimatedMinutes: 90,
+    assignmentLocked: true,
+  });
+  const fixedEvents: FixedEvent[] = [
+    {
+      id: "block-prior-date-window",
+      title: "Block prior date window",
+      start: createDateAtTime(weekStart, "00:00").toISOString(),
+      end: createDateAtTime(weekStart, "22:30").toISOString(),
+      isAllDay: false,
+      recurrence: "none",
+      flexibility: "fixed",
+      category: "activity",
+    },
+    ...Array.from({ length: 5 }, (_, index) => {
+      const date = addDays(weekStart, index + 2);
+      return {
+        id: `blocked-consecutive-date-${toDateKey(date)}`,
+        title: "Blocked day",
+        start: createDateAtTime(date, "00:00").toISOString(),
+        end: createDateAtTime(date, "23:59").toISOString(),
+        isAllDay: false,
+        recurrence: "none" as const,
+        flexibility: "fixed" as const,
+        category: "activity" as const,
+      };
+    }),
+  ];
+  const result = generateStudyPlanForWeek({
+    weekStart,
+    referenceDate,
+    goals: [
+      {
+        id: "goal-consecutive-date-break-boundary",
+        title: "Schedule consecutive date work",
+        subjectId: "physics-hl",
+        deadline: toDateKey(nextDate),
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [physicsSubject],
+    topics: [topic],
+    completionLogs: [],
+    fixedEvents,
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    preferences,
+    lockedBlocks: [priorDateStudy],
+    existingPlannedBlocks: [priorDateStudy],
+    fillAvailableStudyDays: false,
+  });
+  const continuation = result.studyBlocks.find(
+    (block) =>
+      block.topicId === topic.id &&
+      block.date === toDateKey(nextDate),
+  );
+
+  assert.ok(continuation);
+  assert.equal(continuation.start, createDateAtTime(nextDate, "00:00").toISOString());
+  assert.equal(result.studyBlocks.some(isPlannedStudyBreakBlock), false);
+  assertNoStudyBlockOverlaps(result.studyBlocks);
 });
 
 test("continuity walks backward across subjects but resets at a natural gap", () => {
