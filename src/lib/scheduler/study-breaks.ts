@@ -107,7 +107,8 @@ export function getStudyContinuityContext(options: {
 
   let continuousStudyMinutes = 0;
   let sameSubjectRunMinutes = 0;
-  let currentSubjectId: SubjectId | null = null;
+  let finalRunSubjectId: SubjectId | null = null;
+  let finalRunIsContiguous = true;
   let boundaryTime = cursorTime;
   const resetMinutes = Math.max(0, options.resetMinutes);
 
@@ -124,11 +125,14 @@ export function getStudyContinuityContext(options: {
     if (block.subjectId !== null) {
       const durationMinutes = getBlockDurationMinutes(block);
       continuousStudyMinutes += durationMinutes;
-      sameSubjectRunMinutes =
-        currentSubjectId === block.subjectId
-          ? sameSubjectRunMinutes + durationMinutes
-          : durationMinutes;
-      currentSubjectId = block.subjectId;
+      if (finalRunSubjectId === null) {
+        finalRunSubjectId = block.subjectId;
+        sameSubjectRunMinutes = durationMinutes;
+      } else if (finalRunIsContiguous && finalRunSubjectId === block.subjectId) {
+        sameSubjectRunMinutes += durationMinutes;
+      } else {
+        finalRunIsContiguous = false;
+      }
     }
 
     boundaryTime = blockStartTime;

@@ -333,6 +333,27 @@ test("a persisted planned break resets continuous study", () => {
   });
 
   assert.equal(isPlannedStudyBreakBlock(breakBlock), true);
+  assert.equal(
+    isPlannedStudyBreakBlock({
+      ...breakBlock,
+      title: "Recovery / buffer",
+    }),
+    false,
+  );
+  assert.equal(
+    isPlannedStudyBreakBlock({
+      ...breakBlock,
+      blockType: "standard_focus",
+    }),
+    false,
+  );
+  assert.equal(
+    isPlannedStudyBreakBlock({
+      ...breakBlock,
+      subjectId: "physics-hl",
+    }),
+    false,
+  );
   assert.deepEqual(
     {
       subjectId: breakBlock.subjectId,
@@ -418,6 +439,80 @@ test("continuity walks backward across subjects but resets at a natural gap", ()
   assert.equal(context.sameSubjectRunMinutes, 30);
   assert.equal(context.previousSubjectId, "chemistry-hl");
   assert.equal(context.followsPlannedBreak, false);
+});
+
+test("continuity reports the latest chronological subject run", () => {
+  const interleavedContext = getStudyContinuityContext({
+    blocks: [
+      createStudyBlock({
+        id: "maths-first",
+        date: "2026-08-18",
+        start: "2026-08-18T08:00:00.000Z",
+        end: "2026-08-18T09:00:00.000Z",
+        estimatedMinutes: 60,
+        subjectId: "maths-aa-hl",
+      }),
+      createStudyBlock({
+        id: "physics",
+        date: "2026-08-18",
+        start: "2026-08-18T09:00:00.000Z",
+        end: "2026-08-18T10:00:00.000Z",
+        estimatedMinutes: 60,
+        subjectId: "physics-hl",
+      }),
+      createStudyBlock({
+        id: "maths-final",
+        date: "2026-08-18",
+        start: "2026-08-18T10:00:00.000Z",
+        end: "2026-08-18T10:30:00.000Z",
+        estimatedMinutes: 30,
+        subjectId: "maths-aa-hl",
+      }),
+    ],
+    dateKey: "2026-08-18",
+    cursor: new Date("2026-08-18T10:30:00.000Z"),
+    resetMinutes: 15,
+  });
+
+  assert.equal(interleavedContext.continuousStudyMinutes, 150);
+  assert.equal(interleavedContext.sameSubjectRunMinutes, 30);
+  assert.equal(interleavedContext.previousSubjectId, "maths-aa-hl");
+
+  const twoBlockFinalRunContext = getStudyContinuityContext({
+    blocks: [
+      createStudyBlock({
+        id: "maths",
+        date: "2026-08-18",
+        start: "2026-08-18T08:00:00.000Z",
+        end: "2026-08-18T09:00:00.000Z",
+        estimatedMinutes: 60,
+        subjectId: "maths-aa-hl",
+      }),
+      createStudyBlock({
+        id: "physics-first",
+        date: "2026-08-18",
+        start: "2026-08-18T09:00:00.000Z",
+        end: "2026-08-18T10:00:00.000Z",
+        estimatedMinutes: 60,
+        subjectId: "physics-hl",
+      }),
+      createStudyBlock({
+        id: "physics-final",
+        date: "2026-08-18",
+        start: "2026-08-18T10:00:00.000Z",
+        end: "2026-08-18T10:30:00.000Z",
+        estimatedMinutes: 30,
+        subjectId: "physics-hl",
+      }),
+    ],
+    dateKey: "2026-08-18",
+    cursor: new Date("2026-08-18T10:30:00.000Z"),
+    resetMinutes: 15,
+  });
+
+  assert.equal(twoBlockFinalRunContext.continuousStudyMinutes, 150);
+  assert.equal(twoBlockFinalRunContext.sameSubjectRunMinutes, 90);
+  assert.equal(twoBlockFinalRunContext.previousSubjectId, "physics-hl");
 });
 
 test("paired paper reviews retain their dependency scheduling window", () => {
