@@ -34,7 +34,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-08-11-hl-milestones-oct-31-v65";
+const PLANNING_MODEL_VERSION = "2026-08-18-core-hl-priority-oct-31-v66";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-30-olympiad-final-june-v12";

@@ -1291,10 +1291,11 @@ test("maths, chemistry, olympiad, and c++ also follow seeded prerequisite order"
     dataset.topics.find((topic) => topic.id === "cpp-book-ch1-hello-world")?.dependsOnTopicId,
     "cpp-book-ch0-notes-to-reader",
   );
-  assert.equal(
-    dataset.topics.filter((topic) => topic.subjectId === "geography-transition").length,
-    0,
+  const geographyTopics = dataset.topics.filter(
+    (topic) => topic.subjectId === "geography-transition",
   );
+  assert.ok(geographyTopics.length > 0);
+  assert.ok(geographyTopics.every((topic) => topic.unitId.includes("past-papers")));
 });
 
 test("calendar completion forecast distinguishes impossible from simply underplanned", () => {
@@ -8315,7 +8316,7 @@ test("school-term deadline pacing keeps C++ at zero while Olympiad remains heavi
   assert.equal(normalTracks["cpp-book"]?.recommendedWeeklyHours ?? 0, 0);
 });
 
-test("configured school-term template encodes the weekday rotation without a hard Sunday light cap before paper season", () => {
+test("configured school-term template prioritizes HL syllabus work with two small Olympiad continuity windows", () => {
   const dataset = buildSeedDataset(new Date("2026-04-18T08:00:00.000Z"));
   const template = buildSchoolTermWeekTemplate({
     weekStart: new Date("2026-04-20T00:00:00.000Z"),
@@ -8329,20 +8330,76 @@ test("configured school-term template encodes the weekday rotation without a har
 
   assert.equal(template.active, true);
   assert.equal(requirementById["2026-04-20-learning"]?.subjectId, "maths-aa-hl");
-  assert.equal(requirementById["2026-04-20-olympiad-depth"]?.subjectId, "olympiad");
-  assert.ok(requirementById["2026-04-20-olympiad-depth"]?.studyLayers.includes("exam_sim"));
-  assert.equal(requirementById["2026-04-20-olympiad-depth"]?.minimumMinutes, 60);
   assert.equal(requirementById["2026-04-21-learning"]?.subjectId, "physics-hl");
   assert.equal(requirementById["2026-04-22-learning"]?.subjectId, "chemistry-hl");
   assert.equal(requirementById["2026-04-23-learning"]?.subjectId, "maths-aa-hl");
   assert.equal(requirementById["2026-04-24-learning"]?.subjectId, "physics-hl");
+  const olympiadContinuityRequirements = template.requirements.filter((requirement) =>
+    requirement.id.includes("olympiad-continuity"),
+  );
+
+  assert.equal(olympiadContinuityRequirements.length, 2);
+  assert.deepEqual(
+    olympiadContinuityRequirements.map((requirement) => requirement.minimumMinutes),
+    [30, 30],
+  );
+  assert.ok(
+    olympiadContinuityRequirements.every(
+      (requirement) =>
+        requirement.subjectId === "olympiad" &&
+        requirement.studyLayers.length === 1 &&
+        requirement.studyLayers[0] === "learning",
+    ),
+  );
+  assert.deepEqual(olympiadContinuityRequirements[0]?.allowedDateKeys, [
+    "2026-04-20",
+    "2026-04-21",
+    "2026-04-22",
+  ]);
+  assert.deepEqual(olympiadContinuityRequirements[1]?.allowedDateKeys, [
+    "2026-04-23",
+    "2026-04-24",
+    "2026-04-25",
+    "2026-04-26",
+  ]);
+  assert.equal(requirementById["2026-04-20-olympiad-depth"], undefined);
   assert.equal(requirementById["2026-04-25-paper-cycle-exam"], undefined);
   assert.equal(requirementById["2026-04-25-paper-cycle-correction"], undefined);
   assert.deepEqual(template.lightReviewOnlyDateKeys, []);
   assert.equal(template.dayStudyCapOverrideMinutesByDate["2026-04-26"], undefined);
 });
 
-test("school-term generation keeps Olympiad distributed while IB syllabus remains open", () => {
+test("pre-deadline holiday weeks retain the two small Olympiad continuity windows", () => {
+  const dataset = buildSeedDataset(new Date("2026-07-06T08:00:00.000Z"));
+  const template = buildSchoolTermWeekTemplate({
+    weekStart: new Date("2026-07-06T00:00:00.000Z"),
+    topics: dataset.topics,
+    preferences: {
+      ...dataset.preferences,
+      schoolSchedule: {
+        ...dataset.preferences.schoolSchedule,
+        enabled: false,
+        terms: [],
+      },
+    },
+    existingPlannedBlocks: [],
+  });
+  const olympiadContinuityRequirements = template.requirements.filter((requirement) =>
+    requirement.id.includes("olympiad-continuity"),
+  );
+
+  assert.equal(template.active, true);
+  assert.equal(olympiadContinuityRequirements.length, 2);
+  assert.ok(
+    olympiadContinuityRequirements.every(
+      (requirement) =>
+        requirement.minimumMinutes === 30 &&
+        requirement.taskConstraint === "olympiad-bplus-content",
+    ),
+  );
+});
+
+test("school-term generation reserves only two small B+ content continuity blocks while HL syllabus remains open", () => {
   const referenceDate = new Date("2026-04-20T08:00:00.000Z");
   const dataset = buildSeedDataset(referenceDate);
   const result = generateStudyPlanForWeek({
@@ -8360,11 +8417,32 @@ test("school-term generation keeps Olympiad distributed while IB syllabus remain
     existingPlannedBlocks: [],
   });
   const olympiadBlocks = result.studyBlocks.filter((block) => block.subjectId === "olympiad");
-  const olympiadMinutes = olympiadBlocks.reduce((total, block) => total + block.estimatedMinutes, 0);
-  const olympiadDayCount = new Set(olympiadBlocks.map((block) => block.date)).size;
+  const topicById = new Map(dataset.topics.map((topic) => [topic.id, topic]));
+  const nonPrioritySubjectBlocks = result.studyBlocks.filter(
+    (block) =>
+      block.subjectId &&
+      !["maths-aa-hl", "physics-hl", "chemistry-hl", "olympiad"].includes(block.subjectId),
+  );
 
-  assert.ok(olympiadMinutes >= 300, "expected at least five hours of school-term Olympiad continuity");
-  assert.ok(olympiadDayCount >= 4, "expected Olympiad work to be spread across the school week");
+  assert.equal(olympiadBlocks.length, 2);
+  assert.ok(olympiadBlocks.every((block) => block.estimatedMinutes === 30));
+  assert.ok(olympiadBlocks.every((block) => block.blockType === "drill"));
+  assert.equal(new Set(olympiadBlocks.map((block) => block.date)).size, 2);
+  assert.ok(
+    olympiadBlocks.every((block) => {
+      const topic = block.topicId ? topicById.get(block.topicId) : null;
+      return (
+        block.studyLayer === "learning" &&
+        topic?.subjectId === "olympiad" &&
+        ["olympiad-geo", "olympiad-alg", "olympiad-nt", "olympiad-combi"].includes(
+          topic.sequenceGroup ?? "",
+        ) &&
+        (topic.sessionMode ?? "flexible") !== "exam"
+      );
+    }),
+    "expected continuity sessions to use real B+ content rather than tests or critiques",
+  );
+  assert.deepEqual(nonPrioritySubjectBlocks, []);
   assert.ok(
     result.studyBlocks.some((block) => block.subjectId === "maths-aa-hl"),
     "expected Olympiad continuity not to erase IB syllabus work",
@@ -8603,7 +8681,7 @@ test("generated horizon uses French tune-up commitments instead of French study 
   assert.equal(frenchTuneUpMinutes, 60);
 });
 
-test("Maths AA HL first-pass work finishes before post-syllabus paper practice begins", () => {
+test("all three core HL syllabi finish by October 31 before paper practice begins", () => {
   const referenceDate = new Date("2026-04-30T08:00:00.000Z");
   const dataset = buildSeedDataset(referenceDate);
   const result = generateStudyPlanHorizon({
@@ -8619,20 +8697,19 @@ test("Maths AA HL first-pass work finishes before post-syllabus paper practice b
     preferences: dataset.preferences,
   });
   const topicById = new Map(dataset.topics.map((topic) => [topic.id, topic]));
-  const firstMathsPaper = result.studyBlocks.find(
-    (block) =>
-      block.topicId === "maths-aa-past-papers-week-1-paper-1" &&
-      block.studyLayer === "exam_sim",
-  );
-  const mathsFirstPassTopics = dataset.topics.filter(
-    (topic) => topic.subjectId === "maths-aa-hl" && !topic.unitId.includes("past-papers"),
+  const coreSubjectIds = ["maths-aa-hl", "physics-hl", "chemistry-hl"] as const;
+  const firstPassTopics = dataset.topics.filter(
+    (topic) =>
+      coreSubjectIds.includes(topic.subjectId as (typeof coreSubjectIds)[number]) &&
+      !topic.unitId.includes("past-papers"),
   );
   const plannedFirstPassMinutesByTopic = result.studyBlocks.reduce<Record<string, number>>(
     (accumulator, block) => {
       const topic = block.topicId ? topicById.get(block.topicId) : null;
 
       if (
-        topic?.subjectId === "maths-aa-hl" &&
+        topic &&
+        coreSubjectIds.includes(topic.subjectId as (typeof coreSubjectIds)[number]) &&
         !topic.unitId.includes("past-papers") &&
         new Date(block.end).getTime() <= new Date("2026-11-01T00:00:00.000Z").getTime()
       ) {
@@ -8643,18 +8720,35 @@ test("Maths AA HL first-pass work finishes before post-syllabus paper practice b
     },
     {},
   );
-  const unfinishedByDeadline = mathsFirstPassTopics.filter(
+  const unfinishedByDeadline = firstPassTopics.filter(
     (topic) =>
       (plannedFirstPassMinutesByTopic[topic.id] ?? 0) <
       Math.round(Math.max(topic.estHours - topic.completedHours, 0) * 60),
   );
 
-  assert.deepEqual(unfinishedByDeadline.map((topic) => topic.id), []);
-  assert.ok(firstMathsPaper, "expected first Maths paper practice block");
-  assert.ok(
-    new Date(firstMathsPaper!.start).getTime() >= new Date("2026-11-02T00:00:00.000Z").getTime(),
-    "expected Maths paper practice to start after the October 31 first-pass milestone",
+  const firstPaperBySubject = Object.fromEntries(
+    coreSubjectIds.map((subjectId) => [
+      subjectId,
+      result.studyBlocks.find((block) => {
+        const topic = block.topicId ? topicById.get(block.topicId) : null;
+        return (
+          block.subjectId === subjectId &&
+          block.studyLayer === "exam_sim" &&
+          topic?.unitId.includes("past-papers")
+        );
+      }),
+    ]),
   );
+
+  assert.deepEqual(unfinishedByDeadline.map((topic) => topic.id), []);
+  coreSubjectIds.forEach((subjectId) => {
+    const firstPaper = firstPaperBySubject[subjectId];
+    assert.ok(firstPaper, `expected first ${subjectId} paper practice block`);
+    assert.ok(
+      new Date(firstPaper!.start).getTime() >= new Date("2026-11-02T00:00:00.000Z").getTime(),
+      `expected ${subjectId} paper practice to start after the October 31 syllabus milestone`,
+    );
+  });
 });
 
 test("generated configured school-term weeks follow the weekday template, fill Sunday normally, and avoid early full papers", () => {

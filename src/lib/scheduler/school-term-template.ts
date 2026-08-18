@@ -10,6 +10,8 @@ export const IB_ANCHOR_SUBJECT_IDS = [
   "chemistry-hl",
 ] as const satisfies SubjectId[];
 
+export const CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY = "2026-10-31";
+
 const WEEKLY_PAPER_PRACTICE_SUBJECT_IDS = [
   ...IB_ANCHOR_SUBJECT_IDS,
   "geography-transition",
@@ -25,6 +27,7 @@ export interface SchoolTermTemplateRequirement {
   minimumMinutes: number;
   exactTopicId?: string | null;
   allowOverflowDayCap?: boolean;
+  taskConstraint?: "olympiad-bplus-content";
 }
 
 export interface SchoolTermWeekTemplate {
@@ -53,6 +56,41 @@ export function getWeekdayAnchorSubject(day: Date) {
 
 function isPastPaperTopic(topic: Pick<Topic, "unitId" | "sessionMode">) {
   return topic.unitId.includes("past-papers") && (topic.sessionMode ?? "flexible") === "exam";
+}
+
+export function isCoreHlSyllabusTopic(
+  topic: Pick<Topic, "id" | "subjectId" | "unitId" | "sessionMode">,
+) {
+  return (
+    IB_ANCHOR_SUBJECT_IDS.includes(
+      topic.subjectId as (typeof IB_ANCHOR_SUBJECT_IDS)[number],
+    ) &&
+    !topic.unitId.includes("past-papers") &&
+    (topic.sessionMode ?? "flexible") !== "exam" &&
+    !topic.id.endsWith("-review")
+  );
+}
+
+function hasOpenCoreHlSyllabusWork(topics: Topic[], blocks: StudyBlock[]) {
+  const plannedMinutesByTopic = blocks.reduce<Record<string, number>>((accumulator, block) => {
+    if (
+      !block.topicId ||
+      (block.status !== "planned" && block.status !== "rescheduled")
+    ) {
+      return accumulator;
+    }
+
+    accumulator[block.topicId] =
+      (accumulator[block.topicId] ?? 0) + block.estimatedMinutes;
+    return accumulator;
+  }, {});
+
+  return topics.some(
+    (topic) =>
+      isCoreHlSyllabusTopic(topic) &&
+      Math.round(Math.max(topic.estHours - topic.completedHours, 0) * 60) >
+        (plannedMinutesByTopic[topic.id] ?? 0),
+  );
 }
 
 function isTopicAlreadyCovered(topic: Topic, blocks: StudyBlock[]) {
@@ -98,17 +136,42 @@ export function buildSchoolTermWeekTemplate(options: {
   const weekStart = startOfPlannerWeek(options.weekStart);
   const days = Array.from({ length: 7 }, (_, offset) => addDays(weekStart, offset));
   const inTermDays = days.filter((day) => isDateInActiveSchoolTerm(day, options.preferences));
+  const requirements: SchoolTermTemplateRequirement[] = [];
+  const coreHlPriorityActive =
+    toDateKey(weekStart) <= CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY &&
+    hasOpenCoreHlSyllabusWork(options.topics, options.existingPlannedBlocks);
+
+  if (coreHlPriorityActive) {
+    const continuityDateKeys = days
+      .map(toDateKey)
+      .filter((dateKey) => dateKey <= CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY);
+    const firstWindowDateKeys = continuityDateKeys.slice(0, 3);
+    const secondWindowDateKeys = continuityDateKeys.slice(3);
+
+    [firstWindowDateKeys, secondWindowDateKeys].forEach((allowedDateKeys, index) => {
+      if (!allowedDateKeys.length) {
+        return;
+      }
+
+      requirements.push({
+        id: `${toDateKey(weekStart)}-olympiad-continuity-${index + 1}`,
+        allowedDateKeys,
+        subjectId: "olympiad",
+        studyLayers: ["learning"],
+        minimumMinutes: 30,
+        taskConstraint: "olympiad-bplus-content",
+      });
+    });
+  }
 
   if (!inTermDays.length) {
     return {
-      active: false,
-      requirements: [],
+      active: coreHlPriorityActive,
+      requirements,
       dayStudyCapOverrideMinutesByDate: {},
       lightReviewOnlyDateKeys: [] as string[],
     };
   }
-
-  const requirements: SchoolTermTemplateRequirement[] = [];
 
   days.forEach((day) => {
     if (!isDateInActiveSchoolTerm(day, options.preferences)) {
@@ -141,13 +204,6 @@ export function buildSchoolTermWeekTemplate(options: {
           minimumMinutes: 45,
         },
         {
-          id: `${dateKey}-olympiad-depth`,
-          allowedDateKeys: [dateKey],
-          subjectId: "olympiad",
-          studyLayers: ["learning", "application", "exam_sim", "correction"],
-          minimumMinutes: 60,
-        },
-        {
           id: `${dateKey}-correction`,
           allowedDateKeys: [dateKey],
           subjectId: anchorSubject,
@@ -155,6 +211,16 @@ export function buildSchoolTermWeekTemplate(options: {
           minimumMinutes: 30,
         },
       );
+
+      if (!coreHlPriorityActive) {
+        requirements.push({
+          id: `${dateKey}-olympiad-depth`,
+          allowedDateKeys: [dateKey],
+          subjectId: "olympiad",
+          studyLayers: ["learning", "application", "exam_sim", "correction"],
+          minimumMinutes: 60,
+        });
+      }
       return;
     }
 
@@ -163,7 +229,6 @@ export function buildSchoolTermWeekTemplate(options: {
     }
 
   });
-
   const saturday = days.find((day) => day.getDay() === 6);
   const sunday = days.find((day) => day.getDay() === 0);
   const pendingPaperTopics =

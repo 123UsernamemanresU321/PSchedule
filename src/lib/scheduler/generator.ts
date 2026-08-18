@@ -25,12 +25,15 @@ import {
   getOlympiadStageGateStatus,
 } from "@/lib/scheduler/olympiad-stage-gates";
 import {
+  getOlympiadStrandForTopic,
   getOlympiadWeekLoadProfile,
   getOlympiadWeaknessProfile,
 } from "@/lib/scheduler/olympiad-performance";
 import {
   buildSchoolTermWeekTemplate,
+  CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY,
   IB_ANCHOR_SUBJECT_IDS,
+  isCoreHlSyllabusTopic,
 } from "@/lib/scheduler/school-term-template";
 import { scoreTaskCandidate, buildGeneratedReason } from "@/lib/scheduler/scoring";
 import type { BlockSelectionPolicy } from "@/lib/scheduler/slot-classifier";
@@ -1496,6 +1499,19 @@ function buildDailyFillSubjectOrder(options: {
     return DAILY_FILL_SUBJECT_ORDER.indexOf(left) - DAILY_FILL_SUBJECT_ORDER.indexOf(right);
   });
 
+  const coreSubjectOrder = [...anchorCandidates, ...otherCoreSubjects];
+
+  if (options.dateKey <= CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY) {
+    return [
+      ...coreSubjectOrder,
+      "olympiad",
+      "french-b-sl",
+      "cpp-book",
+      "english-a-sl",
+      "geography-transition",
+    ] satisfies Subject["id"][];
+  }
+
   return [
     ...anchorCandidates,
     "olympiad",
@@ -2370,6 +2386,25 @@ function allocateTasksToSlots(options: {
     );
   }
 
+  function isCoreHlSyllabusTask(task: TaskCandidate) {
+    const topic = task.topicId ? topicMap.get(task.topicId) : null;
+    return !!topic && isCoreHlSyllabusTopic(topic);
+  }
+
+  function hasEligibleCoreHlSyllabusTask(slotStart: Date, dateKey: string) {
+    if (dateKey > CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY) {
+      return false;
+    }
+
+    return workingTasks.some(
+      (task) =>
+        task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES &&
+        isCoreHlSyllabusTask(task) &&
+        (!task.availableAt || new Date(task.availableAt) <= slotStart) &&
+        isTaskDependencySatisfied(task, slotStart),
+    );
+  }
+
   function getOlympiadContinuityBonus(task: TaskCandidate, baseBonus: number) {
     if (isOlympiadBplusContentTask(task)) {
       return baseBonus;
@@ -2721,6 +2756,20 @@ function allocateTasksToSlots(options: {
       return false;
     }
 
+    const corePriorityTemplateActive =
+      schoolTermTemplate?.requirements.some(
+        (requirement) => requirement.taskConstraint === "olympiad-bplus-content",
+      ) ?? false;
+    const topic = block.topicId ? topicMap.get(block.topicId) : null;
+    if (
+      corePriorityTemplateActive &&
+      block.subjectId === "olympiad" &&
+      block.studyLayer === "learning" &&
+      !!getOlympiadStrandForTopic(topic)
+    ) {
+      return false;
+    }
+
     return true;
   }
 
@@ -2919,6 +2968,7 @@ function allocateTasksToSlots(options: {
     disallowedStudyLayers?: StudyLayer[];
     mustFillEndOfDaySlot?: boolean;
     strongFocusDemand?: boolean;
+    requiredTaskConstraint?: "olympiad-bplus-content";
   }) {
     const {
       slot,
@@ -2929,10 +2979,23 @@ function allocateTasksToSlots(options: {
       disallowedStudyLayers,
       mustFillEndOfDaySlot = false,
       strongFocusDemand = false,
+      requiredTaskConstraint,
     } = config;
     const allowedBlockTypes = getAllowedBlockTypesForSlot(slot);
+    const coreHlPriorityActive = hasEligibleCoreHlSyllabusTask(slot.start, slot.dateKey);
     return workingTasks
       .filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES)
+      .filter((task) => {
+        if (requiredTaskConstraint === "olympiad-bplus-content") {
+          return isOlympiadBplusContentTask(task);
+        }
+
+        if (!coreHlPriorityActive) {
+          return true;
+        }
+
+        return isCoreHlSyllabusTask(task);
+      })
       .filter((task) => !restrictedSubjectIds || (!!task.subjectId && restrictedSubjectIds.includes(task.subjectId)))
       .filter((task) => !restrictedTopicIds || (!!task.topicId && restrictedTopicIds.includes(task.topicId)))
       .filter((task) => !requiredStudyLayers || (!!task.studyLayer && requiredStudyLayers.includes(task.studyLayer)))
@@ -3133,6 +3196,7 @@ function allocateTasksToSlots(options: {
               ? [activeTemplateRequirement.exactTopicId]
               : undefined,
             requiredStudyLayers: activeTemplateRequirement.studyLayers,
+            requiredTaskConstraint: activeTemplateRequirement.taskConstraint,
             mustFillEndOfDaySlot,
             strongFocusDemand: true,
           })
@@ -3167,6 +3231,7 @@ function allocateTasksToSlots(options: {
           restrictedSubjectIds: [activeTemplateRequirement.subjectId],
           restrictedTopicIds: [activeTemplateRequirement.exactTopicId],
           requiredStudyLayers: activeTemplateRequirement.studyLayers,
+          requiredTaskConstraint: activeTemplateRequirement.taskConstraint,
           mustFillEndOfDaySlot,
           strongFocusDemand: true,
         });
@@ -3391,7 +3456,10 @@ function allocateTasksToSlots(options: {
         durationMinutes: winner.blockOption.durationMinutes,
         generatedReason: buildGeneratedReason(winner.task, slotSlice, winner.scoreBreakdown),
         scoreBreakdown: winner.scoreBreakdown,
-        blockType: winner.blockOption.blockType,
+        blockType:
+          activeTemplateRequirement?.taskConstraint === "olympiad-bplus-content"
+            ? "drill"
+            : winner.blockOption.blockType,
         intensity: winner.blockOption.intensity,
       });
 
@@ -3621,6 +3689,16 @@ export function generateStudyPlanForWeek(options: {
     studyBlocks: existingPlannedBlocks,
     referenceDate,
   });
+  const weekStartKey = toDateKey(weekStart);
+  const schoolTermTemplate = buildSchoolTermWeekTemplate({
+    weekStart,
+    topics: options.topics,
+    preferences: options.preferences,
+    existingPlannedBlocks,
+  });
+  const coreHlPriorityActive = schoolTermTemplate.requirements.some(
+    (requirement) => requirement.taskConstraint === "olympiad-bplus-content",
+  );
   const coverageRescueSubjectIds =
     options.allowReinforcement && (existingRealCoverageUnscheduledBySubject.olympiad ?? 0) > 0
       ? (["olympiad"] satisfies Subject["id"][])
@@ -3629,6 +3707,7 @@ export function generateStudyPlanForWeek(options: {
     new Set([
       ...Object.values(focusedSubjectsByDate).flat(),
       ...coverageRescueSubjectIds,
+      ...(coreHlPriorityActive ? (["olympiad"] satisfies Subject["id"][]) : []),
       ...(options.availabilityOverrideSubjectIds ?? []),
     ]),
   ) as Subject["id"][];
@@ -3645,13 +3724,6 @@ export function generateStudyPlanForWeek(options: {
 
     return addDays(endOfPlannerWeek(weekStart), OLYMPIAD_ROADMAP_PULL_FORWARD_DAYS);
   })();
-  const weekStartKey = toDateKey(weekStart);
-  const schoolTermTemplate = buildSchoolTermWeekTemplate({
-    weekStart,
-    topics: options.topics,
-    preferences: options.preferences,
-    existingPlannedBlocks,
-  });
   const deadlineTracks = computeSubjectDeadlineTracks({
     subjects: options.subjects,
     goals: options.goals,
