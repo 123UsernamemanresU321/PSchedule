@@ -138,6 +138,30 @@ function createStudyBlock(overrides: Partial<StudyBlock> = {}): StudyBlock {
   };
 }
 
+function getLongestContiguousSubjectRunMinutes(blocks: StudyBlock[]) {
+  let longest = 0;
+  let currentSubjectId: StudyBlock["subjectId"] = null;
+  let currentEnd = 0;
+  let currentMinutes = 0;
+
+  [...blocks]
+    .filter((block) => block.subjectId)
+    .sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime())
+    .forEach((block) => {
+      const start = new Date(block.start).getTime();
+      if (block.subjectId === currentSubjectId && start === currentEnd) {
+        currentMinutes += block.estimatedMinutes;
+      } else {
+        currentSubjectId = block.subjectId;
+        currentMinutes = block.estimatedMinutes;
+      }
+      currentEnd = new Date(block.end).getTime();
+      longest = Math.max(longest, currentMinutes);
+    });
+
+  return longest;
+}
+
 function createWeeklyPlan(overrides: Partial<WeeklyPlan> = {}): WeeklyPlan {
   return {
     weekStart: "2026-03-09",
@@ -6610,6 +6634,175 @@ test("weekly allocation keeps multiple active subjects represented instead of le
     minutesBySubject["chemistry-hl"] / totalMinutes < 0.65,
     "expected the most urgent subject to stay below a whole-week monoculture share",
   );
+});
+
+test("paces all three core subjects across distinct days", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const coreSubjectIds = ["maths-aa-hl", "physics-hl", "chemistry-hl"] as const;
+  const subjects = dataset.subjects.filter((subject) => coreSubjectIds.includes(
+    subject.id as (typeof coreSubjectIds)[number],
+  ));
+  const topics = coreSubjectIds.map((subjectId, index) => {
+    const baseTopic = dataset.topics.find(
+      (topic) => topic.subjectId === subjectId && !topic.unitId.includes("past-papers"),
+    );
+    assert.ok(baseTopic);
+
+    return {
+      ...baseTopic,
+      id: `paced-${subjectId}`,
+      unitId: `paced-${subjectId}-syllabus`,
+      unitTitle: `Paced ${subjectId}`,
+      title: `Paced ${subjectId} topic`,
+      estHours: 12,
+      completedHours: 0,
+      status: "not_started" as const,
+      mastery: 0,
+      lastStudiedAt: null,
+      reviewDue: null,
+      availableFrom: null,
+      dependsOnTopicId: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      preferredBlockTypes: ["standard_focus" as const],
+      order: index + 1,
+    };
+  });
+  const capacityMinutesByDate = Object.fromEntries(
+    Array.from({ length: 7 }, (_, offset) => [
+      toDateKey(addDays(referenceDate, offset)),
+      720,
+    ]),
+  );
+  const coreSyllabusPacingPlan = buildCoreSyllabusPacingPlan({
+    startDate: referenceDate,
+    topics,
+    capacityMinutesByDate,
+    targetDateKey: "2026-03-29",
+  });
+  const result = generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: dataset.goals.filter((goal) =>
+      coreSubjectIds.includes(goal.subjectId as (typeof coreSubjectIds)[number]),
+    ),
+    subjects,
+    topics,
+    fixedEvents: [],
+    preferences: {
+      ...dataset.preferences,
+      reservedCommitmentRules: [],
+      lockedRecoveryWindows: [],
+      schoolSchedule: {
+        ...dataset.preferences.schoolSchedule,
+        enabled: false,
+        terms: [],
+      },
+      holidaySchedule: {
+        ...dataset.preferences.holidaySchedule,
+        enabled: true,
+        dailyStudyWindow: { start: "08:00", end: "20:00" },
+      },
+    },
+    focusedDays: [],
+    focusedWeeks: [],
+    coreSyllabusPacingPlan,
+  });
+  const distinctDateKeysBySubject = Object.fromEntries(
+    coreSubjectIds.map((subjectId) => [
+      subjectId,
+      new Set(
+        result.studyBlocks
+          .filter((block) => block.subjectId === subjectId)
+          .map((block) => block.date),
+      ),
+    ]),
+  );
+
+  assert.ok(distinctDateKeysBySubject["maths-aa-hl"].size >= 3);
+  assert.ok(distinctDateKeysBySubject["physics-hl"].size >= 3);
+  assert.ok(distinctDateKeysBySubject["chemistry-hl"].size >= 3);
+  const longestRunMinutes = getLongestContiguousSubjectRunMinutes(result.studyBlocks);
+  assert.ok(longestRunMinutes <= 90, `expected at most 90 minutes, got ${longestRunMinutes}`);
+});
+
+test("dependency-only capacity remains schedulable", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const coreSubjectIds = ["maths-aa-hl", "physics-hl", "chemistry-hl"] as const;
+  const subjects = dataset.subjects.filter((subject) => coreSubjectIds.includes(
+    subject.id as (typeof coreSubjectIds)[number],
+  ));
+  const topics = coreSubjectIds.map((subjectId, index) => {
+    const baseTopic = dataset.topics.find(
+      (topic) => topic.subjectId === subjectId && !topic.unitId.includes("past-papers"),
+    );
+    assert.ok(baseTopic);
+
+    return {
+      ...baseTopic,
+      id: `dependency-paced-${subjectId}`,
+      unitId: `dependency-paced-${subjectId}-syllabus`,
+      unitTitle: `Dependency paced ${subjectId}`,
+      title: `Dependency paced ${subjectId} topic`,
+      estHours: 6,
+      completedHours: 0,
+      status: "not_started" as const,
+      mastery: 0,
+      lastStudiedAt: null,
+      reviewDue: null,
+      availableFrom: null,
+      dependsOnTopicId: subjectId === "maths-aa-hl" ? null : "missing-prerequisite",
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      preferredBlockTypes: ["standard_focus" as const],
+      order: index + 1,
+    };
+  });
+  const coreSyllabusPacingPlan = buildCoreSyllabusPacingPlan({
+    startDate: referenceDate,
+    topics,
+    capacityMinutesByDate: {
+      "2026-03-23": 360,
+      "2026-03-24": 360,
+    },
+    targetDateKey: "2026-03-24",
+  });
+  const result = generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: dataset.goals.filter((goal) =>
+      coreSubjectIds.includes(goal.subjectId as (typeof coreSubjectIds)[number]),
+    ),
+    subjects,
+    topics,
+    fixedEvents: [],
+    preferences: {
+      ...dataset.preferences,
+      reservedCommitmentRules: [],
+      lockedRecoveryWindows: [],
+      schoolSchedule: {
+        ...dataset.preferences.schoolSchedule,
+        enabled: false,
+        terms: [],
+      },
+      holidaySchedule: {
+        ...dataset.preferences.holidaySchedule,
+        enabled: true,
+        dailyStudyWindow: { start: "08:00", end: "14:00" },
+      },
+    },
+    focusedDays: [],
+    focusedWeeks: [],
+    coreSyllabusPacingPlan,
+  });
+  const mathsMinutes = result.studyBlocks
+    .filter((block) => block.subjectId === "maths-aa-hl")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+
+  assert.ok(mathsMinutes >= 180);
+  assert.ok(result.studyBlocks.every((block) => block.subjectId === "maths-aa-hl"));
 });
 
 test("multi-subject focus on a low-capacity day relaxes once the reserved share is nearly met", () => {

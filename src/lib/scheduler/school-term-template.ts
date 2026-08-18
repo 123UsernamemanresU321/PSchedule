@@ -37,6 +37,21 @@ export interface SchoolTermWeekTemplate {
   lightReviewOnlyDateKeys: string[];
 }
 
+export function isPacingSuppressibleCoreRequirement(
+  requirement: Pick<
+    SchoolTermTemplateRequirement,
+    "subjectId" | "exactTopicId" | "taskConstraint"
+  >,
+) {
+  return (
+    IB_ANCHOR_SUBJECT_IDS.includes(
+      requirement.subjectId as (typeof IB_ANCHOR_SUBJECT_IDS)[number],
+    ) &&
+    !requirement.exactTopicId &&
+    requirement.taskConstraint !== "olympiad-bplus-content"
+  );
+}
+
 export function getWeekdayAnchorSubject(day: Date) {
   switch (day.getDay()) {
     case 1:
