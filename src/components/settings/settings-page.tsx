@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { DEFAULT_ENABLED_BREAK_MINUTES } from "@/lib/constants/planner";
 import { toDateKey } from "@/lib/dates/helpers";
 import { createExportFilename } from "@/lib/storage/json-transfer";
 import { normalizePreferences } from "@/lib/storage/planner-repository";
@@ -1425,6 +1426,10 @@ export function SettingsPage() {
                         setForm({
                           ...form,
                           breaksEnabled: checked,
+                          minBreakMinutes:
+                            checked && form.minBreakMinutes < 5
+                              ? DEFAULT_ENABLED_BREAK_MINUTES
+                              : form.minBreakMinutes,
                         })
                       }
                     />

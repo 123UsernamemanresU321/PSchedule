@@ -38,12 +38,16 @@ function blockFallsInVisibleWeek(block: StudyBlock, weekStart: string) {
   );
 }
 
-function buildVisibleBreakEvents(options: {
+export function buildVisibleBreakEvents(options: {
   studyBlocks: StudyBlock[];
   weekStart: string;
   minBreakMinutes: number;
   blockedIntervals: Array<{ start: Date; end: Date }>;
 }) {
+  if (!Number.isFinite(options.minBreakMinutes) || options.minBreakMinutes <= 0) {
+    return [];
+  }
+
   const maxVisibleBreakMinutes = Math.max(options.minBreakMinutes * 2, 45);
   const blocks = options.studyBlocks
     .filter((block) => blockFallsInVisibleWeek(block, options.weekStart))
@@ -60,7 +64,11 @@ function buildVisibleBreakEvents(options: {
     const breakEnd = new Date(nextBlock.start);
     const gapMinutes = differenceInMinutes(breakEnd, breakStart);
 
-    if (gapMinutes < options.minBreakMinutes || gapMinutes > maxVisibleBreakMinutes) {
+    if (
+      gapMinutes <= 0 ||
+      gapMinutes < options.minBreakMinutes ||
+      gapMinutes > maxVisibleBreakMinutes
+    ) {
       return [];
     }
 
@@ -69,6 +77,18 @@ function buildVisibleBreakEvents(options: {
     );
 
     if (overlapsBlockedInterval) {
+      return [];
+    }
+
+    const overlapsAnotherStudyBlock = blocks.some((candidate) => {
+      if (candidate.id === block.id || candidate.id === nextBlock.id) {
+        return false;
+      }
+
+      return breakStart < new Date(candidate.end) && breakEnd > new Date(candidate.start);
+    });
+
+    if (overlapsAnotherStudyBlock) {
       return [];
     }
 

@@ -15,7 +15,11 @@ import { hasLegacySeedTopics } from "@/lib/seed/topic-catalog";
 import { db } from "@/lib/storage/db";
 import { parsePlannerJson } from "@/lib/storage/json-transfer";
 import { normalizeTopicProgress } from "@/lib/topics/status";
-import { subjectIds, zeroUnscheduledCoverageSubjectIds } from "@/lib/constants/planner";
+import {
+  DEFAULT_ENABLED_BREAK_MINUTES,
+  subjectIds,
+  zeroUnscheduledCoverageSubjectIds,
+} from "@/lib/constants/planner";
 import { detectFutureFillableGap, getSubjectProgress } from "@/lib/analytics/metrics";
 import { createId } from "@/lib/utils";
 import type {
@@ -617,6 +621,12 @@ export function normalizePreferences(preferences?: Partial<Preferences> | null):
     ...seedPreferences.subjectWeightOverrides,
     ...(preferences?.subjectWeightOverrides ?? {}),
   };
+  const breaksEnabled = preferences?.breaksEnabled ?? seedPreferences.breaksEnabled;
+  const requestedMinBreakMinutes = preferences?.minBreakMinutes ?? seedPreferences.minBreakMinutes;
+  const minBreakMinutes =
+    breaksEnabled && (!Number.isFinite(requestedMinBreakMinutes) || requestedMinBreakMinutes < 5)
+      ? DEFAULT_ENABLED_BREAK_MINUTES
+      : Math.max(0, requestedMinBreakMinutes);
 
   if (subjectWeightOverrides.olympiad === LEGACY_OLYMPIAD_DEFAULT_PRIORITY) {
     subjectWeightOverrides.olympiad = seedPreferences.subjectWeightOverrides.olympiad;
@@ -630,7 +640,8 @@ export function normalizePreferences(preferences?: Partial<Preferences> | null):
   return {
     ...seedPreferences,
     ...preferences,
-    breaksEnabled: preferences?.breaksEnabled ?? seedPreferences.breaksEnabled,
+    breaksEnabled,
+    minBreakMinutes,
     dailyStudyWindow: {
       ...seedPreferences.dailyStudyWindow,
       ...(preferences?.dailyStudyWindow ?? {}),

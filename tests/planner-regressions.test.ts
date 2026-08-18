@@ -16,6 +16,7 @@ import {
 import {
   isStaleChunkMessage,
 } from "@/components/planner/planner-bootstrap";
+import { buildVisibleBreakEvents } from "@/components/calendar/planner-calendar";
 import { createDateAtTime, fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import { mainSubjectIds } from "@/lib/constants/planner";
 import {
@@ -7747,6 +7748,76 @@ test("the allocator does not force a gap when a busy boundary is immediately nex
   assert.equal(getInlineBreakMinutes(90, 60, 15), 0);
   assert.equal(getInlineBreakMinutes(120, 60, 15), 15);
   assert.equal(getInlineBreakMinutes(180, 120, 0), 0);
+});
+
+test("visible calendar breaks never render zero-duration boundaries", () => {
+  const events = buildVisibleBreakEvents({
+    studyBlocks: [
+      createStudyBlock({
+        id: "first",
+        weekStart: "2026-03-09",
+        date: "2026-03-10",
+        start: "2026-03-10T08:00:00.000Z",
+        end: "2026-03-10T09:00:00.000Z",
+      }),
+      createStudyBlock({
+        id: "second",
+        weekStart: "2026-03-09",
+        date: "2026-03-10",
+        start: "2026-03-10T09:00:00.000Z",
+        end: "2026-03-10T10:00:00.000Z",
+      }),
+    ],
+    weekStart: "2026-03-09",
+    minBreakMinutes: 0,
+    blockedIntervals: [],
+  });
+
+  assert.deepEqual(events, []);
+});
+
+test("visible calendar breaks are not inferred inside overlapping study blocks", () => {
+  const events = buildVisibleBreakEvents({
+    studyBlocks: [
+      createStudyBlock({
+        id: "outer",
+        weekStart: "2026-03-09",
+        date: "2026-03-10",
+        start: "2026-03-10T08:00:00.000Z",
+        end: "2026-03-10T12:00:00.000Z",
+      }),
+      createStudyBlock({
+        id: "inner-before",
+        weekStart: "2026-03-09",
+        date: "2026-03-10",
+        start: "2026-03-10T08:00:00.000Z",
+        end: "2026-03-10T09:00:00.000Z",
+      }),
+      createStudyBlock({
+        id: "inner-after",
+        weekStart: "2026-03-09",
+        date: "2026-03-10",
+        start: "2026-03-10T09:15:00.000Z",
+        end: "2026-03-10T10:00:00.000Z",
+      }),
+    ],
+    weekStart: "2026-03-09",
+    minBreakMinutes: 15,
+    blockedIntervals: [],
+  });
+
+  assert.deepEqual(events, []);
+});
+
+test("enabled legacy break preferences normalize to a usable minimum duration", () => {
+  const preferences = normalizePreferences({
+    ...buildSeedPreferences(),
+    breaksEnabled: true,
+    minBreakMinutes: 0,
+  });
+
+  assert.equal(preferences.breaksEnabled, true);
+  assert.equal(preferences.minBreakMinutes, 15);
 });
 
 test("seed preferences disable automatic study breaks by default", () => {
