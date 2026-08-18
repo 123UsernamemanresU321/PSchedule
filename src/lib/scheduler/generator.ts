@@ -118,6 +118,82 @@ const IB_REINFORCEMENT_MIN_SUBJECT_ID_SET = new Set<Subject["id"]>(
   IB_REINFORCEMENT_MIN_SUBJECT_IDS as readonly Subject["id"][],
 );
 
+type StudyCadenceTransition =
+  | {
+      kind: "continue";
+      flexibleStudyCapacityMinutes: number;
+    }
+  | {
+      kind: "stop";
+    }
+  | {
+      kind: "break";
+      block: StudyBlock;
+      cursor: Date;
+      remainingSlotMinutes: number;
+    };
+
+function getStudyCadenceTransition(options: {
+  blocks: StudyBlock[];
+  weekStart: string;
+  dateKey: string;
+  cursor: Date;
+  remainingSlotMinutes: number;
+  effectiveBreakMinutes: number;
+  slotEnergy: CalendarSlot["energy"];
+  canStudyFollow: (cursor: Date, remainingSlotMinutes: number) => boolean;
+}): StudyCadenceTransition {
+  const continuity = getStudyContinuityContext({
+    blocks: options.blocks,
+    dateKey: options.dateKey,
+    cursor: options.cursor,
+    resetMinutes: options.effectiveBreakMinutes,
+  });
+  const breakDue =
+    options.effectiveBreakMinutes > 0 &&
+    continuity.continuousStudyMinutes >= STUDY_BREAK_TRIGGER_MINUTES;
+
+  if (!breakDue) {
+    return {
+      kind: "continue",
+      flexibleStudyCapacityMinutes:
+        options.effectiveBreakMinutes > 0
+          ? Math.max(
+              0,
+              STUDY_BREAK_TRIGGER_MINUTES - continuity.continuousStudyMinutes,
+            )
+          : Number.POSITIVE_INFINITY,
+    };
+  }
+
+  if (
+    options.remainingSlotMinutes <
+    options.effectiveBreakMinutes + MIN_ALLOCATABLE_MINUTES
+  ) {
+    return { kind: "stop" };
+  }
+
+  const postBreakStart = addMinutes(options.cursor, options.effectiveBreakMinutes);
+  const postBreakRemainingMinutes =
+    options.remainingSlotMinutes - options.effectiveBreakMinutes;
+  if (!options.canStudyFollow(postBreakStart, postBreakRemainingMinutes)) {
+    return { kind: "stop" };
+  }
+
+  return {
+    kind: "break",
+    block: buildPlannedStudyBreakBlock({
+      weekStart: options.weekStart,
+      dateKey: options.dateKey,
+      start: options.cursor,
+      durationMinutes: options.effectiveBreakMinutes,
+      slotEnergy: options.slotEnergy,
+    }),
+    cursor: postBreakStart,
+    remainingSlotMinutes: postBreakRemainingMinutes,
+  };
+}
+
 function isCapacityBlockingStudyBlock(block: StudyBlock) {
   return !!block.subjectId || isPlannedStudyBreakBlock(block);
 }
@@ -730,41 +806,30 @@ function fillReinforcementForWeek(options: {
     let remainingSlotMinutes = slot.durationMinutes;
 
     while (remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES) {
-      const continuity = getStudyContinuityContext({
+      const cadenceTransition = getStudyCadenceTransition({
         blocks: [
           ...options.realStudyBlocks,
           ...options.priorReinforcementBlocks,
           ...reinforcementBlocks,
         ],
+        weekStart: weekStartKey,
         dateKey: slot.dateKey,
         cursor,
-        resetMinutes: effectiveBreakMinutes,
+        remainingSlotMinutes,
+        effectiveBreakMinutes,
+        slotEnergy: slot.energy,
+        canStudyFollow: (postBreakStart) =>
+          !!getReinforcementSubjectId(slot.dateKey, postBreakStart),
       });
-      const breakDue =
-        effectiveBreakMinutes > 0 &&
-        continuity.continuousStudyMinutes >= STUDY_BREAK_TRIGGER_MINUTES;
 
-      if (breakDue) {
-        const postBreakStart = addMinutes(cursor, effectiveBreakMinutes);
-        if (
-          remainingSlotMinutes <
-            effectiveBreakMinutes + MIN_ALLOCATABLE_MINUTES ||
-          !getReinforcementSubjectId(slot.dateKey, postBreakStart)
-        ) {
-          break;
-        }
+      if (cadenceTransition.kind === "stop") {
+        break;
+      }
 
-        reinforcementBlocks.push(
-          buildPlannedStudyBreakBlock({
-            weekStart: weekStartKey,
-            dateKey: slot.dateKey,
-            start: cursor,
-            durationMinutes: effectiveBreakMinutes,
-            slotEnergy: slot.energy,
-          }),
-        );
-        cursor = postBreakStart;
-        remainingSlotMinutes -= effectiveBreakMinutes;
+      if (cadenceTransition.kind === "break") {
+        reinforcementBlocks.push(cadenceTransition.block);
+        cursor = cadenceTransition.cursor;
+        remainingSlotMinutes = cadenceTransition.remainingSlotMinutes;
         continue;
       }
 
@@ -777,9 +842,7 @@ function fillReinforcementForWeek(options: {
       const durationMinutes = Math.min(
         remainingSlotMinutes,
         slot.energy === "low" ? 60 : 90,
-        effectiveBreakMinutes > 0
-          ? STUDY_BREAK_TRIGGER_MINUTES - continuity.continuousStudyMinutes
-          : Number.POSITIVE_INFINITY,
+        cadenceTransition.flexibleStudyCapacityMinutes,
       );
       if (durationMinutes < MIN_ALLOCATABLE_MINUTES) {
         break;
@@ -2042,16 +2105,23 @@ function allocateTasksToSlots(options: {
     return toDateKey(startOfPlannerWeek(new Date(`${dateKey}T12:00:00`)));
   }
 
-  function hasPendingTaskForSubject(subjectId: Subject["id"]) {
-    return workingTasks.some(
+  function hasPendingTaskForSubject(
+    subjectId: Subject["id"],
+    taskPool: TaskCandidate[] = workingTasks,
+  ) {
+    return taskPool.some(
       (task) =>
         task.subjectId === subjectId &&
         task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
     );
   }
 
-  function hasEligibleTaskForSubject(subjectId: Subject["id"], slotStart: Date) {
-    return workingTasks.some(
+  function hasEligibleTaskForSubject(
+    subjectId: Subject["id"],
+    slotStart: Date,
+    taskPool: TaskCandidate[] = workingTasks,
+  ) {
+    return taskPool.some(
       (task) =>
         task.subjectId === subjectId &&
         task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES &&
@@ -2060,8 +2130,11 @@ function allocateTasksToSlots(options: {
     );
   }
 
-  function hasEligibleRealCoverageTask(slotStart: Date) {
-    return workingTasks.some(
+  function hasEligibleRealCoverageTask(
+    slotStart: Date,
+    taskPool: TaskCandidate[] = workingTasks,
+  ) {
+    return taskPool.some(
       (task) =>
         !!task.subjectId &&
         REAL_COVERAGE_SUBJECT_ID_SET.has(task.subjectId) &&
@@ -2071,7 +2144,12 @@ function allocateTasksToSlots(options: {
     );
   }
 
-  function canUseOverflowPracticeSubject(subjectId: Subject["id"], dateKey: string, slotStart: Date) {
+  function canUseOverflowPracticeSubject(
+    subjectId: Subject["id"],
+    dateKey: string,
+    slotStart: Date,
+    taskPool: TaskCandidate[] = workingTasks,
+  ) {
     if (!options.allowReinforcement) {
       return false;
     }
@@ -2084,7 +2162,7 @@ function allocateTasksToSlots(options: {
       return false;
     }
 
-    if (hasEligibleRealCoverageTask(slotStart)) {
+    if (hasEligibleRealCoverageTask(slotStart, taskPool)) {
       return false;
     }
 
@@ -2093,7 +2171,10 @@ function allocateTasksToSlots(options: {
       return false;
     }
 
-    if (hasPendingTaskForSubject(subjectId) && !hasEligibleTaskForSubject(subjectId, slotStart)) {
+    if (
+      hasPendingTaskForSubject(subjectId, taskPool) &&
+      !hasEligibleTaskForSubject(subjectId, slotStart, taskPool)
+    ) {
       return false;
     }
 
@@ -2493,7 +2574,10 @@ function allocateTasksToSlots(options: {
     });
   }
 
-  function syncWorkingTasks(restrictedSubjectIds?: string[]) {
+  function getRefreshedWorkingTasks(
+    restrictedSubjectIds?: string[],
+    taskPool: TaskCandidate[] = workingTasks,
+  ) {
     const topics = restrictedSubjectIds?.length
       ? options.topics.filter((topic) => restrictedSubjectIds.includes(topic.subjectId))
       : options.topics;
@@ -2514,16 +2598,19 @@ function allocateTasksToSlots(options: {
     });
 
     if (!restrictedSubjectIds?.length) {
-      workingTasks = refreshedTasks;
-      return;
+      return refreshedTasks;
     }
 
-    workingTasks = [
-      ...workingTasks.filter(
+    return [
+      ...taskPool.filter(
         (task) => !task.subjectId || !restrictedSubjectIds.includes(task.subjectId),
       ),
       ...refreshedTasks,
     ];
+  }
+
+  function syncWorkingTasks(restrictedSubjectIds?: string[]) {
+    workingTasks = getRefreshedWorkingTasks(restrictedSubjectIds);
   }
 
   function applyScheduledTaskCoverage(task: TaskCandidate, durationMinutes: number) {
@@ -2590,7 +2677,11 @@ function allocateTasksToSlots(options: {
     return !!topic && isCoreHlSyllabusTopic(topic);
   }
 
-  function hasLegacyCoreHlSyllabusPriority(slotStart: Date, dateKey: string) {
+  function hasLegacyCoreHlSyllabusPriority(
+    slotStart: Date,
+    dateKey: string,
+    taskPool: TaskCandidate[] = workingTasks,
+  ) {
     if (options.coreSyllabusPacingPlan) {
       return false;
     }
@@ -2599,7 +2690,7 @@ function allocateTasksToSlots(options: {
       return false;
     }
 
-    return workingTasks.some(
+    return taskPool.some(
       (task) =>
         task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES &&
         isCoreHlSyllabusTask(task) &&
@@ -2608,14 +2699,18 @@ function allocateTasksToSlots(options: {
     );
   }
 
-  function getUnderPaceCoreSubjectIds(slotStart: Date, dateKey: string) {
+  function getUnderPaceCoreSubjectIds(
+    slotStart: Date,
+    dateKey: string,
+    taskPool: TaskCandidate[] = workingTasks,
+  ) {
     if (!options.coreSyllabusPacingPlan) {
       return [];
     }
 
     return IB_ANCHOR_SUBJECT_IDS.filter(
       (subjectId) =>
-        hasEligibleTaskForSubject(subjectId, slotStart) &&
+        hasEligibleTaskForSubject(subjectId, slotStart, taskPool) &&
         getCoreSyllabusPacingDeficitMinutes(
           options.coreSyllabusPacingPlan,
           subjectId,
@@ -2764,7 +2859,10 @@ function allocateTasksToSlots(options: {
     return subjectTargetMinutes > getFocusedSubjectAssignedMinutes(dateKey, subjectId) + 14;
   }
 
-  function getUnmetFocusedSubjectIds(dateKey: string) {
+  function getUnmetFocusedSubjectIds(
+    dateKey: string,
+    taskPool: TaskCandidate[] = workingTasks,
+  ) {
     const focusedSubjectIds = focusedSubjectsByDate[dateKey] ?? [];
     if (!focusedSubjectIds.length) {
       return [];
@@ -2775,7 +2873,7 @@ function allocateTasksToSlots(options: {
         return false;
       }
 
-      return workingTasks.some(
+      return taskPool.some(
         (task) =>
           task.subjectId === subjectId &&
         task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
@@ -2815,8 +2913,16 @@ function allocateTasksToSlots(options: {
     );
   }
 
-  function getOverflowPracticeSubjectId(dateKey: string, slotStart: Date) {
-    const underMinimumIbSubjectId = getUnderMinimumIbOverflowSubjectId(dateKey, slotStart);
+  function getOverflowPracticeSubjectId(
+    dateKey: string,
+    slotStart: Date,
+    taskPool: TaskCandidate[] = workingTasks,
+  ) {
+    const underMinimumIbSubjectId = getUnderMinimumIbOverflowSubjectId(
+      dateKey,
+      slotStart,
+      taskPool,
+    );
 
     if (underMinimumIbSubjectId) {
       return underMinimumIbSubjectId;
@@ -2829,7 +2935,7 @@ function allocateTasksToSlots(options: {
 
     const unfinishedCoreIds = Array.from(
       new Set(
-        workingTasks
+        taskPool
           .filter(
             (task) =>
               task.kind === "topic" &&
@@ -2849,7 +2955,9 @@ function allocateTasksToSlots(options: {
     ] satisfies Subject["id"][];
 
     return [...fillOrder]
-      .filter((subjectId) => canUseOverflowPracticeSubject(subjectId, dateKey, slotStart))
+      .filter((subjectId) =>
+        canUseOverflowPracticeSubject(subjectId, dateKey, slotStart, taskPool),
+      )
       .sort((left, right) => {
         const leftMinutes = subjectMinutesByDate[dateKey]?.[left] ?? 0;
         const rightMinutes = subjectMinutesByDate[dateKey]?.[right] ?? 0;
@@ -2917,7 +3025,11 @@ function allocateTasksToSlots(options: {
     ).length;
   }
 
-  function getUnderMinimumIbOverflowSubjectId(dateKey: string, slotStart: Date) {
+  function getUnderMinimumIbOverflowSubjectId(
+    dateKey: string,
+    slotStart: Date,
+    taskPool: TaskCandidate[] = workingTasks,
+  ) {
     return ([...IB_REINFORCEMENT_MIN_SUBJECT_IDS] as Subject["id"][])
       .filter((subjectId) => {
         if (!IB_REINFORCEMENT_MIN_SUBJECT_ID_SET.has(subjectId)) {
@@ -2928,7 +3040,12 @@ function allocateTasksToSlots(options: {
           return false;
         }
 
-        return canUseOverflowPracticeSubject(subjectId, dateKey, slotStart);
+        return canUseOverflowPracticeSubject(
+          subjectId,
+          dateKey,
+          slotStart,
+          taskPool,
+        );
       })
       .sort((left, right) => {
         const leftCount = getReinforcementSessionCountForSubject(left);
@@ -3277,6 +3394,7 @@ function allocateTasksToSlots(options: {
     requiredTaskConstraint?: "olympiad-bplus-content";
     requiredExactTopicId?: string;
     flexibleDurationLimitMinutes?: number;
+    taskPool?: TaskCandidate[];
   }): ScoredTaskBlockOption[] {
     const {
       slot,
@@ -3291,6 +3409,7 @@ function allocateTasksToSlots(options: {
       requiredTaskConstraint,
       requiredExactTopicId,
       flexibleDurationLimitMinutes,
+      taskPool = workingTasks,
     } = config;
     const allowedBlockTypes = getAllowedBlockTypesForSlot(slot);
     const continuity = getStudyContinuityContext({
@@ -3307,11 +3426,16 @@ function allocateTasksToSlots(options: {
             STUDY_BREAK_TRIGGER_MINUTES - continuity.continuousStudyMinutes,
           )
         : undefined);
-    const underPaceCoreSubjectIds = getUnderPaceCoreSubjectIds(slot.start, slot.dateKey);
+    const underPaceCoreSubjectIds = getUnderPaceCoreSubjectIds(
+      slot.start,
+      slot.dateKey,
+      taskPool,
+    );
     const underPaceCoreSubjectIdSet = new Set<Subject["id"]>(underPaceCoreSubjectIds);
     const legacyCorePriorityActive = hasLegacyCoreHlSyllabusPriority(
       slot.start,
       slot.dateKey,
+      taskPool,
     );
     const selectionPolicy =
       allowWeeklyTargetOverride || mustFillEndOfDaySlot
@@ -3322,7 +3446,7 @@ function allocateTasksToSlots(options: {
             allowLateNightDeepWork: true,
           }
         : options.blockSelectionPolicy;
-    const eligibleBlockOptions = workingTasks
+    const eligibleBlockOptions = taskPool
       .filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES)
       .filter((task) => {
         if (requiredTaskConstraint === "olympiad-bplus-content") {
@@ -3534,6 +3658,235 @@ function allocateTasksToSlots(options: {
       .sort(compareCorePacingCandidatePriority) as ScoredTaskBlockOption[];
   }
 
+  type StudyPlacementSelection =
+    | {
+        kind: "task";
+        winner: ScoredTaskBlockOption;
+        slotSlice: CalendarSlot;
+        taskPool: TaskCandidate[];
+      }
+    | {
+        kind: "overflow";
+        subjectId: Subject["id"];
+        durationMinutes: number;
+        slotSlice: CalendarSlot;
+        taskPool: TaskCandidate[];
+      }
+    | {
+        kind: "none";
+        slotSlice: CalendarSlot;
+        taskPool: TaskCandidate[];
+      };
+
+  function selectStudyPlacement(config: {
+    slot: CalendarSlot;
+    cursor: Date;
+    remainingSlotMinutes: number;
+    availableToday: number;
+    templateRemainingMinutes: number | null;
+    activeTemplateRequirement:
+      | NonNullable<typeof schoolTermTemplate>["requirements"][number]
+      | null;
+    lightReviewOnlyDay: boolean;
+    mustFillEndOfDaySlot: boolean;
+    flexibleStudyCapacityMinutes: number;
+    taskPool?: TaskCandidate[];
+  }): StudyPlacementSelection {
+    const {
+      slot,
+      cursor,
+      remainingSlotMinutes,
+      availableToday,
+      templateRemainingMinutes,
+      activeTemplateRequirement,
+      lightReviewOnlyDay,
+      mustFillEndOfDaySlot,
+      flexibleStudyCapacityMinutes,
+    } = config;
+    let taskPool = config.taskPool ?? workingTasks;
+    const slotDurationMinutes = Math.min(
+      remainingSlotMinutes,
+      availableToday,
+      templateRemainingMinutes ?? Number.POSITIVE_INFINITY,
+    );
+    const slotSlice: CalendarSlot = {
+      ...slot,
+      start: cursor,
+      end: addMinutes(cursor, slotDurationMinutes),
+      durationMinutes: slotDurationMinutes,
+    };
+    let templateOnlyOptions = activeTemplateRequirement
+      ? buildScoredOptionsForSlot({
+          slot: slotSlice,
+          allowWeeklyTargetOverride: true,
+          bypassCorePacingPriority: isOlympiadContinuityPacingOverride(
+            activeTemplateRequirement,
+          ),
+          restrictedSubjectIds: [activeTemplateRequirement.subjectId],
+          restrictedTopicIds: activeTemplateRequirement.exactTopicId
+            ? [activeTemplateRequirement.exactTopicId]
+            : undefined,
+          requiredStudyLayers: activeTemplateRequirement.studyLayers,
+          requiredTaskConstraint: activeTemplateRequirement.taskConstraint,
+          requiredExactTopicId: activeTemplateRequirement.exactTopicId ?? undefined,
+          mustFillEndOfDaySlot,
+          strongFocusDemand: true,
+          taskPool,
+        })
+      : [];
+    const unmetFocusedSubjectIds = getUnmetFocusedSubjectIds(slot.dateKey, taskPool);
+    let focusedOnlyOptions = unmetFocusedSubjectIds.length > 0
+      ? buildScoredOptionsForSlot({
+          slot: slotSlice,
+          allowWeeklyTargetOverride: true,
+          bypassCorePacingPriority: true,
+          restrictedSubjectIds: unmetFocusedSubjectIds,
+          mustFillEndOfDaySlot,
+          strongFocusDemand: true,
+          taskPool,
+        })
+      : [];
+
+    if (unmetFocusedSubjectIds.length > 0 && focusedOnlyOptions.length === 0) {
+      taskPool = getRefreshedWorkingTasks(unmetFocusedSubjectIds, taskPool);
+      focusedOnlyOptions = buildScoredOptionsForSlot({
+        slot: slotSlice,
+        allowWeeklyTargetOverride: true,
+        bypassCorePacingPriority: true,
+        restrictedSubjectIds: unmetFocusedSubjectIds,
+        mustFillEndOfDaySlot,
+        strongFocusDemand: true,
+        taskPool,
+      });
+    }
+
+    if (templateOnlyOptions.length === 0 && activeTemplateRequirement?.exactTopicId) {
+      taskPool = getRefreshedWorkingTasks(
+        [activeTemplateRequirement.subjectId],
+        taskPool,
+      );
+      templateOnlyOptions = buildScoredOptionsForSlot({
+        slot: slotSlice,
+        allowWeeklyTargetOverride: true,
+        bypassCorePacingPriority: false,
+        restrictedSubjectIds: [activeTemplateRequirement.subjectId],
+        restrictedTopicIds: [activeTemplateRequirement.exactTopicId],
+        requiredStudyLayers: activeTemplateRequirement.studyLayers,
+        requiredTaskConstraint: activeTemplateRequirement.taskConstraint,
+        requiredExactTopicId: activeTemplateRequirement.exactTopicId,
+        mustFillEndOfDaySlot,
+        strongFocusDemand: true,
+        taskPool,
+      });
+    }
+
+    const focusedDemandStillOpen =
+      unmetFocusedSubjectIds.length > 0 &&
+      shouldForceFocusedOnlyForSlot(slot.dateKey, focusedOnlyOptions);
+    if (!focusedDemandStillOpen) {
+      focusedOnlyOptions = [];
+    }
+
+    const focusedOverflowSubjectId =
+      focusedOnlyOptions.length === 0 && focusedDemandStillOpen
+        ? getFocusedOverflowPracticeSubjectId(slot.dateKey)
+        : null;
+    if (
+      focusedOverflowSubjectId &&
+      options.fillAvailableStudyDays &&
+      canUseOverflowPracticeSubject(
+        focusedOverflowSubjectId,
+        slot.dateKey,
+        cursor,
+        taskPool,
+      ) &&
+      !lightReviewOnlyDay &&
+      remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES &&
+      flexibleStudyCapacityMinutes >= MIN_ALLOCATABLE_MINUTES &&
+      (options.isFinalPass ?? true)
+    ) {
+      return {
+        kind: "overflow",
+        subjectId: focusedOverflowSubjectId,
+        durationMinutes: Math.min(
+          remainingSlotMinutes,
+          slotSlice.energy === "low" ? 60 : 90,
+          flexibleStudyCapacityMinutes,
+        ),
+        slotSlice,
+        taskPool,
+      };
+    }
+
+    const scoredOptions =
+      templateOnlyOptions.length > 0
+        ? templateOnlyOptions
+        : focusedOnlyOptions.length > 0
+          ? focusedOnlyOptions
+          : buildScoredOptionsForSlot({
+              slot: slotSlice,
+              disallowedStudyLayers:
+                lightReviewOnlyDay && !activeTemplateRequirement
+                  ? ["learning", "exam_sim"]
+                  : undefined,
+              mustFillEndOfDaySlot,
+              strongFocusDemand: focusedDemandStillOpen,
+              requiredStudyLayers: options.requiredStudyLayers,
+              taskPool,
+            });
+    const winner = scoredOptions[0];
+    const allTargetsMet = allWeeklyTargetsSatisfied();
+    const shouldProtectRecovery =
+      mustFillEndOfDaySlot
+        ? false
+        : options.fillAvailableStudyDays
+          ? false
+          : options.protectRecovery ?? (!needsIntensityRamp || allTargetsMet);
+
+    if (
+      winner &&
+      winner.scoreBreakdown.total < 8 &&
+      !options.fillAvailableStudyDays &&
+      shouldProtectRecovery &&
+      (slotSlice.energy === "low" || allTargetsMet)
+    ) {
+      return { kind: "none", slotSlice, taskPool };
+    }
+
+    if (winner) {
+      return { kind: "task", winner, slotSlice, taskPool };
+    }
+
+    if (
+      options.fillAvailableStudyDays &&
+      !lightReviewOnlyDay &&
+      remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES &&
+      flexibleStudyCapacityMinutes >= MIN_ALLOCATABLE_MINUTES &&
+      (options.isFinalPass ?? true)
+    ) {
+      const overflowSubjectId = getOverflowPracticeSubjectId(
+        slot.dateKey,
+        cursor,
+        taskPool,
+      );
+      if (overflowSubjectId) {
+        return {
+          kind: "overflow",
+          subjectId: overflowSubjectId,
+          durationMinutes: Math.min(
+            remainingSlotMinutes,
+            slotSlice.energy === "low" ? 60 : 90,
+            flexibleStudyCapacityMinutes,
+          ),
+          slotSlice,
+          taskPool,
+        };
+      }
+    }
+
+    return { kind: "none", slotSlice, taskPool };
+  }
+
   options.freeSlots.forEach((slot) => {
     const mustFillEndOfDaySlot =
       slot.durationMinutes >= MIN_ALLOCATABLE_MINUTES &&
@@ -3608,223 +3961,91 @@ function allocateTasksToSlots(options: {
         break;
       }
 
-      const continuity = getStudyContinuityContext({
+      const cadenceTransition = getStudyCadenceTransition({
         blocks: [...options.lockedBlocks, ...scheduledBlocks],
+        weekStart: weekStartKey,
         dateKey: slot.dateKey,
         cursor,
-        resetMinutes: effectiveBreakMinutes,
-      });
-      const breakDue =
-        effectiveBreakMinutes > 0 &&
-        continuity.continuousStudyMinutes >= STUDY_BREAK_TRIGGER_MINUTES;
-      const flexibleStudyCapacityMinutes = breaksEnabled
-        ? Math.max(
-            0,
-            STUDY_BREAK_TRIGGER_MINUTES - continuity.continuousStudyMinutes,
-          )
-        : Number.POSITIVE_INFINITY;
-
-      if (breakDue) {
-        if (
-          remainingSlotMinutes <
-          effectiveBreakMinutes + MIN_ALLOCATABLE_MINUTES
-        ) {
-          break;
-        }
-
-        const postBreakStart = addMinutes(cursor, effectiveBreakMinutes);
-        const postBreakDurationMinutes = Math.min(
-          remainingSlotMinutes - effectiveBreakMinutes,
-          availableToday,
-          templateRemainingMinutes ?? Number.POSITIVE_INFINITY,
-        );
-        const postBreakSlot: CalendarSlot = {
-          ...slot,
-          start: postBreakStart,
-          end: addMinutes(postBreakStart, postBreakDurationMinutes),
-          durationMinutes: postBreakDurationMinutes,
-        };
-        const hasFollowUpCandidate =
-          postBreakDurationMinutes >= MIN_ALLOCATABLE_MINUTES &&
-          (buildScoredOptionsForSlot({
-            slot: postBreakSlot,
-            disallowedStudyLayers:
-              lightReviewOnlyDay && !activeTemplateRequirement
-                ? ["learning", "exam_sim"]
-                : undefined,
+        remainingSlotMinutes,
+        effectiveBreakMinutes,
+        slotEnergy: slot.energy,
+        canStudyFollow: (postBreakStart, postBreakRemainingMinutes) =>
+          selectStudyPlacement({
+            slot,
+            cursor: postBreakStart,
+            remainingSlotMinutes: postBreakRemainingMinutes,
+            availableToday,
+            templateRemainingMinutes,
+            activeTemplateRequirement,
+            lightReviewOnlyDay,
             mustFillEndOfDaySlot,
-            requiredStudyLayers: options.requiredStudyLayers,
-          }).length > 0 ||
-            (options.fillAvailableStudyDays &&
-              !lightReviewOnlyDay &&
-              !!getOverflowPracticeSubjectId(slot.dateKey, postBreakStart)));
+            flexibleStudyCapacityMinutes: STUDY_BREAK_TRIGGER_MINUTES,
+            taskPool: workingTasks,
+          }).kind !== "none",
+      });
 
-        if (!hasFollowUpCandidate) {
-          break;
-        }
+      if (cadenceTransition.kind === "stop") {
+        break;
+      }
 
-        scheduledBlocks.push(
-          buildPlannedStudyBreakBlock({
-            weekStart: weekStartKey,
-            dateKey: slot.dateKey,
-            start: cursor,
-            durationMinutes: effectiveBreakMinutes,
-            slotEnergy: slot.energy,
-          }),
-        );
-        cursor = postBreakStart;
-        remainingSlotMinutes -= effectiveBreakMinutes;
+      if (cadenceTransition.kind === "break") {
+        scheduledBlocks.push(cadenceTransition.block);
+        cursor = cadenceTransition.cursor;
+        remainingSlotMinutes = cadenceTransition.remainingSlotMinutes;
         continue;
       }
 
-      const slotSlice: CalendarSlot = {
-        ...slot,
-        start: cursor,
-        end: addMinutes(
-          cursor,
-          Math.min(
-            remainingSlotMinutes,
-            availableToday,
-            templateRemainingMinutes ?? Number.POSITIVE_INFINITY,
-          ),
-        ),
-        durationMinutes: Math.min(
-          remainingSlotMinutes,
-          availableToday,
-          templateRemainingMinutes ?? Number.POSITIVE_INFINITY,
-        ),
-      };
-      let templateOnlyOptions = activeTemplateRequirement
-        ? buildScoredOptionsForSlot({
-            slot: slotSlice,
-            allowWeeklyTargetOverride: true,
-            bypassCorePacingPriority: isOlympiadContinuityPacingOverride(
-              activeTemplateRequirement,
-            ),
-            restrictedSubjectIds: [activeTemplateRequirement.subjectId],
-            restrictedTopicIds: activeTemplateRequirement.exactTopicId
-              ? [activeTemplateRequirement.exactTopicId]
-              : undefined,
-            requiredStudyLayers: activeTemplateRequirement.studyLayers,
-            requiredTaskConstraint: activeTemplateRequirement.taskConstraint,
-            requiredExactTopicId: activeTemplateRequirement.exactTopicId ?? undefined,
-            mustFillEndOfDaySlot,
-            strongFocusDemand: true,
-          })
-        : [];
-      const unmetFocusedSubjectIds = getUnmetFocusedSubjectIds(slot.dateKey);
-      let focusedOnlyOptions = unmetFocusedSubjectIds.length > 0
-        ? buildScoredOptionsForSlot({
-            slot: slotSlice,
-            allowWeeklyTargetOverride: true,
-            bypassCorePacingPriority: true,
-            restrictedSubjectIds: unmetFocusedSubjectIds,
-            mustFillEndOfDaySlot,
-            strongFocusDemand: true,
-          })
-        : [];
+      const selection = selectStudyPlacement({
+        slot,
+        cursor,
+        remainingSlotMinutes,
+        availableToday,
+        templateRemainingMinutes,
+        activeTemplateRequirement,
+        lightReviewOnlyDay,
+        mustFillEndOfDaySlot,
+        flexibleStudyCapacityMinutes:
+          cadenceTransition.flexibleStudyCapacityMinutes,
+        taskPool: workingTasks,
+      });
+      workingTasks = selection.taskPool;
+      const slotSlice = selection.slotSlice;
 
-      if (unmetFocusedSubjectIds.length > 0 && focusedOnlyOptions.length === 0) {
-        syncWorkingTasks(unmetFocusedSubjectIds);
-        focusedOnlyOptions = buildScoredOptionsForSlot({
-          slot: slotSlice,
-          allowWeeklyTargetOverride: true,
-          bypassCorePacingPriority: true,
-          restrictedSubjectIds: unmetFocusedSubjectIds,
-          mustFillEndOfDaySlot,
-          strongFocusDemand: true,
-        });
-      }
-
-      if (templateOnlyOptions.length === 0 && activeTemplateRequirement?.exactTopicId) {
-        syncWorkingTasks([activeTemplateRequirement.subjectId]);
-        templateOnlyOptions = buildScoredOptionsForSlot({
-          slot: slotSlice,
-          allowWeeklyTargetOverride: true,
-          bypassCorePacingPriority: false,
-          restrictedSubjectIds: [activeTemplateRequirement.subjectId],
-          restrictedTopicIds: [activeTemplateRequirement.exactTopicId],
-          requiredStudyLayers: activeTemplateRequirement.studyLayers,
-          requiredTaskConstraint: activeTemplateRequirement.taskConstraint,
-          requiredExactTopicId: activeTemplateRequirement.exactTopicId,
-          mustFillEndOfDaySlot,
-          strongFocusDemand: true,
-        });
-      }
-
-      const focusedDemandStillOpen =
-        unmetFocusedSubjectIds.length > 0 &&
-        shouldForceFocusedOnlyForSlot(slot.dateKey, focusedOnlyOptions);
-
-      if (!focusedDemandStillOpen) {
-        focusedOnlyOptions = [];
-      }
-
-      const focusedOverflowSubjectId =
-        focusedOnlyOptions.length === 0 && focusedDemandStillOpen
-          ? getFocusedOverflowPracticeSubjectId(slot.dateKey)
-          : null;
-
-      if (
-        focusedOverflowSubjectId &&
-        options.fillAvailableStudyDays &&
-        canUseOverflowPracticeSubject(focusedOverflowSubjectId, slot.dateKey, cursor) &&
-        !lightReviewOnlyDay &&
-        remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES &&
-        flexibleStudyCapacityMinutes >= MIN_ALLOCATABLE_MINUTES &&
-        (options.isFinalPass ?? true)
-      ) {
-        const overflowDuration = Math.min(
-          remainingSlotMinutes,
-          slotSlice.energy === "low" ? 60 : 90,
-          flexibleStudyCapacityMinutes,
-        );
+      if (selection.kind === "overflow") {
         const overflowBlock = buildOverflowPracticeBlock({
           slot: slotSlice,
           weekStart: weekStartKey,
-          subjectId: focusedOverflowSubjectId,
+          subjectId: selection.subjectId,
           start: cursor,
-          durationMinutes: overflowDuration,
+          durationMinutes: selection.durationMinutes,
         });
         scheduledBlocks.push(overflowBlock);
-        dailyMinutes[slot.dateKey] = (dailyMinutes[slot.dateKey] ?? 0) + overflowDuration;
-        assignedMinutesBySubject[focusedOverflowSubjectId] += overflowDuration;
+        dailyMinutes[slot.dateKey] =
+          (dailyMinutes[slot.dateKey] ?? 0) + selection.durationMinutes;
+        assignedMinutesBySubject[selection.subjectId] += selection.durationMinutes;
         subjectMinutesByDate[slot.dateKey] = {
           ...(subjectMinutesByDate[slot.dateKey] ?? {}),
-          [focusedOverflowSubjectId]:
-            (subjectMinutesByDate[slot.dateKey]?.[focusedOverflowSubjectId] ?? 0) +
-            overflowDuration,
+          [selection.subjectId]:
+            (subjectMinutesByDate[slot.dateKey]?.[selection.subjectId] ?? 0) +
+            selection.durationMinutes,
         };
         const overflowWeekKey = getWeekKeyForDate(slot.dateKey);
         subjectMinutesByWeekStart[overflowWeekKey] = {
           ...(subjectMinutesByWeekStart[overflowWeekKey] ?? {}),
-          [focusedOverflowSubjectId]:
-            (subjectMinutesByWeekStart[overflowWeekKey]?.[focusedOverflowSubjectId] ?? 0) +
-            overflowDuration,
+          [selection.subjectId]:
+            (subjectMinutesByWeekStart[overflowWeekKey]?.[selection.subjectId] ?? 0) +
+            selection.durationMinutes,
         };
-        consumedStudyMinutes += overflowDuration;
-        cursor = addMinutes(cursor, overflowDuration);
-        remainingSlotMinutes = Math.max(0, remainingSlotMinutes - overflowDuration);
+        consumedStudyMinutes += selection.durationMinutes;
+        cursor = addMinutes(cursor, selection.durationMinutes);
+        remainingSlotMinutes = Math.max(
+          0,
+          remainingSlotMinutes - selection.durationMinutes,
+        );
         continue;
       }
 
-      const scoredOptions =
-        templateOnlyOptions.length > 0
-          ? templateOnlyOptions
-          : focusedOnlyOptions.length > 0
-          ? focusedOnlyOptions
-          : buildScoredOptionsForSlot({
-              slot: slotSlice,
-              disallowedStudyLayers:
-                schoolTermTemplate?.lightReviewOnlyDateKeys.includes(slot.dateKey) &&
-                !activeTemplateRequirement
-                  ? ["learning", "exam_sim"]
-                  : undefined,
-              mustFillEndOfDaySlot,
-              strongFocusDemand: focusedDemandStillOpen,
-              requiredStudyLayers: options.requiredStudyLayers,
-            });
-      const winner = scoredOptions[0];
+      const winner = selection.kind === "task" ? selection.winner : null;
       const allTargetsMet = allWeeklyTargetsSatisfied();
       const shouldProtectRecovery =
         mustFillEndOfDaySlot
@@ -3834,53 +4055,9 @@ function allocateTasksToSlots(options: {
           : options.protectRecovery ?? (!needsIntensityRamp || allTargetsMet);
 
       if (!winner) {
-        if (
-          options.fillAvailableStudyDays &&
-          !lightReviewOnlyDay &&
-          remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES &&
-          (options.isFinalPass ?? true)
-        ) {
-          const overflowSubjectId = getOverflowPracticeSubjectId(slot.dateKey, cursor);
-          if (!overflowSubjectId) {
-            remainingSlotMinutes = 0;
-            break;
-          }
-          const overflowDuration = Math.min(
-            remainingSlotMinutes,
-            slotSlice.energy === "low" ? 60 : 90,
-            flexibleStudyCapacityMinutes,
-          );
-          if (overflowDuration < MIN_ALLOCATABLE_MINUTES) {
-            break;
-          }
-          const overflowBlock = buildOverflowPracticeBlock({
-            slot: slotSlice,
-            weekStart: weekStartKey,
-            subjectId: overflowSubjectId,
-            start: cursor,
-            durationMinutes: overflowDuration,
-          });
-          scheduledBlocks.push(overflowBlock);
-          dailyMinutes[slot.dateKey] =
-            (dailyMinutes[slot.dateKey] ?? 0) + overflowDuration;
-          assignedMinutesBySubject[overflowSubjectId] += overflowDuration;
-          subjectMinutesByDate[slot.dateKey] = {
-            ...(subjectMinutesByDate[slot.dateKey] ?? {}),
-            [overflowSubjectId]:
-              (subjectMinutesByDate[slot.dateKey]?.[overflowSubjectId] ?? 0) +
-              overflowDuration,
-          };
-          const overflowWeekKey = getWeekKeyForDate(slot.dateKey);
-          subjectMinutesByWeekStart[overflowWeekKey] = {
-            ...(subjectMinutesByWeekStart[overflowWeekKey] ?? {}),
-            [overflowSubjectId]:
-              (subjectMinutesByWeekStart[overflowWeekKey]?.[overflowSubjectId] ?? 0) +
-              overflowDuration,
-          };
-          consumedStudyMinutes += overflowDuration;
-          cursor = addMinutes(cursor, overflowDuration);
-          remainingSlotMinutes = Math.max(0, remainingSlotMinutes - overflowDuration);
-          continue;
+        if (options.fillAvailableStudyDays && !lightReviewOnlyDay) {
+          remainingSlotMinutes = 0;
+          break;
         }
 
         if (
@@ -3896,50 +4073,6 @@ function allocateTasksToSlots(options: {
           canInsertRecoveryBlock(slotSlice, usedToday, dailyBudget) &&
           (slotSlice.energy === "low" || allTargetsMet)
         ) {
-          const recoveryDuration = clamp(
-            Math.min(30, remainingSlotMinutes),
-            MIN_ALLOCATABLE_MINUTES,
-            30,
-          );
-          const recoverySlot = {
-            ...slotSlice,
-            end: addMinutes(cursor, recoveryDuration),
-            durationMinutes: recoveryDuration,
-          };
-          const recoveryBlock = buildRecoveryBlock(recoverySlot, weekStartKey);
-          scheduledBlocks.push(recoveryBlock);
-          dailyMinutes[slot.dateKey] = (dailyMinutes[slot.dateKey] ?? 0) + recoveryDuration;
-          const breakAfterRecovery = getInlineBreakMinutes(
-            remainingSlotMinutes,
-            recoveryDuration,
-            effectiveBreakMinutes,
-          );
-          cursor = addMinutes(cursor, recoveryDuration + breakAfterRecovery);
-          remainingSlotMinutes = Math.max(
-            0,
-            remainingSlotMinutes - recoveryDuration - breakAfterRecovery,
-          );
-          continue;
-        }
-
-        break;
-      }
-
-      if (
-        winner.scoreBreakdown.total < 8 &&
-        !options.fillAvailableStudyDays &&
-        shouldProtectRecovery &&
-        (slotSlice.energy === "low" || allTargetsMet)
-      ) {
-        if (
-          options.allowLargeGapAbsorption !== false &&
-          absorbTrailingGapIntoPreviousBlock(slot.dateKey, cursor, remainingSlotMinutes)
-        ) {
-          remainingSlotMinutes = 0;
-          break;
-        }
-
-        if (canInsertRecoveryBlock(slotSlice, usedToday, dailyBudget)) {
           const recoveryDuration = clamp(
             Math.min(30, remainingSlotMinutes),
             MIN_ALLOCATABLE_MINUTES,

@@ -288,6 +288,8 @@ function withFakeNow<T>(nowIso: string, callback: () => T): T {
 
 function buildBreakAllocationFixture(options: {
   breaksEnabled: boolean;
+  minBreakMinutes?: number;
+  studyWindowStart?: string;
   studyWindowEnd?: string;
   naturalPause?: { start: string; end: string };
   topics?: Topic[];
@@ -307,13 +309,13 @@ function buildBreakAllocationFixture(options: {
   assert.ok(baseTopic);
 
   const studyWindow = {
-    start: "09:00",
+    start: options.studyWindowStart ?? "09:00",
     end: options.studyWindowEnd ?? "12:00",
   };
   const preferences: Preferences = {
     ...dataset.preferences,
     breaksEnabled: options.breaksEnabled,
-    minBreakMinutes: 15,
+    minBreakMinutes: options.minBreakMinutes ?? 15,
     weeklyBufferRatio: 0,
     dailyStudyWindow: studyWindow,
     preferredDeepWorkWindows: [],
@@ -411,6 +413,43 @@ function assertNoStudyBlockOverlaps(blocks: StudyBlock[]) {
           new Date(ordered[index + 1].start).getTime(),
     ),
   );
+}
+
+function getLongestContinuousStudyMinutes(
+  blocks: StudyBlock[],
+  resetMinutes: number,
+) {
+  let longestMinutes = 0;
+  let continuousMinutes = 0;
+  let previousEndTime: number | null = null;
+
+  [...blocks]
+    .sort(
+      (left, right) =>
+        new Date(left.start).getTime() - new Date(right.start).getTime(),
+    )
+    .forEach((block) => {
+      const startTime = new Date(block.start).getTime();
+      const gapMinutes =
+        previousEndTime == null ? 0 : (startTime - previousEndTime) / 60_000;
+
+      if (
+        previousEndTime == null ||
+        gapMinutes >= resetMinutes ||
+        isPlannedStudyBreakBlock(block)
+      ) {
+        continuousMinutes = 0;
+      }
+
+      if (block.subjectId) {
+        continuousMinutes += block.estimatedMinutes;
+        longestMinutes = Math.max(longestMinutes, continuousMinutes);
+      }
+
+      previousEndTime = new Date(block.end).getTime();
+    });
+
+  return longestMinutes;
 }
 
 test("core syllabus pacing weights cumulative targets by real study capacity", () => {
@@ -958,6 +997,368 @@ test("reinforcement cadence persists breaks after real coverage is complete", ()
     Math.round((reinforcementMinutes / 60) * 10) / 10,
   );
   assertNoStudyBlockOverlaps(result.studyBlocks);
+});
+
+test("complete post-break probing preserves an exact template continuation", () => {
+  const referenceDate = new Date("2026-11-02T00:00:00");
+  const weekStart = startOfPlannerWeek(referenceDate);
+  const dataset = buildSeedDataset(referenceDate);
+  const mathsSubject = dataset.subjects.find(
+    (subject) => subject.id === "maths-aa-hl",
+  );
+  const seededPaperTopic = dataset.topics.find(
+    (topic) => topic.id === "maths-aa-past-papers-week-1-paper-1",
+  );
+  assert.ok(mathsSubject);
+  assert.ok(seededPaperTopic);
+  const paperTopic: Topic = {
+    ...seededPaperTopic,
+    availableFrom: null,
+    dependsOnTopicId: null,
+    minDaysAfterDependency: null,
+    maxDaysAfterDependency: null,
+    completedHours: 0,
+  };
+  const saturday = addDays(
+    weekStart,
+    (6 - weekStart.getDay() + 7) % 7,
+  );
+  const saturdayKey = toDateKey(saturday);
+  const studyWindow = { start: "09:00", end: "13:30" };
+  const preferences: Preferences = {
+    ...withConfiguredSchoolTerm(dataset.preferences, {
+      terms: [
+        {
+          id: "term-4",
+          label: "Term 4",
+          startDate: "2026-10-05",
+          endDate: "2026-12-04",
+        },
+      ],
+    }),
+    breaksEnabled: true,
+    minBreakMinutes: 30,
+    weeklyBufferRatio: 0,
+    dailyStudyWindow: studyWindow,
+    preferredDeepWorkWindows: [],
+    reservedCommitmentRules: [],
+    lockedRecoveryWindows: [],
+  };
+  const fixedEvents: FixedEvent[] = Array.from({ length: 7 }, (_, index) =>
+    addDays(weekStart, index),
+  )
+    .filter((date) => toDateKey(date) !== saturdayKey)
+    .map((date) => ({
+      id: `blocked-${toDateKey(date)}`,
+      title: "Blocked day",
+      start: createDateAtTime(date, "00:00").toISOString(),
+      end: createDateAtTime(date, "23:59").toISOString(),
+      isAllDay: false,
+      recurrence: "none",
+      flexibility: "fixed",
+      category: "activity",
+    }));
+  const lockedBlock = createStudyBlock({
+    id: "maths-weekly-target-already-met",
+    weekStart: toDateKey(weekStart),
+    date: saturdayKey,
+    start: createDateAtTime(saturday, "09:00").toISOString(),
+    end: createDateAtTime(saturday, "11:00").toISOString(),
+    subjectId: "maths-aa-hl",
+    topicId: "maths-prior-cadence",
+    estimatedMinutes: 120,
+    assignmentLocked: true,
+  });
+
+  const result = generateStudyPlanForWeek({
+    weekStart,
+    referenceDate,
+    goals: [
+      {
+        id: "goal-maths-template-break-probe",
+        title: "Complete the template paper",
+        subjectId: "maths-aa-hl",
+        deadline: saturdayKey,
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [mathsSubject],
+    topics: [paperTopic],
+    completionLogs: [],
+    fixedEvents,
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    preferences,
+    lockedBlocks: [lockedBlock],
+    existingPlannedBlocks: [lockedBlock],
+    fillAvailableStudyDays: false,
+  });
+  const breakBlock = result.studyBlocks.find(isPlannedStudyBreakBlock);
+  const paperBlock = result.studyBlocks.find(
+    (block) => block.topicId === paperTopic.id,
+  );
+
+  assert.ok(breakBlock);
+  assert.ok(paperBlock);
+  assert.equal(breakBlock.estimatedMinutes, 30);
+  assert.equal(lockedBlock.end, breakBlock.start);
+  assert.equal(breakBlock.end, paperBlock.start);
+  assertNoStudyBlockOverlaps(result.studyBlocks);
+});
+
+test("configured 30-minute breaks survive late forced coverage and recovery reclamation", () => {
+  const baseFixture = buildBreakAllocationFixture({ breaksEnabled: true });
+  const exactTopic: Topic = {
+    ...baseFixture.topics[0],
+    id: "physics-late-pass-exact",
+    unitId: "physics-late-pass-exact",
+    unitTitle: "Late pass exact work",
+    title: "Late pass exact work",
+    estHours: 0.5,
+    sessionMode: "exam",
+    exactSessionMinutes: 30,
+    preferredBlockTypes: ["deep_work"],
+  };
+  const fixture = buildBreakAllocationFixture({
+    breaksEnabled: true,
+    minBreakMinutes: 30,
+    studyWindowStart: "06:00",
+    studyWindowEnd: "08:30",
+    topics: [exactTopic],
+  });
+  const dateKey = toDateKey(fixture.weekStart);
+  const lockedBlock = createStudyBlock({
+    id: "late-pass-prior-study",
+    weekStart: toDateKey(startOfPlannerWeek(fixture.weekStart)),
+    date: dateKey,
+    start: createDateAtTime(fixture.weekStart, "06:00").toISOString(),
+    end: createDateAtTime(fixture.weekStart, "07:30").toISOString(),
+    subjectId: "cpp-book",
+    topicId: "late-pass-prior-study",
+    estimatedMinutes: 90,
+    assignmentLocked: true,
+  });
+  const result = generateStudyPlanForWeek({
+    ...fixture,
+    completionLogs: [],
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    lockedBlocks: [lockedBlock],
+    existingPlannedBlocks: [lockedBlock],
+    fillAvailableStudyDays: false,
+  });
+  const breakBlocks = result.studyBlocks.filter(isPlannedStudyBreakBlock);
+  const exactBlock = result.studyBlocks.find(
+    (block) => block.topicId === exactTopic.id,
+  );
+
+  assert.equal(breakBlocks.length, 1);
+  assert.equal(breakBlocks[0].estimatedMinutes, 30);
+  assert.equal(
+    new Date(breakBlocks[0].end).getTime() -
+      new Date(breakBlocks[0].start).getTime(),
+    30 * 60_000,
+  );
+  assert.ok(exactBlock);
+  assert.equal(breakBlocks[0].end, exactBlock.start);
+  assert.equal(
+    result.studyBlocks.some((block) => block.title === "Recovery / buffer"),
+    false,
+  );
+  assertNoStudyBlockOverlaps(result.studyBlocks);
+});
+
+test("planned breaks survive cleanup and saturation across a dependency chain", () => {
+  const baseFixture = buildBreakAllocationFixture({ breaksEnabled: true });
+  const dataset = buildSeedDataset(baseFixture.referenceDate);
+  const chemistrySubject = dataset.subjects.find(
+    (subject) => subject.id === "chemistry-hl",
+  );
+  const physicsSubject = dataset.subjects.find(
+    (subject) => subject.id === "physics-hl",
+  );
+  const chemistryBaseTopic = dataset.topics.find(
+    (topic) =>
+      topic.subjectId === "chemistry-hl" &&
+      !topic.unitId.includes("past-papers"),
+  );
+  const physicsBaseTopic = dataset.topics.find(
+    (topic) =>
+      topic.subjectId === "physics-hl" &&
+      !topic.unitId.includes("past-papers"),
+  );
+  assert.ok(chemistrySubject);
+  assert.ok(physicsSubject);
+  assert.ok(chemistryBaseTopic);
+  assert.ok(physicsBaseTopic);
+  const chainTopics = Array.from({ length: 7 }, (_, index): Topic => {
+    const usePhysics = index % 2 === 0;
+    const topicId = `cleanup-chain-${index + 1}`;
+    return {
+      ...(usePhysics ? physicsBaseTopic : chemistryBaseTopic),
+      id: topicId,
+      subjectId: usePhysics ? "physics-hl" : "chemistry-hl",
+      unitId: "cleanup-chain",
+      unitTitle: "Cleanup chain",
+      title: `Cleanup chain ${index + 1}`,
+      estHours: 0.5,
+      completedHours: 0,
+      status: "not_started",
+      availableFrom: null,
+      dependsOnTopicId: index === 0 ? null : `cleanup-chain-${index}`,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      sequenceGroup: null,
+      sequenceStage: null,
+      sessionMode: "flexible",
+      exactSessionMinutes: null,
+      preferredBlockTypes: ["drill", "review"],
+      order: index + 1,
+    };
+  });
+  const fixture = buildBreakAllocationFixture({
+    breaksEnabled: true,
+    minBreakMinutes: 30,
+    studyWindowEnd: "13:45",
+    topics: chainTopics,
+  });
+  const result = generateStudyPlanForWeek({
+    ...fixture,
+    goals: [
+      {
+        id: "goal-cleanup-chemistry",
+        title: "Complete cleanup chemistry work",
+        subjectId: "chemistry-hl",
+        deadline: "2026-08-17",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+      {
+        id: "goal-cleanup-physics",
+        title: "Complete cleanup physics work",
+        subjectId: "physics-hl",
+        deadline: "2026-08-17",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [physicsSubject, chemistrySubject],
+    completionLogs: [],
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    existingPlannedBlocks: [],
+    fillAvailableStudyDays: true,
+  });
+  const breakBlocks = result.studyBlocks.filter(isPlannedStudyBreakBlock);
+  const scheduledChainTopicIds = new Set(
+    result.studyBlocks.flatMap((block) =>
+      block.topicId?.startsWith("cleanup-chain-") ? [block.topicId] : [],
+    ),
+  );
+
+  assert.deepEqual([...scheduledChainTopicIds], [chainTopics[0].id]);
+  assert.equal(breakBlocks.length, 2);
+  assert.ok(breakBlocks.every((block) => block.estimatedMinutes === 30));
+  assert.equal(getLongestContinuousStudyMinutes(result.studyBlocks, 30), 90);
+  assert.equal(
+    result.studyBlocks.some((block) => block.title === "Recovery / buffer"),
+    false,
+  );
+  assertNoStudyBlockOverlaps(result.studyBlocks);
+});
+
+test("micro-gap absorption cannot cross a configured 30-minute cadence boundary", () => {
+  const fixture = buildBreakAllocationFixture({
+    breaksEnabled: true,
+    minBreakMinutes: 30,
+    studyWindowEnd: "11:45",
+  });
+  const dateKey = toDateKey(fixture.weekStart);
+  const firstStudy = createStudyBlock({
+    id: "micro-gap-before-break",
+    date: dateKey,
+    start: createDateAtTime(fixture.weekStart, "09:00").toISOString(),
+    end: createDateAtTime(fixture.weekStart, "10:30").toISOString(),
+    estimatedMinutes: 90,
+  });
+  const breakBlock = buildPlannedStudyBreakBlock({
+    weekStart: toDateKey(startOfPlannerWeek(fixture.weekStart)),
+    dateKey,
+    start: createDateAtTime(fixture.weekStart, "10:45"),
+    durationMinutes: 30,
+    slotEnergy: "steady",
+  });
+  const secondStudy = createStudyBlock({
+    id: "micro-gap-after-break",
+    date: dateKey,
+    start: createDateAtTime(fixture.weekStart, "11:15").toISOString(),
+    end: createDateAtTime(fixture.weekStart, "11:45").toISOString(),
+    estimatedMinutes: 30,
+  });
+  const result = absorbStudyMicroGaps({
+    weekStart: fixture.weekStart,
+    studyBlocks: [firstStudy, breakBlock, secondStudy],
+    fixedEvents: fixture.fixedEvents,
+    sickDays: [],
+    preferences: fixture.preferences,
+    planningStart: fixture.referenceDate,
+  });
+  const preservedFirstStudy = result.studyBlocks.find(
+    (block) => block.id === firstStudy.id,
+  );
+  const preservedBreak = result.studyBlocks.find(
+    (block) => block.id === breakBlock.id,
+  );
+
+  assert.equal(preservedFirstStudy?.end, firstStudy.end);
+  assert.equal(preservedFirstStudy?.estimatedMinutes, 90);
+  assert.equal(preservedBreak?.start, breakBlock.start);
+  assert.equal(preservedBreak?.end, breakBlock.end);
+});
+
+test("30-minute continuity resets only at effective pauses and never crosses dates", () => {
+  const firstDayStudy = createStudyBlock({
+    id: "first-day-continuity",
+    date: "2026-08-18",
+    start: "2026-08-18T09:00:00.000Z",
+    end: "2026-08-18T10:30:00.000Z",
+    estimatedMinutes: 90,
+  });
+  const subEffectivePause = getStudyContinuityContext({
+    blocks: [firstDayStudy],
+    dateKey: "2026-08-18",
+    cursor: new Date("2026-08-18T10:45:00.000Z"),
+    resetMinutes: 30,
+  });
+  const effectivePause = getStudyContinuityContext({
+    blocks: [firstDayStudy],
+    dateKey: "2026-08-18",
+    cursor: new Date("2026-08-18T11:00:00.000Z"),
+    resetMinutes: 30,
+  });
+  const nextDate = getStudyContinuityContext({
+    blocks: [
+      firstDayStudy,
+      createStudyBlock({
+        id: "next-day-adjacent",
+        date: "2026-08-19",
+        start: "2026-08-19T00:00:00.000Z",
+        end: "2026-08-19T00:30:00.000Z",
+        estimatedMinutes: 30,
+      }),
+    ],
+    dateKey: "2026-08-19",
+    cursor: new Date("2026-08-19T00:30:00.000Z"),
+    resetMinutes: 30,
+  });
+
+  assert.equal(subEffectivePause.continuousStudyMinutes, 90);
+  assert.equal(effectivePause.continuousStudyMinutes, 0);
+  assert.equal(nextDate.continuousStudyMinutes, 30);
 });
 
 test("continuity walks backward across subjects but resets at a natural gap", () => {
