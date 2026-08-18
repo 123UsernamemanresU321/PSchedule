@@ -71,6 +71,10 @@ import {
   getOlympiadWeaknessProfile,
 } from "@/lib/scheduler/olympiad-performance";
 import { buildSchoolTermWeekTemplate } from "@/lib/scheduler/school-term-template";
+import {
+  buildCoreSyllabusPacingPlan,
+  getCoreSyllabusPacingDeficitMinutes,
+} from "@/lib/scheduler/core-syllabus-pacing";
 import { computeSubjectDeadlineTracks } from "@/lib/scheduler/feasibility";
 import { scoreTaskCandidate } from "@/lib/scheduler/scoring";
 import {
@@ -232,6 +236,42 @@ function withFakeNow<T>(nowIso: string, callback: () => T): T {
     globalThis.Date = RealDate;
   }
 }
+
+test("core syllabus pacing weights cumulative targets by real study capacity", () => {
+  const dataset = buildSeedDataset(new Date("2026-10-20T08:00:00"));
+  const baseTopic = dataset.topics.find(
+    (topic) => topic.subjectId === "physics-hl" && !topic.unitId.includes("past-papers"),
+  );
+  assert.ok(baseTopic);
+  const topics = [
+    {
+      ...baseTopic,
+      id: "physics-paced",
+      subjectId: "physics-hl" as const,
+      unitId: "physics-syllabus",
+      estHours: 4,
+      completedHours: 0,
+    },
+  ];
+  const plan = buildCoreSyllabusPacingPlan({
+    startDate: new Date("2026-10-20T08:00:00"),
+    topics,
+    capacityMinutesByDate: {
+      "2026-10-20": 60,
+      "2026-10-21": 0,
+      "2026-10-22": 180,
+    },
+    targetDateKey: "2026-10-22",
+  });
+
+  assert.equal(plan.targetMinutesByDate["2026-10-20"]?.["physics-hl"], 60);
+  assert.equal(plan.targetMinutesByDate["2026-10-21"]?.["physics-hl"], 60);
+  assert.equal(plan.targetMinutesByDate["2026-10-22"]?.["physics-hl"], 240);
+  assert.equal(
+    getCoreSyllabusPacingDeficitMinutes(plan, "physics-hl", "2026-10-20", 30),
+    30,
+  );
+});
 
 test("paired paper reviews retain their dependency scheduling window", () => {
   const dataset = buildSeedDataset(new Date("2026-03-13T08:00:00"));
