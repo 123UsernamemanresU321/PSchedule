@@ -70,10 +70,18 @@ import {
   getOlympiadWeekLoadProfile,
   getOlympiadWeaknessProfile,
 } from "@/lib/scheduler/olympiad-performance";
-import { buildSchoolTermWeekTemplate } from "@/lib/scheduler/school-term-template";
 import {
+  buildSchoolTermWeekTemplate,
+  isOlympiadContinuityPacingOverride,
+  shouldSuppressPacingTemplateRequirement,
+} from "@/lib/scheduler/school-term-template";
+import {
+  buildCoreSyllabusAssignedMinutesByDate,
   buildCoreSyllabusPacingPlan,
+  compareCorePacingCandidatePriority,
+  getAheadOfPaceCandidatePriorityTier,
   getCoreSyllabusPacingDeficitMinutes,
+  getCumulativeCoreSyllabusAssignedMinutes,
 } from "@/lib/scheduler/core-syllabus-pacing";
 import {
   STUDY_BREAK_TRIGGER_MINUTES,
@@ -82,6 +90,7 @@ import {
   getEffectiveStudyCapacityMinutes,
   getStudyContinuityContext,
   isPlannedStudyBreakBlock,
+  shouldPreferDifferentStudySubject,
 } from "@/lib/scheduler/study-breaks";
 import { computeSubjectDeadlineTracks } from "@/lib/scheduler/feasibility";
 import { scoreTaskCandidate } from "@/lib/scheduler/scoring";
@@ -305,6 +314,168 @@ test("core syllabus pacing weights cumulative targets by real study capacity", (
   );
 });
 
+test("core pacing ledger counts future blocks only from their own date and deduplicates locked input", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-23T08:00:00"));
+  const topic = dataset.topics.find(
+    (candidate) =>
+      candidate.subjectId === "maths-aa-hl" && !candidate.unitId.includes("past-papers"),
+  );
+  assert.ok(topic);
+  const plan = buildCoreSyllabusPacingPlan({
+    startDate: new Date("2026-03-23T08:00:00"),
+    topics: [topic],
+    capacityMinutesByDate: {
+      "2026-03-23": 60,
+      "2026-03-24": 60,
+    },
+    targetDateKey: "2026-03-24",
+  });
+  const futureLockedBlock = createStudyBlock({
+    id: "future-locked-core",
+    date: "2026-03-24",
+    start: "2026-03-24T08:00:00.000Z",
+    end: "2026-03-24T09:00:00.000Z",
+    subjectId: "maths-aa-hl",
+    topicId: topic.id,
+    estimatedMinutes: 60,
+    assignmentLocked: true,
+  });
+  const assignedMinutesByDate = buildCoreSyllabusAssignedMinutesByDate({
+    plan,
+    topics: [topic],
+    blocks: [futureLockedBlock, futureLockedBlock],
+  });
+
+  assert.equal(
+    getCumulativeCoreSyllabusAssignedMinutes(
+      assignedMinutesByDate,
+      "maths-aa-hl",
+      "2026-03-23",
+    ),
+    0,
+  );
+  assert.equal(
+    getCumulativeCoreSyllabusAssignedMinutes(
+      assignedMinutesByDate,
+      "maths-aa-hl",
+      "2026-03-24",
+    ),
+    60,
+  );
+});
+
+test("ahead-of-pace candidate tiers keep real Olympiad and C++ ahead of core transitively", () => {
+  const priorities = [
+    {
+      id: "ahead-core",
+      pacingDeficitMinutes: 0,
+      lastSubjectStudyTimestamp: null,
+      aheadOfPacePriorityTier: getAheadOfPaceCandidatePriorityTier({
+        isRealOlympiadOrCpp: false,
+        isCoreSyllabus: true,
+      }),
+      score: 10_000,
+    },
+    {
+      id: "intervening-other",
+      pacingDeficitMinutes: 0,
+      lastSubjectStudyTimestamp: null,
+      aheadOfPacePriorityTier: getAheadOfPaceCandidatePriorityTier({
+        isRealOlympiadOrCpp: false,
+        isCoreSyllabus: false,
+      }),
+      score: 20_000,
+    },
+    {
+      id: "olympiad",
+      pacingDeficitMinutes: 0,
+      lastSubjectStudyTimestamp: null,
+      aheadOfPacePriorityTier: getAheadOfPaceCandidatePriorityTier({
+        isRealOlympiadOrCpp: true,
+        isCoreSyllabus: false,
+      }),
+      score: 1,
+    },
+    {
+      id: "cpp",
+      pacingDeficitMinutes: 0,
+      lastSubjectStudyTimestamp: null,
+      aheadOfPacePriorityTier: getAheadOfPaceCandidatePriorityTier({
+        isRealOlympiadOrCpp: true,
+        isCoreSyllabus: false,
+      }),
+      score: 2,
+    },
+  ].sort(compareCorePacingCandidatePriority);
+
+  assert.deepEqual(
+    priorities.map((priority) => priority.id),
+    ["cpp", "olympiad", "intervening-other", "ahead-core"],
+  );
+});
+
+test("equal core pacing deficits rank the least-recently studied subject first", () => {
+  const priorities = [
+    {
+      id: "recent-physics",
+      pacingDeficitMinutes: 90,
+      lastSubjectStudyTimestamp: 200,
+      aheadOfPacePriorityTier: 0,
+      score: 500,
+    },
+    {
+      id: "older-maths",
+      pacingDeficitMinutes: 90,
+      lastSubjectStudyTimestamp: 100,
+      aheadOfPacePriorityTier: 0,
+      score: 1,
+    },
+    {
+      id: "never-chemistry",
+      pacingDeficitMinutes: 90,
+      lastSubjectStudyTimestamp: null,
+      aheadOfPacePriorityTier: 0,
+      score: 0,
+    },
+  ].sort(compareCorePacingCandidatePriority);
+
+  assert.deepEqual(
+    priorities.map((priority) => priority.id),
+    ["never-chemistry", "older-maths", "recent-physics"],
+  );
+});
+
+test("only intended Olympiad continuity requirements bypass core pacing priority", () => {
+  const olympiadContinuity = {
+    id: "2026-04-20-olympiad-continuity-1",
+    allowedDateKeys: ["2026-04-20"],
+    subjectId: "olympiad" as const,
+    studyLayers: ["learning" as const],
+    minimumMinutes: 30,
+    taskConstraint: "olympiad-bplus-content" as const,
+  };
+  const ordinaryCoreMinimum = {
+    id: "2026-04-20-learning",
+    allowedDateKeys: ["2026-04-20"],
+    subjectId: "maths-aa-hl" as const,
+    studyLayers: ["learning" as const],
+    minimumMinutes: 60,
+  };
+  const exactPaper = {
+    ...ordinaryCoreMinimum,
+    id: "2026-04-25-maths-paper-exam",
+    exactTopicId: "maths-paper",
+  };
+
+  assert.equal(isOlympiadContinuityPacingOverride(olympiadContinuity), true);
+  assert.equal(isOlympiadContinuityPacingOverride(ordinaryCoreMinimum), false);
+  assert.equal(isOlympiadContinuityPacingOverride(exactPaper), false);
+  assert.equal(shouldSuppressPacingTemplateRequirement(ordinaryCoreMinimum, 0), true);
+  assert.equal(shouldSuppressPacingTemplateRequirement(ordinaryCoreMinimum, 30), false);
+  assert.equal(shouldSuppressPacingTemplateRequirement(exactPaper, 0), false);
+  assert.equal(shouldSuppressPacingTemplateRequirement(olympiadContinuity, 0), false);
+});
+
 test("enabled breaks reserve 15 minutes after each usable 90-minute run", () => {
   assert.equal(STUDY_BREAK_TRIGGER_MINUTES, 90);
   assert.equal(getEffectiveStudyCapacityMinutes(90, 15), 90);
@@ -438,6 +609,11 @@ test("a persisted planned break resets continuous study", () => {
   assert.equal(context.sameSubjectRunMinutes, 0);
   assert.equal(context.previousSubjectId, "physics-hl");
   assert.equal(context.followsPlannedBreak, true);
+  assert.equal(
+    shouldPreferDifferentStudySubject(context, ["physics-hl", "chemistry-hl"]),
+    true,
+  );
+  assert.equal(shouldPreferDifferentStudySubject(context, ["physics-hl"]), false);
 });
 
 test("continuity walks backward across subjects but resets at a natural gap", () => {
@@ -6655,7 +6831,7 @@ test("paces all three core subjects across distinct days", () => {
       unitId: `paced-${subjectId}-syllabus`,
       unitTitle: `Paced ${subjectId}`,
       title: `Paced ${subjectId} topic`,
-      estHours: 12,
+      estHours: 40,
       completedHours: 0,
       status: "not_started" as const,
       mastery: 0,
@@ -6803,6 +6979,187 @@ test("dependency-only capacity remains schedulable", () => {
 
   assert.ok(mathsMinutes >= 180);
   assert.ok(result.studyBlocks.every((block) => block.subjectId === "maths-aa-hl"));
+});
+
+test("under-pace core work ignores an exhausted diagnostic weekly target", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const subject = dataset.subjects.find((candidate) => candidate.id === "maths-aa-hl");
+  const baseTopic = dataset.topics.find(
+    (topic) => topic.subjectId === "maths-aa-hl" && !topic.unitId.includes("past-papers"),
+  );
+  assert.ok(subject);
+  assert.ok(baseTopic);
+  const topic = {
+    ...baseTopic,
+    id: "weekly-target-independent-maths",
+    unitId: "weekly-target-independent-maths-syllabus",
+    unitTitle: "Weekly target independent maths",
+    title: "Weekly target independent maths topic",
+    estHours: 6,
+    completedHours: 0,
+    status: "not_started" as const,
+    mastery: 0,
+    lastStudiedAt: null,
+    reviewDue: null,
+    availableFrom: null,
+    dependsOnTopicId: null,
+    minDaysAfterDependency: null,
+    maxDaysAfterDependency: null,
+    preferredBlockTypes: ["standard_focus" as const],
+    order: 1,
+  };
+  const lockedDiagnosticBlock = createStudyBlock({
+    id: "locked-weekly-target-minutes",
+    weekStart: "2026-03-23",
+    date: "2026-03-29",
+    start: "2026-03-29T00:00:00.000Z",
+    end: "2026-03-30T00:00:00.000Z",
+    subjectId: "maths-aa-hl",
+    topicId: null,
+    estimatedMinutes: 1_440,
+    assignmentLocked: true,
+  });
+  const coreSyllabusPacingPlan = buildCoreSyllabusPacingPlan({
+    startDate: referenceDate,
+    topics: [topic],
+    capacityMinutesByDate: {
+      "2026-03-23": 180,
+      "2026-03-24": 180,
+    },
+    targetDateKey: "2026-03-24",
+  });
+  const result = generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: dataset.goals.filter((goal) => goal.subjectId === "maths-aa-hl"),
+    subjects: [subject],
+    topics: [topic],
+    fixedEvents: [],
+    lockedBlocks: [lockedDiagnosticBlock],
+    existingPlannedBlocks: [lockedDiagnosticBlock],
+    preferences: {
+      ...dataset.preferences,
+      reservedCommitmentRules: [],
+      lockedRecoveryWindows: [],
+      schoolSchedule: {
+        ...dataset.preferences.schoolSchedule,
+        enabled: false,
+        terms: [],
+      },
+      holidaySchedule: {
+        ...dataset.preferences.holidaySchedule,
+        enabled: true,
+        dailyStudyWindow: { start: "08:00", end: "20:00" },
+      },
+    },
+    focusedDays: [],
+    focusedWeeks: [],
+    fillAvailableStudyDays: false,
+    coreSyllabusPacingPlan,
+  });
+
+  assert.ok(
+    result.studyBlocks.some((block) => block.topicId === topic.id),
+    "expected under-pace core work after the weekly diagnostic target was exhausted",
+  );
+});
+
+test("same-subject rotation does not admit ahead-of-pace core work", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const subjectIds = ["maths-aa-hl", "physics-hl"] as const;
+  const subjects = dataset.subjects.filter((subject) =>
+    subjectIds.includes(subject.id as (typeof subjectIds)[number]),
+  );
+  const topics = subjectIds.map((subjectId, index) => {
+    const baseTopic = dataset.topics.find(
+      (topic) => topic.subjectId === subjectId && !topic.unitId.includes("past-papers"),
+    );
+    assert.ok(baseTopic);
+
+    return {
+      ...baseTopic,
+      id: `rotation-${subjectId}`,
+      unitId: `rotation-${subjectId}-syllabus`,
+      unitTitle: `Rotation ${subjectId}`,
+      title: `Rotation ${subjectId} topic`,
+      estHours: 6,
+      completedHours: 0,
+      status: "not_started" as const,
+      mastery: 0,
+      lastStudiedAt: null,
+      reviewDue: null,
+      availableFrom: null,
+      dependsOnTopicId: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      preferredBlockTypes: ["standard_focus" as const],
+      order: index + 1,
+    };
+  });
+  const mathsTopic = topics.find((topic) => topic.subjectId === "maths-aa-hl");
+  assert.ok(mathsTopic);
+  const priorMathsBlock = createStudyBlock({
+    id: "prior-rotation-maths",
+    weekStart: "2026-03-23",
+    date: "2026-03-23",
+    start: createDateAtTime(fromDateKey("2026-03-23"), "08:00").toISOString(),
+    end: createDateAtTime(fromDateKey("2026-03-23"), "09:30").toISOString(),
+    subjectId: "maths-aa-hl",
+    topicId: mathsTopic.id,
+    estimatedMinutes: 90,
+    assignmentLocked: true,
+  });
+  const coreSyllabusPacingPlan = buildCoreSyllabusPacingPlan({
+    startDate: referenceDate,
+    topics,
+    capacityMinutesByDate: { "2026-03-23": 180 },
+    targetDateKey: "2026-03-23",
+  });
+  coreSyllabusPacingPlan.targetMinutesByDate["2026-03-23"] = {
+    "maths-aa-hl": 180,
+    "physics-hl": 0,
+  };
+  const result = generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: dataset.goals.filter((goal) =>
+      subjectIds.includes(goal.subjectId as (typeof subjectIds)[number]),
+    ),
+    subjects,
+    topics,
+    fixedEvents: [],
+    lockedBlocks: [priorMathsBlock],
+    existingPlannedBlocks: [priorMathsBlock],
+    preferences: {
+      ...dataset.preferences,
+      reservedCommitmentRules: [],
+      lockedRecoveryWindows: [],
+      schoolSchedule: {
+        ...dataset.preferences.schoolSchedule,
+        enabled: false,
+        terms: [],
+      },
+      holidaySchedule: {
+        ...dataset.preferences.holidaySchedule,
+        enabled: true,
+        dailyStudyWindow: { start: "08:00", end: "12:00" },
+      },
+    },
+    focusedDays: [],
+    focusedWeeks: [],
+    fillAvailableStudyDays: false,
+    coreSyllabusPacingPlan,
+  });
+  const newlyAllocatedBlocks = result.studyBlocks.filter(
+    (block) => block.id !== priorMathsBlock.id,
+  ).sort(
+    (left, right) =>
+      new Date(left.start).getTime() - new Date(right.start).getTime(),
+  );
+
+  assert.equal(newlyAllocatedBlocks[0]?.subjectId, "maths-aa-hl");
 });
 
 test("multi-subject focus on a low-capacity day relaxes once the reserved share is nearly met", () => {

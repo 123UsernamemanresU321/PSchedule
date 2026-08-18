@@ -146,6 +146,23 @@ export function getStudyContinuityContext(options: {
   };
 }
 
+export function shouldPreferDifferentStudySubject(
+  continuity: StudyContinuityContext,
+  eligibleSubjectIds: SubjectId[],
+): boolean {
+  if (
+    !continuity.previousSubjectId ||
+    (continuity.sameSubjectRunMinutes < STUDY_BREAK_TRIGGER_MINUTES &&
+      !continuity.followsPlannedBreak)
+  ) {
+    return false;
+  }
+
+  return eligibleSubjectIds.some(
+    (subjectId) => subjectId !== continuity.previousSubjectId,
+  );
+}
+
 export function buildPlannedStudyBreakBlock(options: {
   weekStart: string;
   dateKey: string;

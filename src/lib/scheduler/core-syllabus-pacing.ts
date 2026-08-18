@@ -2,7 +2,7 @@ import { addDays } from "date-fns";
 
 import { toDateKey } from "@/lib/dates/helpers";
 import { isCoreHlSyllabusTopic } from "@/lib/scheduler/school-term-template";
-import type { SubjectId, Topic } from "@/lib/types/planner";
+import type { StudyBlock, SubjectId, Topic } from "@/lib/types/planner";
 
 export const CORE_HL_PACING_TARGET_DATE_KEY = "2026-10-24";
 
@@ -12,6 +12,19 @@ export interface CoreSyllabusPacingPlan {
   capacityMinutesByDate: Record<string, number>;
   totalMinutesBySubject: Record<string, number>;
   targetMinutesByDate: Record<string, Record<string, number>>;
+}
+
+export type CoreSyllabusAssignedMinutesByDate = Record<
+  string,
+  Record<string, number>
+>;
+
+export interface CorePacingCandidatePriority {
+  id: string;
+  pacingDeficitMinutes: number;
+  lastSubjectStudyTimestamp: number | null;
+  aheadOfPacePriorityTier: number;
+  score: number;
 }
 
 export function buildCoreSyllabusPacingPlan(options: {
@@ -113,4 +126,96 @@ export function getCoreSyllabusPacingDeficitMinutes(
     0,
     getCoreSyllabusPacingTargetMinutes(plan, subjectId, dateKey) - assignedMinutes,
   );
+}
+
+export function buildCoreSyllabusAssignedMinutesByDate(options: {
+  plan: CoreSyllabusPacingPlan;
+  topics: Topic[];
+  blocks: StudyBlock[];
+}): CoreSyllabusAssignedMinutesByDate {
+  const topicById = new Map(options.topics.map((topic) => [topic.id, topic]));
+  const uniqueBlocks = new Map(options.blocks.map((block) => [block.id, block])).values();
+  const assignedMinutesByDate: CoreSyllabusAssignedMinutesByDate = {};
+
+  for (const block of uniqueBlocks) {
+    if (
+      block.date < options.plan.startDateKey ||
+      (block.status !== "planned" && block.status !== "rescheduled")
+    ) {
+      continue;
+    }
+
+    const topic = block.topicId ? topicById.get(block.topicId) : null;
+    if (!topic || !isCoreHlSyllabusTopic(topic)) {
+      continue;
+    }
+
+    assignedMinutesByDate[block.date] = {
+      ...(assignedMinutesByDate[block.date] ?? {}),
+      [topic.subjectId]:
+        (assignedMinutesByDate[block.date]?.[topic.subjectId] ?? 0) +
+        block.estimatedMinutes,
+    };
+  }
+
+  return assignedMinutesByDate;
+}
+
+export function getCumulativeCoreSyllabusAssignedMinutes(
+  assignedMinutesByDate: CoreSyllabusAssignedMinutesByDate,
+  subjectId: SubjectId,
+  dateKey: string,
+): number {
+  return Object.entries(assignedMinutesByDate).reduce(
+    (total, [assignedDateKey, assignedMinutesBySubject]) =>
+      assignedDateKey <= dateKey
+        ? total + (assignedMinutesBySubject[subjectId] ?? 0)
+        : total,
+    0,
+  );
+}
+
+export function getAheadOfPaceCandidatePriorityTier(options: {
+  isRealOlympiadOrCpp: boolean;
+  isCoreSyllabus: boolean;
+}): number {
+  if (options.isRealOlympiadOrCpp) {
+    return 0;
+  }
+
+  return options.isCoreSyllabus ? 2 : 1;
+}
+
+export function compareCorePacingCandidatePriority(
+  left: CorePacingCandidatePriority,
+  right: CorePacingCandidatePriority,
+): number {
+  const leftIsUnderPace = left.pacingDeficitMinutes > 0;
+  const rightIsUnderPace = right.pacingDeficitMinutes > 0;
+
+  if (leftIsUnderPace !== rightIsUnderPace) {
+    return leftIsUnderPace ? -1 : 1;
+  }
+
+  if (leftIsUnderPace && rightIsUnderPace) {
+    const deficitGap = right.pacingDeficitMinutes - left.pacingDeficitMinutes;
+    if (deficitGap !== 0) {
+      return deficitGap;
+    }
+
+    const recentStudyGap =
+      (left.lastSubjectStudyTimestamp ?? Number.NEGATIVE_INFINITY) -
+      (right.lastSubjectStudyTimestamp ?? Number.NEGATIVE_INFINITY);
+    if (recentStudyGap !== 0) {
+      return recentStudyGap;
+    }
+  }
+
+  const tierGap = left.aheadOfPacePriorityTier - right.aheadOfPacePriorityTier;
+  if (tierGap !== 0) {
+    return tierGap;
+  }
+
+  const scoreGap = right.score - left.score;
+  return scoreGap !== 0 ? scoreGap : left.id.localeCompare(right.id);
 }

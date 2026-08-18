@@ -34,16 +34,22 @@ import {
   CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY,
   IB_ANCHOR_SUBJECT_IDS,
   isCoreHlSyllabusTopic,
-  isPacingSuppressibleCoreRequirement,
+  isOlympiadContinuityPacingOverride,
+  shouldSuppressPacingTemplateRequirement,
 } from "@/lib/scheduler/school-term-template";
 import {
+  buildCoreSyllabusAssignedMinutesByDate,
+  compareCorePacingCandidatePriority,
+  getAheadOfPaceCandidatePriorityTier,
   getCoreSyllabusPacingDeficitMinutes,
+  getCumulativeCoreSyllabusAssignedMinutes,
   type CoreSyllabusPacingPlan,
 } from "@/lib/scheduler/core-syllabus-pacing";
 import {
   STUDY_BREAK_TRIGGER_MINUTES,
   getEffectiveStudyBreakMinutes,
   getStudyContinuityContext,
+  shouldPreferDifferentStudySubject,
 } from "@/lib/scheduler/study-breaks";
 import { scoreTaskCandidate, buildGeneratedReason } from "@/lib/scheduler/scoring";
 import type { BlockSelectionPolicy } from "@/lib/scheduler/slot-classifier";
@@ -2269,10 +2275,13 @@ function allocateTasksToSlots(options: {
       ]),
     ).values(),
   );
-  const corePacingAssignedMinutesBySubject = recordFromKeys(
-    IB_ANCHOR_SUBJECT_IDS,
-    () => 0,
-  ) as Record<string, number>;
+  const corePacingAssignedMinutesByDate = options.coreSyllabusPacingPlan
+    ? buildCoreSyllabusAssignedMinutesByDate({
+        plan: options.coreSyllabusPacingPlan,
+        topics: options.topics,
+        blocks: uniquePriorAndLockedBlocks,
+      })
+    : {};
   const coreStudyDateKeysBySubject = Object.fromEntries(
     IB_ANCHOR_SUBJECT_IDS.map((subjectId) => [subjectId, new Set<string>()]),
   ) as Record<(typeof IB_ANCHOR_SUBJECT_IDS)[number], Set<string>>;
@@ -2295,7 +2304,12 @@ function allocateTasksToSlots(options: {
       options.coreSyllabusPacingPlan &&
       optionsForBlock.dateKey >= options.coreSyllabusPacingPlan.startDateKey
     ) {
-      corePacingAssignedMinutesBySubject[subjectId] += optionsForBlock.minutes;
+      corePacingAssignedMinutesByDate[optionsForBlock.dateKey] = {
+        ...(corePacingAssignedMinutesByDate[optionsForBlock.dateKey] ?? {}),
+        [subjectId]:
+          (corePacingAssignedMinutesByDate[optionsForBlock.dateKey]?.[subjectId] ?? 0) +
+          optionsForBlock.minutes,
+      };
     }
 
     if (optionsForBlock.dateKey >= weekStartKey && optionsForBlock.dateKey <= weekEndKey) {
@@ -2308,11 +2322,17 @@ function allocateTasksToSlots(options: {
       (block) => block.status === "planned" || block.status === "rescheduled",
     )
     .forEach((block) => {
-      recordCoreSyllabusMinutes({
-        topicId: block.topicId,
-        dateKey: block.date,
-        minutes: block.estimatedMinutes,
-      });
+      const topic = block.topicId ? topicMap.get(block.topicId) : null;
+      if (
+        topic &&
+        isCoreHlSyllabusTopic(topic) &&
+        block.date >= weekStartKey &&
+        block.date <= weekEndKey
+      ) {
+        coreStudyDateKeysBySubject[
+          topic.subjectId as (typeof IB_ANCHOR_SUBJECT_IDS)[number]
+        ].add(block.date);
+      }
     });
 
   function blockMatchesTemplateRequirement(
@@ -2358,13 +2378,19 @@ function allocateTasksToSlots(options: {
 
       if (
         options.coreSyllabusPacingPlan &&
-        isPacingSuppressibleCoreRequirement(requirement) &&
-        getCoreSyllabusPacingDeficitMinutes(
-          options.coreSyllabusPacingPlan,
-          requirement.subjectId,
-          dateKey,
-          corePacingAssignedMinutesBySubject[requirement.subjectId] ?? 0,
-        ) <= 0
+        shouldSuppressPacingTemplateRequirement(
+          requirement,
+          getCoreSyllabusPacingDeficitMinutes(
+            options.coreSyllabusPacingPlan,
+            requirement.subjectId,
+            dateKey,
+            getCumulativeCoreSyllabusAssignedMinutes(
+              corePacingAssignedMinutesByDate,
+              requirement.subjectId,
+              dateKey,
+            ),
+          ),
+        )
       ) {
         return false;
       }
@@ -2500,7 +2526,11 @@ function allocateTasksToSlots(options: {
           options.coreSyllabusPacingPlan,
           subjectId,
           dateKey,
-          corePacingAssignedMinutesBySubject[subjectId] ?? 0,
+          getCumulativeCoreSyllabusAssignedMinutes(
+            corePacingAssignedMinutesByDate,
+            subjectId,
+            dateKey,
+          ),
         ) > 0,
     );
   }
@@ -3122,6 +3152,7 @@ function allocateTasksToSlots(options: {
     mustFillEndOfDaySlot?: boolean;
     strongFocusDemand?: boolean;
     requiredTaskConstraint?: "olympiad-bplus-content";
+    requiredExactTopicId?: string;
   }): ScoredTaskBlockOption[] {
     const {
       slot,
@@ -3134,6 +3165,7 @@ function allocateTasksToSlots(options: {
       mustFillEndOfDaySlot = false,
       strongFocusDemand = false,
       requiredTaskConstraint,
+      requiredExactTopicId,
     } = config;
     const allowedBlockTypes = getAllowedBlockTypesForSlot(slot);
     const underPaceCoreSubjectIds = getUnderPaceCoreSubjectIds(slot.start, slot.dateKey);
@@ -3158,6 +3190,10 @@ function allocateTasksToSlots(options: {
           return isOlympiadBplusContentTask(task);
         }
 
+        if (requiredExactTopicId) {
+          return task.topicId === requiredExactTopicId;
+        }
+
         if (bypassCorePacingPriority) {
           return true;
         }
@@ -3180,7 +3216,14 @@ function allocateTasksToSlots(options: {
       .filter((task) => !task.availableAt || new Date(task.availableAt) <= slot.start)
       .filter((task) => !isFrenchGrammarTuneUpTask(task) || getScheduledFrenchGrammarTuneUpSessionCount() < 2)
       .filter((task) => isTaskDependencySatisfied(task, slot.start))
-      .filter((task) => allowWeeklyTargetOverride || !hasReachedWeeklyTarget(task, slot.dateKey))
+      .filter(
+        (task) =>
+          allowWeeklyTargetOverride ||
+          (isCoreHlSyllabusTask(task) &&
+            !!task.subjectId &&
+            underPaceCoreSubjectIdSet.has(task.subjectId)) ||
+          !hasReachedWeeklyTarget(task, slot.dateKey),
+      )
       .map((task) => {
         const blockOption = selectBlockOption(
           task,
@@ -3235,43 +3278,12 @@ function allocateTasksToSlots(options: {
         getEffectiveStudyBreakMinutes(options.preferences),
       ),
     });
-    const hasDifferentlySubjectedOption =
-      !!continuity.previousSubjectId &&
-      eligibleBlockOptions.some(
-        ({ task }) =>
-          !!task.subjectId && task.subjectId !== continuity.previousSubjectId,
-      );
-    const needsDifferentSubject =
-      continuity.sameSubjectRunMinutes >= STUDY_BREAK_TRIGGER_MINUTES ||
-      continuity.followsPlannedBreak;
-    if (
-      continuity.previousSubjectId &&
-      needsDifferentSubject &&
-      !hasDifferentlySubjectedOption &&
-      !bypassCorePacingPriority &&
-      underPaceCoreSubjectIdSet.size > 0
-    ) {
-      const rotationFallbackSubjectIds = IB_ANCHOR_SUBJECT_IDS.filter(
-        (subjectId) =>
-          subjectId !== continuity.previousSubjectId &&
-          hasEligibleTaskForSubject(subjectId, slot.start) &&
-          (!restrictedSubjectIds || restrictedSubjectIds.includes(subjectId)),
-      );
-      if (rotationFallbackSubjectIds.length > 0) {
-        const rotationFallbackOptions: ScoredTaskBlockOption[] =
-          buildScoredOptionsForSlot({
-            ...config,
-            bypassCorePacingPriority: true,
-            restrictedSubjectIds: rotationFallbackSubjectIds,
-          });
-        if (rotationFallbackOptions.length > 0) {
-          return rotationFallbackOptions;
-        }
-      }
-    }
-    const shouldPreferDifferentSubject =
-      hasDifferentlySubjectedOption &&
-      needsDifferentSubject;
+    const shouldPreferDifferentSubject = shouldPreferDifferentStudySubject(
+      continuity,
+      eligibleBlockOptions.flatMap(({ task }) =>
+        task.subjectId ? [task.subjectId] : [],
+      ),
+    );
     const interleavedBlockOptions = shouldPreferDifferentSubject
       ? eligibleBlockOptions.filter(
           ({ task }) => task.subjectId !== continuity.previousSubjectId,
@@ -3341,8 +3353,21 @@ function allocateTasksToSlots(options: {
                 options.coreSyllabusPacingPlan,
                 task.subjectId,
                 slot.dateKey,
-                corePacingAssignedMinutesBySubject[task.subjectId] ?? 0,
+                getCumulativeCoreSyllabusAssignedMinutes(
+                  corePacingAssignedMinutesByDate,
+                  task.subjectId,
+                  slot.dateKey,
+                ),
               )
+            : 0;
+        const aheadOfPacePriorityTier =
+          options.coreSyllabusPacingPlan &&
+          underPaceCoreSubjectIdSet.size === 0 &&
+          !bypassCorePacingPriority
+            ? getAheadOfPaceCandidatePriorityTier({
+                isRealOlympiadOrCpp: isRealOlympiadOrCppTask(task),
+                isCoreSyllabus: isCoreHlSyllabusTask(task),
+              })
             : 0;
 
         return {
@@ -3353,50 +3378,12 @@ function allocateTasksToSlots(options: {
           lastSubjectStudyTimestamp: task.subjectId
             ? getLastSubjectStudyTimestamp(task.subjectId, slot.start)
             : null,
+          aheadOfPacePriorityTier,
+          score: adjustedScoreBreakdown.total,
+          id: task.id,
         };
       })
-      .sort((left, right) => {
-        const bothUnderPace =
-          left.pacingDeficitMinutes > 0 && right.pacingDeficitMinutes > 0;
-        if (bothUnderPace) {
-          const deficitGap =
-            right.pacingDeficitMinutes - left.pacingDeficitMinutes;
-          if (deficitGap !== 0) {
-            return deficitGap;
-          }
-
-          const recentStudyGap =
-            (left.lastSubjectStudyTimestamp ?? Number.NEGATIVE_INFINITY) -
-            (right.lastSubjectStudyTimestamp ?? Number.NEGATIVE_INFINITY);
-          if (recentStudyGap !== 0) {
-            return recentStudyGap;
-          }
-        }
-
-        if (
-          options.coreSyllabusPacingPlan &&
-          underPaceCoreSubjectIdSet.size === 0 &&
-          !bypassCorePacingPriority
-        ) {
-          const leftPreferredBeforeAheadCore =
-            isRealOlympiadOrCppTask(left.task) &&
-            isCoreHlSyllabusTask(right.task);
-          const rightPreferredBeforeAheadCore =
-            isRealOlympiadOrCppTask(right.task) &&
-            isCoreHlSyllabusTask(left.task);
-          if (leftPreferredBeforeAheadCore !== rightPreferredBeforeAheadCore) {
-            return leftPreferredBeforeAheadCore ? -1 : 1;
-          }
-        }
-
-        const scoreGap =
-          right.scoreBreakdown.total - left.scoreBreakdown.total;
-        if (scoreGap !== 0) {
-          return scoreGap;
-        }
-
-        return left.task.id.localeCompare(right.task.id);
-      }) as ScoredTaskBlockOption[];
+      .sort(compareCorePacingCandidatePriority) as ScoredTaskBlockOption[];
   }
 
   options.freeSlots.forEach((slot) => {
@@ -3494,13 +3481,16 @@ function allocateTasksToSlots(options: {
         ? buildScoredOptionsForSlot({
             slot: slotSlice,
             allowWeeklyTargetOverride: true,
-            bypassCorePacingPriority: true,
+            bypassCorePacingPriority: isOlympiadContinuityPacingOverride(
+              activeTemplateRequirement,
+            ),
             restrictedSubjectIds: [activeTemplateRequirement.subjectId],
             restrictedTopicIds: activeTemplateRequirement.exactTopicId
               ? [activeTemplateRequirement.exactTopicId]
               : undefined,
             requiredStudyLayers: activeTemplateRequirement.studyLayers,
             requiredTaskConstraint: activeTemplateRequirement.taskConstraint,
+            requiredExactTopicId: activeTemplateRequirement.exactTopicId ?? undefined,
             mustFillEndOfDaySlot,
             strongFocusDemand: true,
           })
@@ -3534,11 +3524,12 @@ function allocateTasksToSlots(options: {
         templateOnlyOptions = buildScoredOptionsForSlot({
           slot: slotSlice,
           allowWeeklyTargetOverride: true,
-          bypassCorePacingPriority: true,
+          bypassCorePacingPriority: false,
           restrictedSubjectIds: [activeTemplateRequirement.subjectId],
           restrictedTopicIds: [activeTemplateRequirement.exactTopicId],
           requiredStudyLayers: activeTemplateRequirement.studyLayers,
           requiredTaskConstraint: activeTemplateRequirement.taskConstraint,
+          requiredExactTopicId: activeTemplateRequirement.exactTopicId,
           mustFillEndOfDaySlot,
           strongFocusDemand: true,
         });

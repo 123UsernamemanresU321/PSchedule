@@ -52,6 +52,41 @@ export function isPacingSuppressibleCoreRequirement(
   );
 }
 
+export function isOlympiadContinuityPacingOverride(
+  requirement: Pick<
+    SchoolTermTemplateRequirement,
+    | "id"
+    | "subjectId"
+    | "studyLayers"
+    | "minimumMinutes"
+    | "exactTopicId"
+    | "taskConstraint"
+  >,
+) {
+  return (
+    /-olympiad-continuity-[12]$/.test(requirement.id) &&
+    requirement.subjectId === "olympiad" &&
+    requirement.studyLayers.length === 1 &&
+    requirement.studyLayers[0] === "learning" &&
+    requirement.minimumMinutes === 30 &&
+    !requirement.exactTopicId &&
+    requirement.taskConstraint === "olympiad-bplus-content"
+  );
+}
+
+export function shouldSuppressPacingTemplateRequirement(
+  requirement: Pick<
+    SchoolTermTemplateRequirement,
+    "subjectId" | "exactTopicId" | "taskConstraint"
+  >,
+  pacingDeficitMinutes: number,
+) {
+  return (
+    pacingDeficitMinutes <= 0 &&
+    isPacingSuppressibleCoreRequirement(requirement)
+  );
+}
+
 export function getWeekdayAnchorSubject(day: Date) {
   switch (day.getDay()) {
     case 1:
