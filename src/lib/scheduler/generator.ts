@@ -47,8 +47,10 @@ import {
 } from "@/lib/scheduler/core-syllabus-pacing";
 import {
   STUDY_BREAK_TRIGGER_MINUTES,
+  buildPlannedStudyBreakBlock,
   getEffectiveStudyBreakMinutes,
   getStudyContinuityContext,
+  isPlannedStudyBreakBlock,
   shouldPreferDifferentStudySubject,
 } from "@/lib/scheduler/study-breaks";
 import { scoreTaskCandidate, buildGeneratedReason } from "@/lib/scheduler/scoring";
@@ -115,6 +117,10 @@ const REINFORCEMENT_SUBJECT_ID_SET = new Set<Subject["id"]>([...reinforcementSub
 const IB_REINFORCEMENT_MIN_SUBJECT_ID_SET = new Set<Subject["id"]>(
   IB_REINFORCEMENT_MIN_SUBJECT_IDS as readonly Subject["id"][],
 );
+
+function isCapacityBlockingStudyBlock(block: StudyBlock) {
+  return !!block.subjectId || isPlannedStudyBreakBlock(block);
+}
 
 const HARD_SCOPE_PRIORITY_BY_SUBJECT = Object.fromEntries(
   zeroUnscheduledCoverageSubjectIds.map((subjectId, index) => [
@@ -190,6 +196,35 @@ function getMicroGapAbsorptionPriority(block: StudyBlock | undefined) {
   return HARD_SCOPE_PRIORITY_BY_SUBJECT[block.subjectId] ?? 0;
 }
 
+function canExtendStudyBlockWithinBreakBoundary(options: {
+  blocks: StudyBlock[];
+  block: StudyBlock;
+  extraMinutes: number;
+  direction: "forward" | "backward";
+  preferences: Preferences;
+}) {
+  const effectiveBreakMinutes = getEffectiveStudyBreakMinutes(options.preferences);
+  if (effectiveBreakMinutes === 0) {
+    return true;
+  }
+
+  const cursor = new Date(
+    options.direction === "forward" ? options.block.end : options.block.start,
+  );
+  const continuity = getStudyContinuityContext({
+    blocks: options.blocks,
+    dateKey: options.block.date,
+    cursor,
+    resetMinutes: effectiveBreakMinutes,
+  });
+  const projectedContinuousMinutes =
+    continuity.continuousStudyMinutes +
+    options.extraMinutes +
+    (options.direction === "backward" ? options.block.estimatedMinutes : 0);
+
+  return projectedContinuousMinutes <= STUDY_BREAK_TRIGGER_MINUTES;
+}
+
 export function absorbStudyMicroGaps(options: {
   weekStart: Date;
   studyBlocks: StudyBlock[];
@@ -228,8 +263,24 @@ export function absorbStudyMicroGaps(options: {
       const nextBlock = sameDayBlocks.find(
         (block) => new Date(block.start).getTime() === slot.end.getTime(),
       );
-      const previousEligible = isMicroGapExtendableBlock(previousBlock);
-      const nextEligible = isMicroGapExtendableBlock(nextBlock);
+      const previousEligible =
+        isMicroGapExtendableBlock(previousBlock) &&
+        canExtendStudyBlockWithinBreakBoundary({
+          blocks: clonedBlocks,
+          block: previousBlock!,
+          extraMinutes: slot.durationMinutes,
+          direction: "forward",
+          preferences: options.preferences,
+        });
+      const nextEligible =
+        isMicroGapExtendableBlock(nextBlock) &&
+        canExtendStudyBlockWithinBreakBoundary({
+          blocks: clonedBlocks,
+          block: nextBlock!,
+          extraMinutes: slot.durationMinutes,
+          direction: "backward",
+          preferences: options.preferences,
+        });
 
       if (!previousEligible && !nextEligible) {
         return;
@@ -571,6 +622,7 @@ function fillReinforcementForWeek(options: {
   const reinforcementBlocks: StudyBlock[] = [];
   const reinforcementMinutesByDate: Record<string, Record<string, number>> = {};
   const reinforcementMinutesBySubject = recordFromKeys(subjectIds, () => 0);
+  const effectiveBreakMinutes = getEffectiveStudyBreakMinutes(options.preferences);
   const reinforcementSessionCountBySubject = {
     ...recordFromKeys(subjectIds, () => 0),
     ...countReinforcementSessionsBySubject(options.realStudyBlocks),
@@ -678,6 +730,44 @@ function fillReinforcementForWeek(options: {
     let remainingSlotMinutes = slot.durationMinutes;
 
     while (remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES) {
+      const continuity = getStudyContinuityContext({
+        blocks: [
+          ...options.realStudyBlocks,
+          ...options.priorReinforcementBlocks,
+          ...reinforcementBlocks,
+        ],
+        dateKey: slot.dateKey,
+        cursor,
+        resetMinutes: effectiveBreakMinutes,
+      });
+      const breakDue =
+        effectiveBreakMinutes > 0 &&
+        continuity.continuousStudyMinutes >= STUDY_BREAK_TRIGGER_MINUTES;
+
+      if (breakDue) {
+        const postBreakStart = addMinutes(cursor, effectiveBreakMinutes);
+        if (
+          remainingSlotMinutes <
+            effectiveBreakMinutes + MIN_ALLOCATABLE_MINUTES ||
+          !getReinforcementSubjectId(slot.dateKey, postBreakStart)
+        ) {
+          break;
+        }
+
+        reinforcementBlocks.push(
+          buildPlannedStudyBreakBlock({
+            weekStart: weekStartKey,
+            dateKey: slot.dateKey,
+            start: cursor,
+            durationMinutes: effectiveBreakMinutes,
+            slotEnergy: slot.energy,
+          }),
+        );
+        cursor = postBreakStart;
+        remainingSlotMinutes -= effectiveBreakMinutes;
+        continue;
+      }
+
       const subjectId = getReinforcementSubjectId(slot.dateKey, cursor);
 
       if (!subjectId) {
@@ -687,7 +777,13 @@ function fillReinforcementForWeek(options: {
       const durationMinutes = Math.min(
         remainingSlotMinutes,
         slot.energy === "low" ? 60 : 90,
+        effectiveBreakMinutes > 0
+          ? STUDY_BREAK_TRIGGER_MINUTES - continuity.continuousStudyMinutes
+          : Number.POSITIVE_INFINITY,
       );
+      if (durationMinutes < MIN_ALLOCATABLE_MINUTES) {
+        break;
+      }
       const slotSlice = {
         ...slot,
         start: cursor,
@@ -1829,7 +1925,6 @@ interface AllocationPassPolicy {
   skipMovableRecovery?: boolean;
   heavySessionBoost?: number;
   dailyCapBoostMinutes?: number;
-  minBreakMinutes?: number;
   countAsForcedCoverage?: boolean;
   blockSelectionPolicy?: BlockSelectionPolicy;
   requiredStudyLayers?: StudyLayer[];
@@ -1900,7 +1995,6 @@ function allocateTasksToSlots(options: {
   futureFocusedReserveMinutesBySubject?: Record<string, number>;
   dailyCapBoostMinutes?: number;
   heavySessionBoost?: number;
-  minBreakMinutes?: number;
   protectRecovery?: boolean;
   blockSelectionPolicy?: BlockSelectionPolicy;
   fillAvailableStudyDays?: boolean;
@@ -2200,7 +2294,9 @@ function allocateTasksToSlots(options: {
   options.lockedBlocks.forEach((block) => {
     const dateKey = block.date;
     const weekKey = getWeekKeyForDate(dateKey);
-    dailyMinutes[dateKey] = (dailyMinutes[dateKey] ?? 0) + block.estimatedMinutes;
+    if (!isPlannedStudyBreakBlock(block)) {
+      dailyMinutes[dateKey] = (dailyMinutes[dateKey] ?? 0) + block.estimatedMinutes;
+    }
     if (block.intensity === "heavy") {
       heavyBlocksPerDay[dateKey] = (heavyBlocksPerDay[dateKey] ?? 0) + 1;
     }
@@ -2242,9 +2338,7 @@ function allocateTasksToSlots(options: {
     (needsIntensityRamp ? 1 : 0) +
     (options.heavySessionBoost ?? 0);
   const breaksEnabled = options.preferences.breaksEnabled ?? false;
-  const minBreakMinutes = breaksEnabled
-    ? (options.minBreakMinutes ?? options.preferences.minBreakMinutes)
-    : 0;
+  const effectiveBreakMinutes = getEffectiveStudyBreakMinutes(options.preferences);
   const focusedSubjectsByDate = options.focusedSubjectsByDate ?? {};
   const schoolTermTemplate = options.schoolTermTemplate;
   const dailyTargetMinutes = buildDailyTargetMinutes({
@@ -2658,7 +2752,7 @@ function allocateTasksToSlots(options: {
     const gapMinutes =
       (slotStart.getTime() - new Date(previousSubjectBlock.end).getTime()) / (60 * 1000);
 
-    if (gapMinutes > Math.max(minBreakMinutes, 20)) {
+    if (gapMinutes > Math.max(effectiveBreakMinutes, 20)) {
       return 0;
     }
 
@@ -2972,7 +3066,8 @@ function allocateTasksToSlots(options: {
       return false;
     }
 
-    const sameDayBlocks = [...options.lockedBlocks, ...scheduledBlocks]
+    const allBlocks = [...options.lockedBlocks, ...scheduledBlocks];
+    const sameDayBlocks = allBlocks
       .filter((block) => block.date === dateKey)
       .sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime());
     const previousBlock = [...sameDayBlocks]
@@ -2981,8 +3076,24 @@ function allocateTasksToSlots(options: {
     const nextBlock = sameDayBlocks.find(
       (block) => new Date(block.start).getTime() === gapEnd.getTime(),
     );
-    const previousEligible = isExtendableFlexibleStudyBlock(previousBlock);
-    const nextEligible = isExtendableFlexibleStudyBlock(nextBlock);
+    const previousEligible =
+      isExtendableFlexibleStudyBlock(previousBlock) &&
+      canExtendStudyBlockWithinBreakBoundary({
+        blocks: allBlocks,
+        block: previousBlock!,
+        extraMinutes: gapMinutes,
+        direction: "forward",
+        preferences: options.preferences,
+      });
+    const nextEligible =
+      isExtendableFlexibleStudyBlock(nextBlock) &&
+      canExtendStudyBlockWithinBreakBoundary({
+        blocks: allBlocks,
+        block: nextBlock!,
+        extraMinutes: gapMinutes,
+        direction: "backward",
+        preferences: options.preferences,
+      });
 
     if (!previousEligible && !nextEligible) {
       return false;
@@ -3040,6 +3151,18 @@ function allocateTasksToSlots(options: {
     }
 
     if (topicMap.get(previousBlock.topicId ?? "")?.sessionMode === "exam") {
+      return false;
+    }
+
+    if (
+      !canExtendStudyBlockWithinBreakBoundary({
+        blocks: [...options.lockedBlocks, ...scheduledBlocks],
+        block: previousBlock,
+        extraMinutes: remainingMinutes,
+        direction: "forward",
+        preferences: options.preferences,
+      })
+    ) {
       return false;
     }
 
@@ -3153,6 +3276,7 @@ function allocateTasksToSlots(options: {
     strongFocusDemand?: boolean;
     requiredTaskConstraint?: "olympiad-bplus-content";
     requiredExactTopicId?: string;
+    flexibleDurationLimitMinutes?: number;
   }): ScoredTaskBlockOption[] {
     const {
       slot,
@@ -3166,8 +3290,23 @@ function allocateTasksToSlots(options: {
       strongFocusDemand = false,
       requiredTaskConstraint,
       requiredExactTopicId,
+      flexibleDurationLimitMinutes,
     } = config;
     const allowedBlockTypes = getAllowedBlockTypesForSlot(slot);
+    const continuity = getStudyContinuityContext({
+      blocks: [...options.lockedBlocks, ...scheduledBlocks],
+      dateKey: slot.dateKey,
+      cursor: slot.start,
+      resetMinutes: Math.max(15, effectiveBreakMinutes),
+    });
+    const effectiveFlexibleDurationLimitMinutes =
+      flexibleDurationLimitMinutes ??
+      (breaksEnabled
+        ? Math.max(
+            0,
+            STUDY_BREAK_TRIGGER_MINUTES - continuity.continuousStudyMinutes,
+          )
+        : undefined);
     const underPaceCoreSubjectIds = getUnderPaceCoreSubjectIds(slot.start, slot.dateKey);
     const underPaceCoreSubjectIdSet = new Set<Subject["id"]>(underPaceCoreSubjectIds);
     const legacyCorePriorityActive = hasLegacyCoreHlSyllabusPriority(
@@ -3225,9 +3364,27 @@ function allocateTasksToSlots(options: {
           !hasReachedWeeklyTarget(task, slot.dateKey),
       )
       .map((task) => {
+        const selectionSlot =
+          task.sessionMode === "exam" ||
+          effectiveFlexibleDurationLimitMinutes == null
+            ? slot
+            : {
+                ...slot,
+                end: addMinutes(
+                  slot.start,
+                  Math.min(
+                    slot.durationMinutes,
+                    effectiveFlexibleDurationLimitMinutes,
+                  ),
+                ),
+                durationMinutes: Math.min(
+                  slot.durationMinutes,
+                  effectiveFlexibleDurationLimitMinutes,
+                ),
+              };
         const blockOption = selectBlockOption(
           task,
-          slot,
+          selectionSlot,
           options.preferences,
           selectionPolicy,
         );
@@ -3269,15 +3426,6 @@ function allocateTasksToSlots(options: {
         task: TaskCandidate;
         blockOption: NonNullable<ReturnType<typeof selectBlockOption>>;
       }>;
-    const continuity = getStudyContinuityContext({
-      blocks: [...options.lockedBlocks, ...scheduledBlocks],
-      dateKey: slot.dateKey,
-      cursor: slot.start,
-      resetMinutes: Math.max(
-        15,
-        getEffectiveStudyBreakMinutes(options.preferences),
-      ),
-    });
     const shouldPreferDifferentSubject = shouldPreferDifferentStudySubject(
       continuity,
       eligibleBlockOptions.flatMap(({ task }) =>
@@ -3437,6 +3585,8 @@ function allocateTasksToSlots(options: {
               getTemplateAssignedMinutes(activeTemplateRequirement),
           )
         : null;
+      const lightReviewOnlyDay =
+        schoolTermTemplate?.lightReviewOnlyDateKeys.includes(slot.dateKey) ?? false;
 
       if (availableToday < MIN_ALLOCATABLE_MINUTES) {
         if (
@@ -3458,6 +3608,75 @@ function allocateTasksToSlots(options: {
         break;
       }
 
+      const continuity = getStudyContinuityContext({
+        blocks: [...options.lockedBlocks, ...scheduledBlocks],
+        dateKey: slot.dateKey,
+        cursor,
+        resetMinutes: effectiveBreakMinutes,
+      });
+      const breakDue =
+        effectiveBreakMinutes > 0 &&
+        continuity.continuousStudyMinutes >= STUDY_BREAK_TRIGGER_MINUTES;
+      const flexibleStudyCapacityMinutes = breaksEnabled
+        ? Math.max(
+            0,
+            STUDY_BREAK_TRIGGER_MINUTES - continuity.continuousStudyMinutes,
+          )
+        : Number.POSITIVE_INFINITY;
+
+      if (breakDue) {
+        if (
+          remainingSlotMinutes <
+          effectiveBreakMinutes + MIN_ALLOCATABLE_MINUTES
+        ) {
+          break;
+        }
+
+        const postBreakStart = addMinutes(cursor, effectiveBreakMinutes);
+        const postBreakDurationMinutes = Math.min(
+          remainingSlotMinutes - effectiveBreakMinutes,
+          availableToday,
+          templateRemainingMinutes ?? Number.POSITIVE_INFINITY,
+        );
+        const postBreakSlot: CalendarSlot = {
+          ...slot,
+          start: postBreakStart,
+          end: addMinutes(postBreakStart, postBreakDurationMinutes),
+          durationMinutes: postBreakDurationMinutes,
+        };
+        const hasFollowUpCandidate =
+          postBreakDurationMinutes >= MIN_ALLOCATABLE_MINUTES &&
+          (buildScoredOptionsForSlot({
+            slot: postBreakSlot,
+            disallowedStudyLayers:
+              lightReviewOnlyDay && !activeTemplateRequirement
+                ? ["learning", "exam_sim"]
+                : undefined,
+            mustFillEndOfDaySlot,
+            requiredStudyLayers: options.requiredStudyLayers,
+          }).length > 0 ||
+            (options.fillAvailableStudyDays &&
+              !lightReviewOnlyDay &&
+              !!getOverflowPracticeSubjectId(slot.dateKey, postBreakStart)));
+
+        if (!hasFollowUpCandidate) {
+          break;
+        }
+
+        scheduledBlocks.push(
+          buildPlannedStudyBreakBlock({
+            weekStart: weekStartKey,
+            dateKey: slot.dateKey,
+            start: cursor,
+            durationMinutes: effectiveBreakMinutes,
+            slotEnergy: slot.energy,
+          }),
+        );
+        cursor = postBreakStart;
+        remainingSlotMinutes -= effectiveBreakMinutes;
+        continue;
+      }
+
       const slotSlice: CalendarSlot = {
         ...slot,
         start: cursor,
@@ -3475,8 +3694,6 @@ function allocateTasksToSlots(options: {
           templateRemainingMinutes ?? Number.POSITIVE_INFINITY,
         ),
       };
-      const lightReviewOnlyDay =
-        schoolTermTemplate?.lightReviewOnlyDateKeys.includes(slot.dateKey) ?? false;
       let templateOnlyOptions = activeTemplateRequirement
         ? buildScoredOptionsForSlot({
             slot: slotSlice,
@@ -3554,11 +3771,13 @@ function allocateTasksToSlots(options: {
         canUseOverflowPracticeSubject(focusedOverflowSubjectId, slot.dateKey, cursor) &&
         !lightReviewOnlyDay &&
         remainingSlotMinutes >= MIN_ALLOCATABLE_MINUTES &&
+        flexibleStudyCapacityMinutes >= MIN_ALLOCATABLE_MINUTES &&
         (options.isFinalPass ?? true)
       ) {
         const overflowDuration = Math.min(
           remainingSlotMinutes,
           slotSlice.energy === "low" ? 60 : 90,
+          flexibleStudyCapacityMinutes,
         );
         const overflowBlock = buildOverflowPracticeBlock({
           slot: slotSlice,
@@ -3629,7 +3848,11 @@ function allocateTasksToSlots(options: {
           const overflowDuration = Math.min(
             remainingSlotMinutes,
             slotSlice.energy === "low" ? 60 : 90,
+            flexibleStudyCapacityMinutes,
           );
+          if (overflowDuration < MIN_ALLOCATABLE_MINUTES) {
+            break;
+          }
           const overflowBlock = buildOverflowPracticeBlock({
             slot: slotSlice,
             weekStart: weekStartKey,
@@ -3689,7 +3912,7 @@ function allocateTasksToSlots(options: {
           const breakAfterRecovery = getInlineBreakMinutes(
             remainingSlotMinutes,
             recoveryDuration,
-            minBreakMinutes,
+            effectiveBreakMinutes,
           );
           cursor = addMinutes(cursor, recoveryDuration + breakAfterRecovery);
           remainingSlotMinutes = Math.max(
@@ -3733,7 +3956,7 @@ function allocateTasksToSlots(options: {
           const breakAfterRecovery = getInlineBreakMinutes(
             remainingSlotMinutes,
             recoveryDuration,
-            minBreakMinutes,
+            effectiveBreakMinutes,
           );
           cursor = addMinutes(cursor, recoveryDuration + breakAfterRecovery);
           remainingSlotMinutes = Math.max(
@@ -3796,25 +4019,10 @@ function allocateTasksToSlots(options: {
         usedSundayMinutes += winner.blockOption.durationMinutes;
       }
       consumedStudyMinutes += winner.blockOption.durationMinutes;
-      const requiredBreakMinutes =
-        breaksEnabled && winner.task.sessionMode === "exam"
-          ? Math.max(minBreakMinutes, 30)
-          : 0;
-      const breakAfterBlock = getInlineBreakMinutes(
-        remainingSlotMinutes,
-        winner.blockOption.durationMinutes,
-        requiredBreakMinutes,
-      );
-
-      cursor = addMinutes(
-        cursor,
-        winner.blockOption.durationMinutes + breakAfterBlock,
-      );
+      cursor = addMinutes(cursor, winner.blockOption.durationMinutes);
       remainingSlotMinutes = Math.max(
         0,
-        remainingSlotMinutes -
-          winner.blockOption.durationMinutes -
-          breakAfterBlock,
+        remainingSlotMinutes - winner.blockOption.durationMinutes,
       );
 
       if (topicCompletedByPlacement && winner.task.subjectId) {
@@ -3841,6 +4049,17 @@ function allocateTasksToSlots(options: {
       const previousBlock = scheduledBlocks.find((b) => new Date(b.end).getTime() === gapStart);
 
       if (previousBlock && isExtendableFlexibleStudyBlock(previousBlock)) {
+        if (
+          !canExtendStudyBlockWithinBreakBoundary({
+            blocks: [...options.lockedBlocks, ...scheduledBlocks],
+            block: previousBlock,
+            extraMinutes: gap.durationMinutes,
+            direction: "forward",
+            preferences: options.preferences,
+          })
+        ) {
+          return;
+        }
         const continuity = getStudyContinuityContext({
           blocks: [...options.lockedBlocks, ...scheduledBlocks],
           dateKey: gap.dateKey,
@@ -3924,7 +4143,6 @@ function buildAllocationPasses(baseDailyCapBoostMinutes: number) {
       protectRecovery: true,
       skipMovableRecovery: true,
       dailyCapBoostMinutes: baseDailyCapBoostMinutes + 120,
-      minBreakMinutes: undefined,
       countAsForcedCoverage: false,
       requiredStudyLayers: ["exam_sim"],
       heavySessionBoost: 2,
@@ -3933,14 +4151,12 @@ function buildAllocationPasses(baseDailyCapBoostMinutes: number) {
       protectRecovery: true,
       skipMovableRecovery: false,
       dailyCapBoostMinutes: baseDailyCapBoostMinutes,
-      minBreakMinutes: undefined,
       countAsForcedCoverage: false,
     },
     {
       protectRecovery: false,
       skipMovableRecovery: true,
       dailyCapBoostMinutes: baseDailyCapBoostMinutes,
-      minBreakMinutes: undefined,
       countAsForcedCoverage: true,
     },
     {
@@ -3948,7 +4164,6 @@ function buildAllocationPasses(baseDailyCapBoostMinutes: number) {
       skipMovableRecovery: true,
       dailyCapBoostMinutes: baseDailyCapBoostMinutes + 240,
       heavySessionBoost: 1,
-      minBreakMinutes: 10,
       blockSelectionPolicy: {
         preferLongerBlocks: true,
       },
@@ -3959,7 +4174,6 @@ function buildAllocationPasses(baseDailyCapBoostMinutes: number) {
       skipMovableRecovery: true,
       dailyCapBoostMinutes: baseDailyCapBoostMinutes + 600,
       heavySessionBoost: 2,
-      minBreakMinutes: 5,
       blockSelectionPolicy: {
         preferLongerBlocks: true,
         allowLowEnergyHeavy: true,
@@ -4180,9 +4394,18 @@ export function generateStudyPlanForWeek(options: {
   const absorbedMicroGapDateKeys = new Set<string>();
 
   for (const passPolicy of passPolicies) {
-    if (passPolicy.countAsForcedCoverage && scheduledBlocks.some((block) => !block.subjectId)) {
+    if (
+      passPolicy.countAsForcedCoverage &&
+      scheduledBlocks.some(
+        (block) => !block.subjectId && !isPlannedStudyBreakBlock(block),
+      )
+    ) {
       const reclaimedRecoveryIds = new Set(
-        scheduledBlocks.filter((block) => !block.subjectId).map((block) => block.id),
+        scheduledBlocks
+          .filter(
+            (block) => !block.subjectId && !isPlannedStudyBreakBlock(block),
+          )
+          .map((block) => block.id),
       );
       const preservedBlocks = scheduledBlocks.filter((block) => !reclaimedRecoveryIds.has(block.id));
       scheduledBlocks.length = 0;
@@ -4217,7 +4440,10 @@ export function generateStudyPlanForWeek(options: {
       fixedEvents: options.fixedEvents,
       sickDays,
       preferences: options.preferences,
-      blockedStudyBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
+      blockedStudyBlocks: [
+        ...lockedBlocks,
+        ...scheduledBlocks.filter(isCapacityBlockingStudyBlock),
+      ],
       planningStart: referenceDate,
       skipMovableRecovery: passPolicy.skipMovableRecovery,
       effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
@@ -4242,12 +4468,14 @@ export function generateStudyPlanForWeek(options: {
       fixedEvents: options.fixedEvents,
       sickDays,
       preferences: options.preferences,
-      lockedBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
+      lockedBlocks: [
+        ...lockedBlocks,
+        ...scheduledBlocks.filter(isCapacityBlockingStudyBlock),
+      ],
       priorPlannedBlocks: existingPlannedBlocks,
       requiredHoursBySubject: passRequiredHoursBySubject,
       dailyCapBoostMinutes: passPolicy.dailyCapBoostMinutes,
       heavySessionBoost: passPolicy.heavySessionBoost,
-      minBreakMinutes: passPolicy.minBreakMinutes,
       protectRecovery: passPolicy.protectRecovery,
       blockSelectionPolicy: passPolicy.blockSelectionPolicy,
       fillAvailableStudyDays: shouldFillAvailableStudyDays,
@@ -4297,7 +4525,10 @@ export function generateStudyPlanForWeek(options: {
     fixedEvents: options.fixedEvents,
     sickDays,
     preferences: options.preferences,
-    blockedStudyBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
+    blockedStudyBlocks: [
+      ...lockedBlocks,
+      ...scheduledBlocks.filter(isCapacityBlockingStudyBlock),
+    ],
     planningStart: referenceDate,
     effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
     excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
@@ -4340,12 +4571,14 @@ export function generateStudyPlanForWeek(options: {
         fixedEvents: options.fixedEvents,
         sickDays,
         preferences: options.preferences,
-        lockedBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
+        lockedBlocks: [
+          ...lockedBlocks,
+          ...scheduledBlocks.filter(isCapacityBlockingStudyBlock),
+        ],
         priorPlannedBlocks: existingPlannedBlocks,
         requiredHoursBySubject: cleanupRequiredHoursBySubject,
         dailyCapBoostMinutes: Math.max(options.dailyCapBoostMinutes ?? 0, automaticDailyCapBoostMinutes),
         heavySessionBoost: 1,
-        minBreakMinutes: 0,
         protectRecovery: false,
         blockSelectionPolicy: {
           preferLongerBlocks: true,
@@ -4386,7 +4619,10 @@ export function generateStudyPlanForWeek(options: {
         fixedEvents: options.fixedEvents,
         sickDays,
         preferences: options.preferences,
-        blockedStudyBlocks: [...lockedBlocks, ...scheduledBlocks.filter((block) => block.subjectId)],
+        blockedStudyBlocks: [
+          ...lockedBlocks,
+          ...scheduledBlocks.filter(isCapacityBlockingStudyBlock),
+        ],
         planningStart: referenceDate,
         effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
         excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,

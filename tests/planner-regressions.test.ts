@@ -101,7 +101,15 @@ import {
 import { validateGeneratedHorizon } from "@/lib/scheduler/validation";
 import { buildBlockPlanContext } from "@/lib/ai/context";
 import { aiBlockPlanResponseSchema } from "@/lib/ai/contracts";
-import type { CalendarSlot, Preferences, StudyBlock, TaskCandidate, Topic, WeeklyPlan } from "@/lib/types/planner";
+import type {
+  CalendarSlot,
+  FixedEvent,
+  Preferences,
+  StudyBlock,
+  TaskCandidate,
+  Topic,
+  WeeklyPlan,
+} from "@/lib/types/planner";
 
 function createStudyBlock(overrides: Partial<StudyBlock> = {}): StudyBlock {
   return {
@@ -276,6 +284,133 @@ function withFakeNow<T>(nowIso: string, callback: () => T): T {
   } finally {
     globalThis.Date = RealDate;
   }
+}
+
+function buildBreakAllocationFixture(options: {
+  breaksEnabled: boolean;
+  studyWindowEnd?: string;
+  naturalPause?: { start: string; end: string };
+  topics?: Topic[];
+}) {
+  const weekStart = new Date("2026-08-17T00:00:00");
+  const referenceDate = createDateAtTime(weekStart, "00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const physicsSubject = dataset.subjects.find(
+    (subject) => subject.id === "physics-hl",
+  );
+  const baseTopic = dataset.topics.find(
+    (topic) =>
+      topic.subjectId === "physics-hl" &&
+      !topic.unitId.includes("past-papers"),
+  );
+  assert.ok(physicsSubject);
+  assert.ok(baseTopic);
+
+  const studyWindow = {
+    start: "09:00",
+    end: options.studyWindowEnd ?? "12:00",
+  };
+  const preferences: Preferences = {
+    ...dataset.preferences,
+    breaksEnabled: options.breaksEnabled,
+    minBreakMinutes: 15,
+    weeklyBufferRatio: 0,
+    dailyStudyWindow: studyWindow,
+    preferredDeepWorkWindows: [],
+    reservedCommitmentRules: [],
+    lockedRecoveryWindows: [],
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: false,
+    },
+    holidaySchedule: {
+      ...dataset.preferences.holidaySchedule,
+      enabled: true,
+      dailyStudyWindow: studyWindow,
+      preferredDeepWorkWindows: [],
+    },
+  };
+  const blockedDays: FixedEvent[] = Array.from({ length: 6 }, (_, index) => {
+    const date = addDays(weekStart, index + 1);
+    const dateKey = toDateKey(date);
+    return {
+      id: `blocked-${dateKey}`,
+      title: "Blocked day",
+      start: createDateAtTime(date, "00:00").toISOString(),
+      end: createDateAtTime(date, "23:59").toISOString(),
+      isAllDay: false,
+      recurrence: "none",
+      flexibility: "fixed",
+      category: "activity",
+    };
+  });
+  const fixedEvents = [...blockedDays];
+
+  if (options.naturalPause) {
+    fixedEvents.push({
+      id: "natural-study-pause",
+      title: "Hard pause",
+      start: createDateAtTime(weekStart, options.naturalPause.start).toISOString(),
+      end: createDateAtTime(weekStart, options.naturalPause.end).toISOString(),
+      isAllDay: false,
+      recurrence: "none",
+      flexibility: "fixed",
+      category: "activity",
+    });
+  }
+
+  const topics = options.topics ?? [
+    {
+      ...baseTopic,
+      id: "physics-break-cadence",
+      unitId: "physics-break-cadence",
+      unitTitle: "Break cadence",
+      title: "Flexible break cadence work",
+      estHours: 2.5,
+      completedHours: 0,
+      availableFrom: null,
+      dependsOnTopicId: null,
+      minDaysAfterDependency: null,
+      maxDaysAfterDependency: null,
+      sessionMode: "flexible" as const,
+      exactSessionMinutes: null,
+      order: 1,
+    },
+  ];
+
+  return {
+    weekStart,
+    referenceDate,
+    goals: [
+      {
+        id: "goal-physics-break-cadence",
+        title: "Finish break cadence work",
+        subjectId: "physics-hl" as const,
+        deadline: "2026-08-17",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [physicsSubject],
+    topics,
+    fixedEvents,
+    preferences,
+  };
+}
+
+function assertNoStudyBlockOverlaps(blocks: StudyBlock[]) {
+  const ordered = [...blocks].sort(
+    (left, right) =>
+      new Date(left.start).getTime() - new Date(right.start).getTime(),
+  );
+  assert.ok(
+    ordered.every(
+      (block, index) =>
+        !ordered[index + 1] ||
+        new Date(block.end).getTime() <=
+          new Date(ordered[index + 1].start).getTime(),
+    ),
+  );
 }
 
 test("core syllabus pacing weights cumulative targets by real study capacity", () => {
@@ -614,6 +749,215 @@ test("a persisted planned break resets continuous study", () => {
     true,
   );
   assert.equal(shouldPreferDifferentStudySubject(context, ["physics-hl"]), false);
+});
+
+test("enabled breaks persist a 15-minute break before study continues past 90 minutes", () => {
+  const fixture = buildBreakAllocationFixture({ breaksEnabled: true });
+  const result = generateStudyPlanForWeek({
+    ...fixture,
+    completionLogs: [],
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    existingPlannedBlocks: [],
+    fillAvailableStudyDays: true,
+  });
+  const breakBlock = result.studyBlocks.find(isPlannedStudyBreakBlock);
+  const subjectBlocks = result.studyBlocks.filter(
+    (block) => block.subjectId === "physics-hl",
+  );
+
+  assert.ok(breakBlock);
+  assert.equal(breakBlock.estimatedMinutes, 15);
+  assert.equal(
+    new Date(breakBlock.end).getTime() - new Date(breakBlock.start).getTime(),
+    15 * 60_000,
+  );
+  assert.equal(
+    subjectBlocks.reduce((total, block) => total + block.estimatedMinutes, 0),
+    165,
+  );
+  assertNoStudyBlockOverlaps(result.studyBlocks);
+});
+
+test("disabled breaks remain tight when study continues past 90 minutes", () => {
+  const fixture = buildBreakAllocationFixture({ breaksEnabled: false });
+  const result = generateStudyPlanForWeek({
+    ...fixture,
+    completionLogs: [],
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    existingPlannedBlocks: [],
+    fillAvailableStudyDays: true,
+  });
+  const subjectBlocks = result.studyBlocks
+    .filter((block) => block.subjectId === "physics-hl")
+    .sort(
+      (left, right) =>
+        new Date(left.start).getTime() - new Date(right.start).getTime(),
+    );
+  const studySpanMinutes =
+    (new Date(subjectBlocks.at(-1)!.end).getTime() -
+      new Date(subjectBlocks[0].start).getTime()) /
+    60_000;
+
+  assert.equal(result.studyBlocks.some(isPlannedStudyBreakBlock), false);
+  assert.equal(
+    subjectBlocks.reduce((total, block) => total + block.estimatedMinutes, 0),
+    180,
+  );
+  assert.equal(studySpanMinutes, 180);
+  assertNoStudyBlockOverlaps(result.studyBlocks);
+});
+
+test("natural 15-minute pause resets study cadence without a duplicate break", () => {
+  const fixture = buildBreakAllocationFixture({
+    breaksEnabled: true,
+    studyWindowEnd: "12:15",
+    naturalPause: { start: "10:30", end: "10:45" },
+  });
+  const result = generateStudyPlanForWeek({
+    ...fixture,
+    completionLogs: [],
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    existingPlannedBlocks: [],
+    fillAvailableStudyDays: true,
+  });
+
+  assert.equal(result.studyBlocks.some(isPlannedStudyBreakBlock), false);
+  assert.equal(
+    result.studyBlocks
+      .filter((block) => block.subjectId === "physics-hl")
+      .reduce((total, block) => total + block.estimatedMinutes, 0),
+    180,
+  );
+  assertNoStudyBlockOverlaps(result.studyBlocks);
+});
+
+test("exact exam stays whole and a break precedes later study", () => {
+  const baseFixture = buildBreakAllocationFixture({ breaksEnabled: true });
+  const dataset = buildSeedDataset(baseFixture.referenceDate);
+  const cppSubject = dataset.subjects.find(
+    (subject) => subject.id === "cpp-book",
+  );
+  const baseTopic = dataset.topics.find(
+    (topic) => topic.subjectId === "cpp-book",
+  );
+  assert.ok(cppSubject);
+  assert.ok(baseTopic);
+  const examTopic: Topic = {
+    ...baseTopic,
+    id: "cpp-exact-break-exam",
+    unitId: "cpp-exact-break-exam",
+    unitTitle: "Exact exam break",
+    title: "Exact 120-minute exam",
+    estHours: 2,
+    sessionMode: "exam",
+    exactSessionMinutes: 120,
+    preferredBlockTypes: ["deep_work"],
+    order: 1,
+  };
+  const followUpTopic: Topic = {
+    ...baseTopic,
+    id: "cpp-after-exam-study",
+    unitId: "cpp-after-exam-study",
+    unitTitle: "After exam study",
+    title: "Study after exact exam",
+    estHours: 0.5,
+    dependsOnTopicId: null,
+    sessionMode: "flexible",
+    exactSessionMinutes: null,
+    preferredBlockTypes: ["drill", "review"],
+    order: 2,
+  };
+  const fixture = buildBreakAllocationFixture({
+    breaksEnabled: true,
+    studyWindowEnd: "11:45",
+    topics: [examTopic, followUpTopic],
+  });
+  const result = generateStudyPlanForWeek({
+    ...fixture,
+    goals: [
+      {
+        id: "goal-cpp-exact-break",
+        title: "Finish exact exam fixture",
+        subjectId: "cpp-book",
+        deadline: "2026-08-17",
+        targetCompletion: 1,
+        priorityWeight: 1,
+      },
+    ],
+    subjects: [cppSubject],
+    completionLogs: [],
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    existingPlannedBlocks: [],
+    fillAvailableStudyDays: true,
+  });
+  const examBlock = result.studyBlocks.find(
+    (block) => block.topicId === examTopic.id,
+  );
+  const breakBlock = result.studyBlocks.find(isPlannedStudyBreakBlock);
+  const followUpBlock = result.studyBlocks.find(
+    (block) => block.topicId === followUpTopic.id,
+  );
+
+  assert.ok(examBlock);
+  assert.ok(breakBlock);
+  assert.ok(followUpBlock);
+  assert.equal(examBlock.estimatedMinutes, 120);
+  assert.equal(examBlock.end, breakBlock.start);
+  assert.equal(breakBlock.end, followUpBlock.start);
+  assert.equal(result.studyBlocks.filter(isPlannedStudyBreakBlock).length, 1);
+  assertNoStudyBlockOverlaps(result.studyBlocks);
+});
+
+test("reinforcement cadence persists breaks after real coverage is complete", () => {
+  const fixture = buildBreakAllocationFixture({ breaksEnabled: true });
+  const completedTopics = fixture.topics.map((topic) => ({
+    ...topic,
+    completedHours: topic.estHours,
+    status: "strong" as const,
+  }));
+  const result = generateStudyPlanHorizon({
+    startWeek: fixture.weekStart,
+    endWeek: fixture.weekStart,
+    referenceDate: fixture.referenceDate,
+    goals: fixture.goals,
+    subjects: fixture.subjects,
+    topics: completedTopics,
+    completionLogs: [],
+    fixedEvents: fixture.fixedEvents,
+    sickDays: [],
+    focusedDays: [],
+    focusedWeeks: [],
+    preferences: fixture.preferences,
+    allowReinforcement: true,
+    fillAvailableStudyDays: true,
+  });
+  const breakBlocks = result.studyBlocks.filter(isPlannedStudyBreakBlock);
+  const reinforcementBlocks = result.studyBlocks.filter((block) =>
+    block.title.includes("reinforcement"),
+  );
+  const reinforcementMinutes = reinforcementBlocks.reduce(
+    (total, block) => total + block.estimatedMinutes,
+    0,
+  );
+
+  assert.equal(breakBlocks.length, 1);
+  assert.equal(breakBlocks[0].estimatedMinutes, 15);
+  assert.equal(breakBlocks[0].subjectId, null);
+  assert.equal(reinforcementBlocks.length, 2);
+  assert.equal(reinforcementMinutes, 165);
+  assert.equal(
+    result.weeklyPlans[0].assignedHoursBySubject["physics-hl"],
+    Math.round((reinforcementMinutes / 60) * 10) / 10,
+  );
+  assertNoStudyBlockOverlaps(result.studyBlocks);
 });
 
 test("continuity walks backward across subjects but resets at a natural gap", () => {
