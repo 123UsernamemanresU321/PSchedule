@@ -17,6 +17,7 @@ import {
   expandReservedCommitmentWindowsForWeek,
 } from "@/lib/scheduler/free-slots";
 import { getActiveSickDaySeverity } from "@/lib/scheduler/schedule-regime";
+import { isPlannedStudyBreakBlock } from "@/lib/scheduler/study-breaks";
 import { fromDateKey } from "@/lib/dates/helpers";
 import type {
   EffectiveReservedCommitmentDuration,
@@ -52,9 +53,28 @@ export function buildVisibleBreakEvents(options: {
   const blocks = options.studyBlocks
     .filter((block) => blockFallsInVisibleWeek(block, options.weekStart))
     .sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime());
+  const persistedBreakBlocks = blocks.filter(isPlannedStudyBreakBlock);
+  const persistedBreakEvents = persistedBreakBlocks.map((block) => {
+    const start = new Date(block.start);
+    const end = new Date(block.end);
 
-  return blocks.flatMap((block, index) => {
-    const nextBlock = blocks[index + 1];
+    return {
+      id: `break:${block.id}`,
+      title: "Break",
+      start,
+      end,
+      allDay: false,
+      extendedProps: {
+        kind: "break" as const,
+        gapMinutes: differenceInMinutes(end, start),
+        readOnly: true,
+      },
+    };
+  });
+  const legacyBlocks = blocks.filter((block) => !isPlannedStudyBreakBlock(block));
+
+  const legacyBreakEvents = legacyBlocks.flatMap((block, index) => {
+    const nextBlock = legacyBlocks[index + 1];
 
     if (!nextBlock || block.date !== nextBlock.date || !block.subjectId || !nextBlock.subjectId) {
       return [];
@@ -77,6 +97,16 @@ export function buildVisibleBreakEvents(options: {
     );
 
     if (overlapsBlockedInterval) {
+      return [];
+    }
+
+    const overlapsPersistedBreak = persistedBreakBlocks.some((persistedBreak) => {
+      const persistedBreakStart = new Date(persistedBreak.start);
+      const persistedBreakEnd = new Date(persistedBreak.end);
+      return breakStart < persistedBreakEnd && breakEnd > persistedBreakStart;
+    });
+
+    if (overlapsPersistedBreak) {
       return [];
     }
 
@@ -106,6 +136,8 @@ export function buildVisibleBreakEvents(options: {
       },
     ];
   });
+
+  return [...persistedBreakEvents, ...legacyBreakEvents];
 }
 
 function getStudyBlockStatusVariant(status: StudyBlock["status"]) {
@@ -411,7 +443,11 @@ export function PlannerCalendar({
     })),
     ...breakEvents,
     ...activeStudyBlocks
-      .filter((block) => blockFallsInVisibleWeek(block, weekStart))
+      .filter(
+        (block) =>
+          blockFallsInVisibleWeek(block, weekStart) &&
+          !isPlannedStudyBreakBlock(block),
+      )
       .map((block) => ({
         id: block.id,
         title: block.title,
