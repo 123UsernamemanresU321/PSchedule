@@ -38,16 +38,20 @@ import {
   shouldSuppressPacingTemplateRequirement,
 } from "@/lib/scheduler/school-term-template";
 import {
+  buildCoreSyllabusPacingPlan,
   buildCoreSyllabusAssignedMinutesByDate,
   compareCorePacingCandidatePriority,
+  CORE_HL_PACING_TARGET_DATE_KEY,
   getAheadOfPaceCandidatePriorityTier,
   getCoreSyllabusPacingDeficitMinutes,
+  getCoreSyllabusPacingTargetMinutes,
   getCumulativeCoreSyllabusAssignedMinutes,
   type CoreSyllabusPacingPlan,
 } from "@/lib/scheduler/core-syllabus-pacing";
 import {
   STUDY_BREAK_TRIGGER_MINUTES,
   buildPlannedStudyBreakBlock,
+  getEffectiveStudyCapacityMinutes,
   getEffectiveStudyBreakMinutes,
   getStudyContinuityContext,
   isPlannedStudyBreakBlock,
@@ -60,6 +64,7 @@ import { buildTaskCandidates } from "@/lib/scheduler/task-candidates";
 import {
   endOfPlannerWeek,
   formatHoursFromMinutes,
+  fromDateKey,
   getPlannerHorizonEndDate,
   getPlannerReferenceDate,
   startOfPlannerWeek,
@@ -72,6 +77,7 @@ import type {
   FocusedWeek,
   Goal,
   EffectiveReservedCommitmentDuration,
+  FixedEvent,
   SickDay,
   CompletionLog,
   Preferences,
@@ -89,6 +95,7 @@ const FOCUSED_DAY_RESERVED_SHARE = 0.7;
 const FOCUS_STRICT_TOLERANCE_MINUTES = 10;
 const MAX_HORIZON_EXTENSION_WEEKS = 104;
 const MAX_CHAIN_UNLOCK_CLEANUP_PASSES = 64;
+const CORE_HL_PACING_SAFETY_BUFFER_START_DATE_KEY = "2026-10-18";
 const OLYMPIAD_ROADMAP_PULL_FORWARD_DAYS = 21;
 const OLYMPIAD_WEEKLY_CONTINUITY_BONUS = 1100;
 const OLYMPIAD_SCHOOL_TERM_CONTINUITY_BONUS = 1080;
@@ -896,12 +903,14 @@ function fillReinforcementForWeek(options: {
     assignedHoursBySubject[subjectId] =
       Math.round(((assignedHoursBySubject[subjectId] ?? 0) + minutes / 60) * 10) / 10;
   });
+  const actualOutputDiagnostics = buildActualStudyOutputDiagnostics(studyBlocks);
 
   return {
     studyBlocks,
     weeklyPlan: {
       ...options.weeklyPlan,
       assignedHoursBySubject,
+      ...actualOutputDiagnostics,
       fillableGapDateKeys: [],
       weekHasOpenCapacity: false,
       slackMinutes: 0,
@@ -2468,6 +2477,7 @@ function allocateTasksToSlots(options: {
   const coreStudyDateKeysBySubject = Object.fromEntries(
     IB_ANCHOR_SUBJECT_IDS.map((subjectId) => [subjectId, new Set<string>()]),
   ) as Record<(typeof IB_ANCHOR_SUBJECT_IDS)[number], Set<string>>;
+  const pacingRescueReasonBySubject: Record<string, string> = {};
   const weekEndKey = toDateKey(addDays(options.weekStart, 6));
 
   function recordCoreSyllabusMinutes(optionsForBlock: {
@@ -2730,6 +2740,43 @@ function allocateTasksToSlots(options: {
           ),
         ) > 0,
     );
+  }
+
+  function hasProjectedCorePacingCapacityShortfall(
+    dateKey: string,
+    taskPool: TaskCandidate[] = workingTasks,
+  ) {
+    if (!options.coreSyllabusPacingPlan) {
+      return false;
+    }
+
+    const remainingMinutesByTopic = new Map<string, number>();
+    taskPool.forEach((task) => {
+      if (!task.topicId || !isCoreHlSyllabusTask(task)) {
+        return;
+      }
+
+      remainingMinutesByTopic.set(
+        task.topicId,
+        Math.max(
+          remainingMinutesByTopic.get(task.topicId) ?? 0,
+          task.remainingMinutes,
+        ),
+      );
+    });
+    const remainingCoreMinutes = sum(Array.from(remainingMinutesByTopic.values()));
+    const remainingCapacityMinutes = Object.entries(
+      options.coreSyllabusPacingPlan.capacityMinutesByDate,
+    ).reduce(
+      (total, [capacityDateKey, minutes]) =>
+        capacityDateKey >= dateKey &&
+        capacityDateKey <= options.coreSyllabusPacingPlan!.targetDateKey
+          ? total + minutes
+          : total,
+      0,
+    );
+
+    return remainingCoreMinutes > remainingCapacityMinutes;
   }
 
   function getLastSubjectStudyTimestamp(subjectId: Subject["id"], slotStart: Date) {
@@ -3445,6 +3492,10 @@ function allocateTasksToSlots(options: {
       slot.dateKey,
       taskPool,
     );
+    const corePacingRescueActive = hasProjectedCorePacingCapacityShortfall(
+      slot.dateKey,
+      taskPool,
+    );
     const selectionPolicy =
       allowWeeklyTargetOverride || mustFillEndOfDaySlot
         ? {
@@ -3474,6 +3525,28 @@ function allocateTasksToSlots(options: {
             isCoreHlSyllabusTask(task) &&
             !!task.subjectId &&
             underPaceCoreSubjectIdSet.has(task.subjectId)
+          );
+        }
+
+        if (
+          options.coreSyllabusPacingPlan &&
+          isCoreHlSyllabusTask(task) &&
+          slot.dateKey < options.coreSyllabusPacingPlan.targetDateKey
+        ) {
+          const subjectPacingTargetIsComplete =
+            !!task.subjectId &&
+            getCoreSyllabusPacingTargetMinutes(
+              options.coreSyllabusPacingPlan,
+              task.subjectId,
+              slot.dateKey,
+            ) >=
+              (options.coreSyllabusPacingPlan.totalMinutesBySubject[
+                task.subjectId
+              ] ?? Number.POSITIVE_INFINITY);
+          return (
+            corePacingRescueActive ||
+            slot.dateKey >= CORE_HL_PACING_SAFETY_BUFFER_START_DATE_KEY ||
+            subjectPacingTargetIsComplete
           );
         }
 
@@ -4126,6 +4199,32 @@ function allocateTasksToSlots(options: {
       });
 
       scheduledBlocks.push(block);
+      if (
+        winner.task.subjectId &&
+        isCoreHlSyllabusTask(winner.task) &&
+        hasProjectedCorePacingCapacityShortfall(block.date, workingTasks)
+      ) {
+        pacingRescueReasonBySubject[winner.task.subjectId] =
+          "projected_capacity_shortfall";
+      } else if (
+        winner.task.subjectId &&
+        isCoreHlSyllabusTask(winner.task) &&
+        block.date >= CORE_HL_PACING_SAFETY_BUFFER_START_DATE_KEY &&
+        block.date < (options.coreSyllabusPacingPlan?.targetDateKey ?? "") &&
+        getCoreSyllabusPacingDeficitMinutes(
+          options.coreSyllabusPacingPlan,
+          winner.task.subjectId,
+          block.date,
+          getCumulativeCoreSyllabusAssignedMinutes(
+            corePacingAssignedMinutesByDate,
+            winner.task.subjectId,
+            block.date,
+          ),
+        ) === 0
+      ) {
+        pacingRescueReasonBySubject[winner.task.subjectId] =
+          "safety_buffer_completion";
+      }
       recordCoreSyllabusMinutes({
         topicId: block.topicId,
         dateKey: block.date,
@@ -4253,6 +4352,7 @@ function allocateTasksToSlots(options: {
     usedSundayMinutes,
     scheduledStudyMinutes: consumedStudyMinutes,
     absorbedMicroGapDateKeys,
+    pacingRescueReasonBySubject,
   };
 }
 
@@ -4276,6 +4376,172 @@ function buildAutomaticDailyCapBoost(options: {
 }
 
 
+
+function buildCoreSyllabusPacingPlanForSchedulingRun(options: {
+  referenceDate: Date;
+  topics: Topic[];
+  fixedEvents: FixedEvent[];
+  sickDays: SickDay[];
+  preferences: Preferences;
+  schedulingContext: SchedulingRunContext;
+  targetDateKey?: string;
+}) {
+  const capacityMinutesByDate: Record<string, number> = {};
+  const targetDateKey =
+    options.targetDateKey ?? CORE_HL_PACING_TARGET_DATE_KEY;
+  const targetDate = fromDateKey(targetDateKey);
+  const targetWeek = startOfPlannerWeek(targetDate);
+  const effectiveBreakMinutes = getEffectiveStudyBreakMinutes(options.preferences);
+
+  for (
+    let currentWeek = startOfPlannerWeek(options.referenceDate);
+    currentWeek.getTime() <= targetWeek.getTime();
+    currentWeek = addDays(currentWeek, 7)
+  ) {
+    const freeSlots = calculateFreeSlots({
+      weekStart: currentWeek,
+      fixedEvents: options.fixedEvents,
+      sickDays: options.sickDays,
+      preferences: options.preferences,
+      blockedStudyBlocks: [],
+      planningStart: options.referenceDate,
+      schedulingContext: options.schedulingContext,
+    });
+
+    freeSlots.forEach((slot) => {
+      if (slot.dateKey > targetDateKey) {
+        return;
+      }
+
+      capacityMinutesByDate[slot.dateKey] =
+        (capacityMinutesByDate[slot.dateKey] ?? 0) +
+        getEffectiveStudyCapacityMinutes(
+          slot.durationMinutes,
+          effectiveBreakMinutes,
+        );
+    });
+  }
+
+  return buildCoreSyllabusPacingPlan({
+    startDate: options.referenceDate,
+    topics: options.topics,
+    capacityMinutesByDate,
+    targetDateKey,
+  });
+}
+
+function buildActualStudyOutputDiagnostics(studyBlocks: StudyBlock[]) {
+  const maxConsecutiveStudyMinutesBySubject: Record<string, number> = {};
+  let currentSubjectId: StudyBlock["subjectId"] = null;
+  let currentEnd = Number.NaN;
+  let currentRunMinutes = 0;
+
+  [...studyBlocks]
+    .filter((block) => block.status !== "missed")
+    .sort(
+      (left, right) =>
+        new Date(left.start).getTime() - new Date(right.start).getTime() ||
+        new Date(left.end).getTime() - new Date(right.end).getTime(),
+    )
+    .forEach((block) => {
+      const blockStart = new Date(block.start).getTime();
+      const blockEnd = new Date(block.end).getTime();
+
+      if (!block.subjectId) {
+        currentSubjectId = null;
+        currentEnd = blockEnd;
+        currentRunMinutes = 0;
+        return;
+      }
+
+      if (block.subjectId === currentSubjectId && blockStart === currentEnd) {
+        currentRunMinutes += block.estimatedMinutes;
+      } else {
+        currentSubjectId = block.subjectId;
+        currentRunMinutes = block.estimatedMinutes;
+      }
+      currentEnd = blockEnd;
+      maxConsecutiveStudyMinutesBySubject[block.subjectId] = Math.max(
+        maxConsecutiveStudyMinutesBySubject[block.subjectId] ?? 0,
+        currentRunMinutes,
+      );
+    });
+
+  const plannedBreaks = studyBlocks.filter(isPlannedStudyBreakBlock);
+  return {
+    maxConsecutiveStudyMinutesBySubject,
+    plannedBreakCount: plannedBreaks.length,
+    plannedBreakMinutes: plannedBreaks.reduce(
+      (total, block) => total + block.estimatedMinutes,
+      0,
+    ),
+  };
+}
+
+function buildWeeklyPacingDiagnostics(options: {
+  weekStart: Date;
+  plan: CoreSyllabusPacingPlan;
+  topics: Topic[];
+  studyBlocks: StudyBlock[];
+  cumulativeStudyBlocks: StudyBlock[];
+  pacingRescueReasonBySubject?: Record<string, string>;
+}) {
+  const weekStartKey = toDateKey(options.weekStart);
+  const weekEndKey = toDateKey(addDays(options.weekStart, 6));
+  const topicById = new Map(options.topics.map((topic) => [topic.id, topic]));
+  const corePacingTargetMinutesByDate = Object.fromEntries(
+    Object.entries(options.plan.targetMinutesByDate)
+      .filter(([dateKey]) => dateKey >= weekStartKey && dateKey <= weekEndKey)
+      .map(([dateKey, targetBySubject]) => [dateKey, { ...targetBySubject }]),
+  );
+  const coreAssignedMinutesByDate = buildCoreSyllabusAssignedMinutesByDate({
+    plan: options.plan,
+    topics: options.topics,
+    blocks: options.cumulativeStudyBlocks,
+  });
+  const corePacingAssignedMinutesBySubject = Object.fromEntries(
+    Object.keys(options.plan.totalMinutesBySubject).map((subjectId) => [
+      subjectId,
+      getCumulativeCoreSyllabusAssignedMinutes(
+        coreAssignedMinutesByDate,
+        subjectId as Subject["id"],
+        weekEndKey,
+      ),
+    ]),
+  );
+  const coreStudyDateKeysBySubject = Object.fromEntries(
+    IB_ANCHOR_SUBJECT_IDS.map((subjectId) => [subjectId, new Set<string>()]),
+  ) as Record<(typeof IB_ANCHOR_SUBJECT_IDS)[number], Set<string>>;
+
+  options.studyBlocks.forEach((block) => {
+    const topic = block.topicId ? topicById.get(block.topicId) : null;
+    if (!topic || !isCoreHlSyllabusTopic(topic) || block.status === "missed") {
+      return;
+    }
+
+    coreStudyDateKeysBySubject[
+      topic.subjectId as (typeof IB_ANCHOR_SUBJECT_IDS)[number]
+    ].add(block.date);
+  });
+
+  const actualOutputDiagnostics = buildActualStudyOutputDiagnostics(
+    options.studyBlocks,
+  );
+  return {
+    corePacingTargetMinutesByDate,
+    corePacingAssignedMinutesBySubject,
+    coreDistinctStudyDaysBySubject: Object.fromEntries(
+      Object.entries(coreStudyDateKeysBySubject).map(([subjectId, dateKeys]) => [
+        subjectId,
+        dateKeys.size,
+      ]),
+    ),
+    ...actualOutputDiagnostics,
+    pacingRescueReasonBySubject: {
+      ...(options.pacingRescueReasonBySubject ?? {}),
+    },
+  };
+}
 
 function buildAllocationPasses(baseDailyCapBoostMinutes: number) {
   const passes: AllocationPassPolicy[] = [
@@ -4357,6 +4623,19 @@ export function generateStudyPlanForWeek(options: {
   const horizonStartDate = options.horizonStartDate ?? getPlannerReferenceDate(startOfPlannerWeek(new Date()));
   const lockedBlocks = options.lockedBlocks ?? [];
   const sickDays = options.sickDays ?? [];
+  const schedulingContext =
+    options.schedulingContext ?? createSchedulingRunContext();
+  const coreSyllabusPacingPlan =
+    options.coreSyllabusPacingPlan ??
+    buildCoreSyllabusPacingPlanForSchedulingRun({
+      referenceDate,
+      topics: options.topics,
+      fixedEvents: options.fixedEvents,
+      sickDays,
+      preferences: options.preferences,
+      schedulingContext,
+      targetDateKey: toDateKey(endOfPlannerWeek(weekStart)),
+    });
   const focusedDays = options.focusedDays ?? [];
   const focusedWeeks = options.focusedWeeks ?? [];
   const existingPlannedBlocks = options.existingPlannedBlocks ?? lockedBlocks;
@@ -4475,7 +4754,7 @@ export function generateStudyPlanForWeek(options: {
     planningStart: referenceDate,
     effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
     excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
-    schedulingContext: options.schedulingContext,
+    schedulingContext,
   });
   const capacityFreeSlots = calculateFreeSlots({
     weekStart,
@@ -4487,7 +4766,7 @@ export function generateStudyPlanForWeek(options: {
     skipMovableRecovery: true,
     effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
     excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
-    schedulingContext: options.schedulingContext,
+    schedulingContext,
   });
   const shouldFillAvailableStudyDays = options.fillAvailableStudyDays ?? true;
   const fullCoverageTasks = buildTaskCandidates({
@@ -4533,6 +4812,7 @@ export function generateStudyPlanForWeek(options: {
   let forcedCoverageMinutes = 0;
   let fallbackTierUsed = options.reservedCommitmentFallbackTierUsed ?? 0;
   const absorbedMicroGapDateKeys = new Set<string>();
+  const pacingRescueReasonBySubject: Record<string, string> = {};
 
   for (const passPolicy of passPolicies) {
     if (
@@ -4583,7 +4863,7 @@ export function generateStudyPlanForWeek(options: {
       skipMovableRecovery: passPolicy.skipMovableRecovery,
       effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
       excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
-      schedulingContext: options.schedulingContext,
+      schedulingContext,
     });
 
     if (!freeSlots.length) {
@@ -4625,7 +4905,7 @@ export function generateStudyPlanForWeek(options: {
       allowReinforcement: options.allowReinforcement ?? false,
       dayStudyCapOverrideMinutesByDate: schoolTermTemplate.dayStudyCapOverrideMinutesByDate,
       schoolTermTemplate,
-      coreSyllabusPacingPlan: options.coreSyllabusPacingPlan,
+      coreSyllabusPacingPlan,
     });
 
     if (!result.scheduledBlocks.length) {
@@ -4633,6 +4913,10 @@ export function generateStudyPlanForWeek(options: {
     }
 
     scheduledBlocks.push(...result.scheduledBlocks);
+    Object.assign(
+      pacingRescueReasonBySubject,
+      result.pacingRescueReasonBySubject,
+    );
     usedSundayMinutes += result.usedSundayMinutes;
     result.absorbedMicroGapDateKeys.forEach((dateKey) => absorbedMicroGapDateKeys.add(dateKey));
     if (result.absorbedMicroGapDateKeys.length > 0) {
@@ -4667,7 +4951,7 @@ export function generateStudyPlanForWeek(options: {
     planningStart: referenceDate,
     effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
     excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
-    schedulingContext: options.schedulingContext,
+    schedulingContext,
   });
   let finalTasks = buildTaskCandidates({
     topics: options.topics,
@@ -4731,7 +5015,7 @@ export function generateStudyPlanForWeek(options: {
         allowReinforcement: options.allowReinforcement ?? false,
         dayStudyCapOverrideMinutesByDate: schoolTermTemplate.dayStudyCapOverrideMinutesByDate,
         schoolTermTemplate,
-        coreSyllabusPacingPlan: options.coreSyllabusPacingPlan,
+        coreSyllabusPacingPlan,
         allowLargeGapAbsorption: true,
       });
 
@@ -4740,6 +5024,10 @@ export function generateStudyPlanForWeek(options: {
       }
 
       scheduledBlocks.push(...cleanupResult.scheduledBlocks);
+      Object.assign(
+        pacingRescueReasonBySubject,
+        cleanupResult.pacingRescueReasonBySubject,
+      );
       usedSundayMinutes += cleanupResult.usedSundayMinutes;
       cleanupResult.absorbedMicroGapDateKeys.forEach((dateKey) =>
         absorbedMicroGapDateKeys.add(dateKey),
@@ -4761,7 +5049,7 @@ export function generateStudyPlanForWeek(options: {
         planningStart: referenceDate,
         effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
         excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
-        schedulingContext: options.schedulingContext,
+        schedulingContext,
       });
       finalTasks = buildTaskCandidates({
         topics: options.topics,
@@ -4811,6 +5099,14 @@ export function generateStudyPlanForWeek(options: {
   const studyBlocks = [...lockedBlocks, ...scheduledBlocks].sort(
     (left, right) => new Date(left.start).getTime() - new Date(right.start).getTime(),
   );
+  const pacingDiagnostics = buildWeeklyPacingDiagnostics({
+    weekStart,
+    plan: coreSyllabusPacingPlan,
+    topics: options.topics,
+    studyBlocks,
+    cumulativeStudyBlocks: [...existingPlannedBlocks, ...studyBlocks],
+    pacingRescueReasonBySubject,
+  });
   const weeklyPlan = buildWeeklyPlan({
     weekStart: weekStartKey,
     subjects: options.subjects,
@@ -4829,6 +5125,7 @@ export function generateStudyPlanForWeek(options: {
     usedSundayMinutes,
     fallbackTierUsed,
     fillableGapDateKeys,
+    ...pacingDiagnostics,
     coverageRescueSubjectIds,
     coverageRescueBlockedReasonBySubject,
     unscheduledTasks: finalTasks,
@@ -4904,7 +5201,7 @@ export function shouldPreserveStudyBlockOnRegeneration(
   return block.notes.trim().length > 0;
 }
 
-export function generateStudyPlanHorizon(options: {
+interface GenerateStudyPlanHorizonOptions {
   startWeek?: Date;
   endWeek?: Date;
   referenceDate?: Date;
@@ -4923,10 +5220,40 @@ export function generateStudyPlanHorizon(options: {
   availabilityOverrideSubjectIds?: Subject["id"][];
   allowReinforcement?: boolean;
   fillAvailableStudyDays?: boolean;
-}) {
-  const startWeek = startOfPlannerWeek(options.startWeek ?? new Date());
+}
+
+interface HorizonSchedulingRun {
+  schedulingContext: SchedulingRunContext;
+  coreSyllabusPacingPlan: CoreSyllabusPacingPlan;
+}
+
+export function generateStudyPlanHorizon(
+  options: GenerateStudyPlanHorizonOptions,
+) {
   const referenceDate = options.referenceDate ?? new Date();
   const schedulingContext = createSchedulingRunContext();
+  const coreSyllabusPacingPlan = buildCoreSyllabusPacingPlanForSchedulingRun({
+    referenceDate,
+    topics: options.topics,
+    fixedEvents: options.fixedEvents,
+    sickDays: options.sickDays ?? [],
+    preferences: options.preferences,
+    schedulingContext,
+  });
+
+  return generateStudyPlanHorizonWithRun(options, {
+    schedulingContext,
+    coreSyllabusPacingPlan,
+  });
+}
+
+function generateStudyPlanHorizonWithRun(
+  options: GenerateStudyPlanHorizonOptions,
+  run: HorizonSchedulingRun,
+): { studyBlocks: StudyBlock[]; weeklyPlans: WeeklyPlan[] } {
+  const startWeek = startOfPlannerWeek(options.startWeek ?? new Date());
+  const referenceDate = options.referenceDate ?? new Date();
+  const { schedulingContext, coreSyllabusPacingPlan } = run;
   const horizonStartDate = referenceDate;
   const configuredEndWeek = clampPlanningHorizonEndWeek(
     options.endWeek
@@ -5069,6 +5396,7 @@ export function generateStudyPlanHorizon(options: {
         effectiveReservedCommitmentPlan.fallbackTierUsed,
       fillAvailableStudyDays: shouldFillAvailableStudyDays,
       allowReinforcement: options.allowReinforcement ?? true,
+      coreSyllabusPacingPlan,
       schedulingContext,
     });
 
@@ -5103,13 +5431,16 @@ export function generateStudyPlanHorizon(options: {
     (realCoverageUnscheduledBySubject.olympiad ?? 0) > 0 &&
     !(options.availabilityOverrideSubjectIds ?? []).includes("olympiad")
   ) {
-    return generateStudyPlanHorizon({
-      ...options,
-      availabilityOverrideSubjectIds: [
-        ...(options.availabilityOverrideSubjectIds ?? []),
-        "olympiad",
-      ],
-    });
+    return generateStudyPlanHorizonWithRun(
+      {
+        ...options,
+        availabilityOverrideSubjectIds: [
+          ...(options.availabilityOverrideSubjectIds ?? []),
+          "olympiad",
+        ],
+      },
+      run,
+    );
   }
 
   let finalStudyBlocks = horizonStudyBlocks;
@@ -5254,6 +5585,11 @@ function buildComparableWeeklyPlan(weeklyPlan: WeeklyPlan | null | undefined) {
     usedSundayMinutes: weeklyPlan.usedSundayMinutes,
     weekOverloadMinutes: weeklyPlan.weekOverloadMinutes,
     overscheduledMinutes: weeklyPlan.overscheduledMinutes,
+    corePacingTargetMinutesByDate: weeklyPlan.corePacingTargetMinutesByDate,
+    corePacingAssignedMinutesBySubject:
+      weeklyPlan.corePacingAssignedMinutesBySubject,
+    coreDistinctStudyDaysBySubject: weeklyPlan.coreDistinctStudyDaysBySubject,
+    pacingRescueReasonBySubject: weeklyPlan.pacingRescueReasonBySubject,
     effectiveReservedCommitmentDurations: weeklyPlan.effectiveReservedCommitmentDurations,
     excludedReservedCommitmentRuleIds: weeklyPlan.excludedReservedCommitmentRuleIds,
     weeksRemainingToDeadline: weeklyPlan.weeksRemainingToDeadline,
@@ -5365,6 +5701,14 @@ export function generateIncrementalStudyPlanTail(options: {
   const startWeek = startOfPlannerWeek(options.startWeek ?? new Date());
   const referenceDate = options.referenceDate ?? new Date();
   const schedulingContext = createSchedulingRunContext();
+  const coreSyllabusPacingPlan = buildCoreSyllabusPacingPlanForSchedulingRun({
+    referenceDate,
+    topics: options.topics,
+    fixedEvents: options.fixedEvents,
+    sickDays: options.sickDays ?? [],
+    preferences: options.preferences,
+    schedulingContext,
+  });
   const horizonStartDate = referenceDate;
   const configuredEndWeek = clampPlanningHorizonEndWeek(
     options.endWeek
@@ -5423,6 +5767,9 @@ export function generateIncrementalStudyPlanTail(options: {
   const existingHorizonEndDate =
     options.existingWeeklyPlans.at(-1)?.horizonEndDate ?? toDateKey(configuredEndWeek);
   const shouldFillAvailableStudyDays = true;
+  const tailAvailabilityOverrideSubjectIds = Array.from(
+    new Set(["olympiad", ...(options.availabilityOverrideSubjectIds ?? [])]),
+  ) as Subject["id"][];
   let effectiveEndWeek = configuredEndWeek;
   let extensionWeeksUsed = 0;
   let finalWeek = configuredEndWeek;
@@ -5458,7 +5805,7 @@ export function generateIncrementalStudyPlanTail(options: {
       lockedBlocks,
       horizonStartDate,
       subjectDeadlinesById,
-      availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+      availabilityOverrideSubjectIds: tailAvailabilityOverrideSubjectIds,
       schedulingContext,
     });
     const futureFocusedReserveMinutesBySubject = buildFutureFocusedReserveMinutesBySubject({
@@ -5475,7 +5822,7 @@ export function generateIncrementalStudyPlanTail(options: {
       subjectDeadlinesById,
       existingPlannedBlocks,
       horizonStartDate,
-      availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+      availabilityOverrideSubjectIds: tailAvailabilityOverrideSubjectIds,
       getEffectiveReservedCommitmentPlanForWeek: (candidateWeek) =>
         selectEffectiveReservedCommitmentPlanForWeek({
           currentWeek: candidateWeek,
@@ -5492,7 +5839,7 @@ export function generateIncrementalStudyPlanTail(options: {
           existingPlannedBlocks,
           horizonStartDate,
           subjectDeadlinesById,
-          availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+          availabilityOverrideSubjectIds: tailAvailabilityOverrideSubjectIds,
           schedulingContext,
         }),
       schedulingContext,
@@ -5513,7 +5860,7 @@ export function generateIncrementalStudyPlanTail(options: {
       existingPlannedBlocks,
       futureFocusedReserveMinutesBySubject,
       horizonStartDate,
-      availabilityOverrideSubjectIds: options.availabilityOverrideSubjectIds,
+      availabilityOverrideSubjectIds: tailAvailabilityOverrideSubjectIds,
       effectiveReservedCommitmentDurations:
         effectiveReservedCommitmentPlan.effectiveReservedCommitmentDurations,
       excludedReservedCommitmentRuleIds:
@@ -5521,6 +5868,8 @@ export function generateIncrementalStudyPlanTail(options: {
       reservedCommitmentFallbackTierUsed:
         effectiveReservedCommitmentPlan.fallbackTierUsed,
       fillAvailableStudyDays: shouldFillAvailableStudyDays,
+      allowReinforcement: true,
+      coreSyllabusPacingPlan,
       schedulingContext,
     });
 

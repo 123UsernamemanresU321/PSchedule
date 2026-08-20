@@ -244,6 +244,13 @@ export interface WeeklyPlan {
   weekOverloadMinutes: number;
   overscheduledMinutes: number;
   fillableGapDateKeys: string[];
+  corePacingTargetMinutesByDate?: Record<string, Record<string, number>>;
+  corePacingAssignedMinutesBySubject?: Record<string, number>;
+  coreDistinctStudyDaysBySubject?: Record<string, number>;
+  maxConsecutiveStudyMinutesBySubject?: Record<string, number>;
+  plannedBreakCount?: number;
+  plannedBreakMinutes?: number;
+  pacingRescueReasonBySubject?: Record<string, string>;
   coverageRescueSubjectIds?: string[];
   coverageRescueBlockedReasonBySubject?: Record<string, string>;
   reinforcementMinimumSatisfiedBySubject?: Record<string, boolean>;

@@ -38,7 +38,7 @@ import type {
   WeeklyPlan,
 } from "@/lib/types/planner";
 
-const PLANNING_MODEL_VERSION = "2026-08-18-core-hl-priority-oct-31-v66";
+const PLANNING_MODEL_VERSION = "2026-08-18-daily-pacing-breaks-v67";
 const CPP_BOOK_SUBJECT_ID = "cpp-book";
 const OLYMPIAD_SUBJECT_ID = "olympiad";
 const OLYMPIAD_ROADMAP_VERSION = "2026-04-30-olympiad-final-june-v12";
@@ -777,6 +777,23 @@ function normalizeWeeklyPlan(
     fillableGapDateKeys: Array.from(new Set(weeklyPlan.fillableGapDateKeys ?? [])).sort((left, right) =>
       left.localeCompare(right),
     ),
+    corePacingTargetMinutesByDate: {
+      ...(weeklyPlan.corePacingTargetMinutesByDate ?? {}),
+    },
+    corePacingAssignedMinutesBySubject: {
+      ...(weeklyPlan.corePacingAssignedMinutesBySubject ?? {}),
+    },
+    coreDistinctStudyDaysBySubject: {
+      ...(weeklyPlan.coreDistinctStudyDaysBySubject ?? {}),
+    },
+    maxConsecutiveStudyMinutesBySubject: {
+      ...(weeklyPlan.maxConsecutiveStudyMinutesBySubject ?? {}),
+    },
+    plannedBreakCount: weeklyPlan.plannedBreakCount ?? 0,
+    plannedBreakMinutes: weeklyPlan.plannedBreakMinutes ?? 0,
+    pacingRescueReasonBySubject: {
+      ...(weeklyPlan.pacingRescueReasonBySubject ?? {}),
+    },
     effectiveReservedCommitmentDurations: Array.from(
       new Map(
         (weeklyPlan.effectiveReservedCommitmentDurations ?? []).map((entry) => [

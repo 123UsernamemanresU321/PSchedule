@@ -73,6 +73,7 @@ import {
 } from "@/lib/scheduler/olympiad-performance";
 import {
   buildSchoolTermWeekTemplate,
+  isCoreHlSyllabusTopic,
   isOlympiadContinuityPacingOverride,
   shouldSuppressPacingTemplateRequirement,
 } from "@/lib/scheduler/school-term-template";
@@ -102,6 +103,7 @@ import {
 import { validateGeneratedHorizon } from "@/lib/scheduler/validation";
 import { buildBlockPlanContext } from "@/lib/ai/context";
 import { aiBlockPlanResponseSchema } from "@/lib/ai/contracts";
+import { weeklyPlanSchema } from "@/lib/types/schemas";
 import type {
   CalendarSlot,
   FixedEvent,
@@ -2467,7 +2469,7 @@ test("planner replan scope selection prefers local scope before escalation", () 
   assert.equal(getEscalatedPlannerReplanScope("full_horizon"), null);
 });
 
-test("planner horizon status is derived without triggering regeneration", () => {
+test("stale model version on startup and hard refresh only mark the horizon stale", () => {
   const currentWeekStart = "2026-05-04";
 
   assert.deepEqual(
@@ -2522,6 +2524,18 @@ test("planner horizon status is derived without triggering regeneration", () => 
       horizonStatusMessage: "",
     },
   );
+});
+
+test("legacy weekly plans default pacing and break diagnostics", () => {
+  const parsed = weeklyPlanSchema.parse(createWeeklyPlan());
+
+  assert.deepEqual(parsed.corePacingTargetMinutesByDate, {});
+  assert.deepEqual(parsed.corePacingAssignedMinutesBySubject, {});
+  assert.deepEqual(parsed.coreDistinctStudyDaysBySubject, {});
+  assert.deepEqual(parsed.maxConsecutiveStudyMinutesBySubject, {});
+  assert.equal(parsed.plannedBreakCount, 0);
+  assert.equal(parsed.plannedBreakMinutes, 0);
+  assert.deepEqual(parsed.pacingRescueReasonBySubject, {});
 });
 
 test("healthy snapshots pass the cheap scoped replan precheck", () => {
@@ -7859,6 +7873,37 @@ test("paces all three core subjects across distinct days", () => {
   assert.ok(longestRunMinutes <= 90, `expected at most 90 minutes, got ${longestRunMinutes}`);
 });
 
+test("direct weekly generation builds a local core pacing fallback", () => {
+  const referenceDate = new Date("2026-10-19T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const coreSubjectIds = ["maths-aa-hl", "physics-hl", "chemistry-hl"] as const;
+  const result = generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences: dataset.preferences,
+  });
+
+  assert.ok(
+    Object.keys(result.weeklyPlan.corePacingTargetMinutesByDate ?? {}).length > 0,
+    "expected direct generation to expose locally built pacing targets",
+  );
+  coreSubjectIds.forEach((subjectId) => {
+    assert.ok(
+      Object.values(result.weeklyPlan.corePacingTargetMinutesByDate ?? {}).some(
+        (targetBySubject) => (targetBySubject[subjectId] ?? 0) > 0,
+      ),
+      `expected a local ${subjectId} pacing target`,
+    );
+  });
+});
+
 test("dependency-only capacity remains schedulable", () => {
   const referenceDate = new Date("2026-03-23T08:00:00");
   const dataset = buildSeedDataset(referenceDate);
@@ -10554,9 +10599,14 @@ test("generated horizon uses French tune-up commitments instead of French study 
   assert.equal(frenchTuneUpMinutes, 60);
 });
 
-test("all three core HL syllabi finish by October 31 before paper practice begins", () => {
+test("all three core HL syllabi finish in the October safety-buffer week and weekly plans expose pacing and break diagnostics", () => {
   const referenceDate = new Date("2026-04-30T08:00:00.000Z");
   const dataset = buildSeedDataset(referenceDate);
+  const preferences = {
+    ...dataset.preferences,
+    breaksEnabled: true,
+    minBreakMinutes: 15,
+  };
   const result = generateStudyPlanHorizon({
     startWeek: startOfPlannerWeek(referenceDate),
     referenceDate,
@@ -10567,14 +10617,21 @@ test("all three core HL syllabi finish by October 31 before paper practice begin
     sickDays: dataset.sickDays,
     focusedDays: dataset.focusedDays,
     focusedWeeks: dataset.focusedWeeks,
-    preferences: dataset.preferences,
+    preferences,
   });
   const topicById = new Map(dataset.topics.map((topic) => [topic.id, topic]));
   const coreSubjectIds = ["maths-aa-hl", "physics-hl", "chemistry-hl"] as const;
   const firstPassTopics = dataset.topics.filter(
-    (topic) =>
-      coreSubjectIds.includes(topic.subjectId as (typeof coreSubjectIds)[number]) &&
-      !topic.unitId.includes("past-papers"),
+    (topic) => isCoreHlSyllabusTopic(topic),
+  );
+  const remainingMinutesAtReferenceBySubject = firstPassTopics.reduce<Record<string, number>>(
+    (minutesBySubject, topic) => {
+      minutesBySubject[topic.subjectId] =
+        (minutesBySubject[topic.subjectId] ?? 0) +
+        Math.max(0, Math.round((topic.estHours - topic.completedHours) * 60));
+      return minutesBySubject;
+    },
+    {},
   );
   const plannedFirstPassMinutesByTopic = result.studyBlocks.reduce<Record<string, number>>(
     (accumulator, block) => {
@@ -10582,8 +10639,7 @@ test("all three core HL syllabi finish by October 31 before paper practice begin
 
       if (
         topic &&
-        coreSubjectIds.includes(topic.subjectId as (typeof coreSubjectIds)[number]) &&
-        !topic.unitId.includes("past-papers") &&
+        isCoreHlSyllabusTopic(topic) &&
         new Date(block.end).getTime() <= new Date("2026-11-01T00:00:00.000Z").getTime()
       ) {
         accumulator[topic.id] = (accumulator[topic.id] ?? 0) + block.estimatedMinutes;
@@ -10612,14 +10668,90 @@ test("all three core HL syllabi finish by October 31 before paper practice begin
       }),
     ]),
   );
+  const latestCoreSyllabusDateBySubject = result.studyBlocks.reduce<Record<string, string>>(
+    (latestBySubject, block) => {
+      const topic = block.topicId ? topicById.get(block.topicId) : null;
+      if (!topic || !isCoreHlSyllabusTopic(topic)) {
+        return latestBySubject;
+      }
+
+      latestBySubject[topic.subjectId] =
+        latestBySubject[topic.subjectId] && latestBySubject[topic.subjectId] > block.date
+          ? latestBySubject[topic.subjectId]
+          : block.date;
+      return latestBySubject;
+    },
+    {},
+  );
+  const safetyBufferPlan = result.weeklyPlans.find(
+    (plan) => plan.weekStart === "2026-10-19",
+  );
+  const safetyBufferBlocks = result.studyBlocks.filter(
+    (block) => block.weekStart === "2026-10-19",
+  );
 
   assert.deepEqual(unfinishedByDeadline.map((topic) => topic.id), []);
   coreSubjectIds.forEach((subjectId) => {
+    if ((remainingMinutesAtReferenceBySubject[subjectId] ?? 0) > 0) {
+      assert.ok(
+        latestCoreSyllabusDateBySubject[subjectId] >= "2026-10-18" &&
+          latestCoreSyllabusDateBySubject[subjectId] <= "2026-10-24",
+        `expected ${subjectId} syllabus completion during the October safety-buffer week, got ${latestCoreSyllabusDateBySubject[subjectId]}`,
+      );
+    }
+
     const firstPaper = firstPaperBySubject[subjectId];
     assert.ok(firstPaper, `expected first ${subjectId} paper practice block`);
     assert.ok(
       new Date(firstPaper!.start).getTime() >= new Date("2026-11-02T00:00:00.000Z").getTime(),
       `expected ${subjectId} paper practice to start after the October 31 syllabus milestone`,
+    );
+  });
+
+  assert.ok(safetyBufferPlan, "expected the weekly plan containing October 24");
+  assert.ok(
+    Object.keys(safetyBufferPlan.corePacingTargetMinutesByDate ?? {}).length > 0,
+    "expected cumulative pacing targets for the safety-buffer week",
+  );
+  assert.ok(
+    Object.values(safetyBufferPlan.corePacingAssignedMinutesBySubject ?? {}).some(
+      (minutes) => minutes > 0,
+    ),
+    "expected actual core syllabus assignments in pacing diagnostics",
+  );
+  assert.ok(
+    Object.values(safetyBufferPlan.coreDistinctStudyDaysBySubject ?? {}).some(
+      (days) => days > 0,
+    ),
+    "expected actual distinct core study-day diagnostics",
+  );
+  assert.ok(
+    Object.values(safetyBufferPlan.maxConsecutiveStudyMinutesBySubject ?? {}).some(
+      (minutes) => minutes > 0,
+    ),
+    "expected actual consecutive-study diagnostics",
+  );
+  const plannedBreaks = safetyBufferBlocks.filter(isPlannedStudyBreakBlock);
+  assert.ok(plannedBreaks.length > 0, "expected planned breaks in the enabled-break horizon");
+  assert.equal(safetyBufferPlan.plannedBreakCount, plannedBreaks.length);
+  assert.equal(
+    safetyBufferPlan.plannedBreakMinutes,
+    plannedBreaks.reduce((total, block) => total + block.estimatedMinutes, 0),
+  );
+  const assignedSubjectMinutes = safetyBufferBlocks.reduce<Record<string, number>>(
+    (minutesBySubject, block) => {
+      if (block.subjectId) {
+        minutesBySubject[block.subjectId] =
+          (minutesBySubject[block.subjectId] ?? 0) + block.estimatedMinutes;
+      }
+      return minutesBySubject;
+    },
+    {},
+  );
+  Object.entries(assignedSubjectMinutes).forEach(([subjectId, minutes]) => {
+    assert.equal(
+      safetyBufferPlan.assignedHoursBySubject[subjectId],
+      Math.round((minutes / 60) * 10) / 10,
     );
   });
 });

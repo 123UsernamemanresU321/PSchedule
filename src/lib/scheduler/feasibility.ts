@@ -441,6 +441,13 @@ export function buildWeeklyPlan(options: {
   usedSundayMinutes?: number;
   fallbackTierUsed?: number;
   fillableGapDateKeys?: string[];
+  corePacingTargetMinutesByDate?: Record<string, Record<string, number>>;
+  corePacingAssignedMinutesBySubject?: Record<string, number>;
+  coreDistinctStudyDaysBySubject?: Record<string, number>;
+  maxConsecutiveStudyMinutesBySubject?: Record<string, number>;
+  plannedBreakCount?: number;
+  plannedBreakMinutes?: number;
+  pacingRescueReasonBySubject?: Record<string, string>;
   coverageRescueSubjectIds?: string[];
   coverageRescueBlockedReasonBySubject?: Record<string, string>;
   effectiveReservedCommitmentDurations?: EffectiveReservedCommitmentDuration[];
@@ -732,6 +739,23 @@ export function buildWeeklyPlan(options: {
     weekOverloadMinutes,
     overscheduledMinutes,
     fillableGapDateKeys,
+    corePacingTargetMinutesByDate: {
+      ...(options.corePacingTargetMinutesByDate ?? {}),
+    },
+    corePacingAssignedMinutesBySubject: {
+      ...(options.corePacingAssignedMinutesBySubject ?? {}),
+    },
+    coreDistinctStudyDaysBySubject: {
+      ...(options.coreDistinctStudyDaysBySubject ?? {}),
+    },
+    maxConsecutiveStudyMinutesBySubject: {
+      ...(options.maxConsecutiveStudyMinutesBySubject ?? {}),
+    },
+    plannedBreakCount: options.plannedBreakCount ?? 0,
+    plannedBreakMinutes: options.plannedBreakMinutes ?? 0,
+    pacingRescueReasonBySubject: {
+      ...(options.pacingRescueReasonBySubject ?? {}),
+    },
     coverageRescueSubjectIds,
     coverageRescueBlockedReasonBySubject,
     reinforcementMinimumSatisfiedBySubject,

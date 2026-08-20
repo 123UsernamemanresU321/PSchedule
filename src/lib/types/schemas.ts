@@ -212,6 +212,28 @@ export const weeklyPlanSchema = z.object({
   weekOverloadMinutes: z.number().optional().default(0),
   overscheduledMinutes: z.number().optional().default(0),
   fillableGapDateKeys: z.array(z.string()).optional().default([]),
+  corePacingTargetMinutesByDate: z
+    .record(z.string(), z.record(z.string(), z.number()))
+    .optional()
+    .default({}),
+  corePacingAssignedMinutesBySubject: z
+    .record(z.string(), z.number())
+    .optional()
+    .default({}),
+  coreDistinctStudyDaysBySubject: z
+    .record(z.string(), z.number())
+    .optional()
+    .default({}),
+  maxConsecutiveStudyMinutesBySubject: z
+    .record(z.string(), z.number())
+    .optional()
+    .default({}),
+  plannedBreakCount: z.number().optional().default(0),
+  plannedBreakMinutes: z.number().optional().default(0),
+  pacingRescueReasonBySubject: z
+    .record(z.string(), z.string())
+    .optional()
+    .default({}),
   effectiveReservedCommitmentDurations: z
     .array(
       z.object({
