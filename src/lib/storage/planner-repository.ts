@@ -1,6 +1,6 @@
 import { getAcademicDeadline, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import {
-  generateStudyPlanHorizon,
+  generateStudyPlanHorizon as defaultGenerateStudyPlanHorizon,
   shouldAlwaysPreserveStudyBlockOnRegeneration,
   shouldPreserveStudyBlockOnRegeneration,
 } from "@/lib/scheduler/generator";
@@ -1247,13 +1247,21 @@ export async function repairCollapsedCoveragePlanningState(referenceDate = new D
   return syncPlanningSubjectsToCurrentSeed(snapshot, referenceDate);
 }
 
-async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Date) {
+interface PlannerRepositoryDependencies {
+  generateStudyPlanHorizon: typeof defaultGenerateStudyPlanHorizon;
+}
+
+async function refreshPlanningModel(
+  snapshot: PlannerSnapshot,
+  referenceDate: Date,
+  dependencies: PlannerRepositoryDependencies,
+) {
   const weekStart = startOfPlannerWeek(referenceDate);
   const weekStartKey = toDateKey(weekStart);
   const syncedSnapshot = await syncPlanningSubjectsToCurrentSeed(snapshot, referenceDate);
   const preservedStudyBlockIds = collectActiveStudyBlockIds(syncedSnapshot.studyBlocks, referenceDate);
   const repairState = getCollapsedCoverageRepairState(syncedSnapshot, referenceDate);
-  const replanned = generateStudyPlanHorizon({
+  const replanned = dependencies.generateStudyPlanHorizon({
     startWeek: weekStart,
     referenceDate,
     goals: syncedSnapshot.goals,
@@ -1292,10 +1300,13 @@ async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Da
   return loadPlannerSnapshot();
 }
 
-export async function regeneratePlanningHorizon(referenceDate = new Date()) {
+async function regeneratePlanningHorizonWithDependencies(
+  referenceDate: Date,
+  dependencies: PlannerRepositoryDependencies,
+) {
   await autoMarkExpiredUncompletedStudyBlocks(referenceDate);
   let snapshot = await loadPlannerSnapshot();
-  snapshot = await refreshPlanningModel(snapshot, referenceDate);
+  snapshot = await refreshPlanningModel(snapshot, referenceDate, dependencies);
 
   let repairState = getCollapsedCoverageRepairState(snapshot, referenceDate);
   if (!repairState.hasCollapsedCoverage) {
@@ -1308,7 +1319,7 @@ export async function regeneratePlanningHorizon(referenceDate = new Date()) {
   repairState = getCollapsedCoverageRepairState(syncedSnapshot, referenceDate);
   const weekStart = startOfPlannerWeek(referenceDate);
   const weekStartKey = toDateKey(weekStart);
-  const repaired = generateStudyPlanHorizon({
+  const repaired = dependencies.generateStudyPlanHorizon({
     startWeek: weekStart,
     referenceDate,
     goals: syncedSnapshot.goals,
@@ -1351,6 +1362,10 @@ export async function regeneratePlanningHorizon(referenceDate = new Date()) {
 
   await markPlanningHorizonReady(referenceDate);
   return loadPlannerSnapshot();
+}
+
+export async function regeneratePlanningHorizon(referenceDate = new Date()) {
+  return plannerRepositoryRuntime.regeneratePlanningHorizon(referenceDate);
 }
 
 async function migrateLegacySeededFixedEvents(snapshot: PlannerSnapshot) {
@@ -2220,50 +2235,53 @@ export async function markPlanningHorizonReady(referenceDate = new Date()) {
   });
 }
 
-interface PlannerRepositoryInitializationDependencies {
-  generateStudyPlanHorizon: typeof generateStudyPlanHorizon;
+function createPlannerRepositoryRuntime(
+  dependencies: PlannerRepositoryDependencies,
+) {
+  const immutableDependencies: PlannerRepositoryDependencies = Object.freeze({
+    ...dependencies,
+  });
+
+  return Object.freeze({
+    async initializePlannerDatabase(referenceDate = new Date()) {
+      const seeded = await db.meta.get("seeded");
+      if (!seeded) {
+        const seedDataset = buildSeedDataset(referenceDate);
+        await writeSeedDataset(seedDataset);
+      }
+
+      let snapshot = await loadPlannerSnapshot();
+      snapshot = await migrateLegacyPreferenceDefaults(snapshot);
+      snapshot = await migrateLegacySeededFixedEvents(snapshot);
+      snapshot = await migrateLegacySeededSyllabus(snapshot, referenceDate);
+      snapshot = await migrateCppBookGoal(snapshot, referenceDate);
+      snapshot = await migrateOlympiadRoadmap(snapshot, referenceDate);
+      snapshot = await syncExtendedGoalSubjects(snapshot, referenceDate);
+      snapshot = await syncLanguageMaintenanceSubjects(snapshot, referenceDate);
+      await syncSeedOrderedSubjects(snapshot, referenceDate);
+      return loadPlannerSnapshot();
+    },
+    regeneratePlanningHorizon(referenceDate = new Date()) {
+      return regeneratePlanningHorizonWithDependencies(
+        referenceDate,
+        immutableDependencies,
+      );
+    },
+  });
 }
 
-const plannerRepositoryInitializationDependencies = Object.freeze({
-  generateStudyPlanHorizon,
+const plannerRepositoryRuntime = createPlannerRepositoryRuntime({
+  generateStudyPlanHorizon: defaultGenerateStudyPlanHorizon,
 });
 
-async function initializePlannerDatabaseWithDependencies(
-  referenceDate: Date,
-  dependencies: PlannerRepositoryInitializationDependencies,
+export function createPlannerRepositoryForTesting(
+  dependencies: PlannerRepositoryDependencies,
 ) {
-  // Initialization owns the dependency but intentionally never crosses generation.
-  void dependencies.generateStudyPlanHorizon;
-  const seeded = await db.meta.get("seeded");
-  if (!seeded) {
-    const seedDataset = buildSeedDataset(referenceDate);
-    await writeSeedDataset(seedDataset);
-  }
-
-  let snapshot = await loadPlannerSnapshot();
-  snapshot = await migrateLegacyPreferenceDefaults(snapshot);
-  snapshot = await migrateLegacySeededFixedEvents(snapshot);
-  snapshot = await migrateLegacySeededSyllabus(snapshot, referenceDate);
-  snapshot = await migrateCppBookGoal(snapshot, referenceDate);
-  snapshot = await migrateOlympiadRoadmap(snapshot, referenceDate);
-  snapshot = await syncExtendedGoalSubjects(snapshot, referenceDate);
-  snapshot = await syncLanguageMaintenanceSubjects(snapshot, referenceDate);
-  await syncSeedOrderedSubjects(snapshot, referenceDate);
-  return loadPlannerSnapshot();
-}
-
-export function createPlannerRepositoryInitializationForTesting(
-  dependencies: PlannerRepositoryInitializationDependencies,
-) {
-  return (referenceDate = new Date()) =>
-    initializePlannerDatabaseWithDependencies(referenceDate, dependencies);
+  return createPlannerRepositoryRuntime(dependencies);
 }
 
 export async function initializePlannerDatabase(referenceDate = new Date()) {
-  return initializePlannerDatabaseWithDependencies(
-    referenceDate,
-    plannerRepositoryInitializationDependencies,
-  );
+  return plannerRepositoryRuntime.initializePlannerDatabase(referenceDate);
 }
 
 export async function replaceWeeklyPlan(studyBlocks: StudyBlock[], weeklyPlan: WeeklyPlan) {

@@ -15,6 +15,7 @@ import {
   toDateKey,
 } from "@/lib/dates/helpers";
 import { isDateInActiveSchoolTerm } from "@/lib/scheduler/schedule-regime";
+import { isSchedulableStudyBlockStatus } from "@/lib/scheduler/study-breaks";
 import {
   getOlympiadWeekLoadProfile,
   getPendingOlympiadRewriteDemandHours,
@@ -530,8 +531,11 @@ export function buildWeeklyPlan(options: {
     accumulator[key] = 0;
     return accumulator;
   }, {});
+  const schedulableStudyBlocks = options.studyBlocks.filter((block) =>
+    isSchedulableStudyBlockStatus(block.status),
+  );
 
-  options.studyBlocks.forEach((block) => {
+  schedulableStudyBlocks.forEach((block) => {
     if (!block.subjectId) {
       return;
     }
@@ -549,11 +553,11 @@ export function buildWeeklyPlan(options: {
   );
   const assignedMinutes = sum(Object.values(assignedMinutesBySubject));
   const requiredMinutes = sum(Object.values(requiredHoursBySubject).map((hours) => hours * 60));
-  const recoveryMinutes = options.studyBlocks
+  const recoveryMinutes = schedulableStudyBlocks
     .filter((block) => !block.subjectId)
     .reduce((total, block) => total + block.estimatedMinutes, 0);
   const slackMinutes = Math.max(studyCapacityMinutes - assignedMinutes - recoveryMinutes, 0);
-  const assignedStudyMinutesByDay = options.studyBlocks.reduce<Record<string, number>>((accumulator, block) => {
+  const assignedStudyMinutesByDay = schedulableStudyBlocks.reduce<Record<string, number>>((accumulator, block) => {
     if (!block.subjectId) {
       return accumulator;
     }
@@ -570,7 +574,7 @@ export function buildWeeklyPlan(options: {
   }, 0);
   const usedSundayMinutes =
     options.usedSundayMinutes ??
-    options.studyBlocks
+    schedulableStudyBlocks
       .filter((block) => block.subjectId && new Date(block.start).getDay() === 0)
       .reduce((total, block) => total + block.estimatedMinutes, 0);
   const remainingAfterWeekMinutesBySubject = {
@@ -683,7 +687,7 @@ export function buildWeeklyPlan(options: {
         Math.max(0, requiredMinutes - studyCapacityMinutes) / 15,
     ),
   );
-  const reinforcementSessionCountBySubject = options.studyBlocks.reduce<Record<string, number>>(
+  const reinforcementSessionCountBySubject = schedulableStudyBlocks.reduce<Record<string, number>>(
     (counts, block) => {
       if (!block.subjectId || block.topicId || !block.title.includes("reinforcement")) {
         return counts;
@@ -812,19 +816,25 @@ export function buildUnconfiguredWeeklyPlan(options: {
     return accumulator;
   }, {});
 
-  options.studyBlocks.forEach((block) => {
-    if (!block.subjectId) {
-      return;
-    }
+  options.studyBlocks
+    .filter((block) => isSchedulableStudyBlockStatus(block.status))
+    .forEach((block) => {
+      if (!block.subjectId) {
+        return;
+      }
 
-    assignedHoursBySubject[block.subjectId] = (assignedHoursBySubject[block.subjectId] ?? 0) + roundToTenth(block.estimatedMinutes / 60);
+      assignedHoursBySubject[block.subjectId] =
+        (assignedHoursBySubject[block.subjectId] ?? 0) +
+        roundToTenth(block.estimatedMinutes / 60);
 
-    if (block.status === "done" || block.status === "partial") {
-      completedHoursBySubject[block.subjectId] = (completedHoursBySubject[block.subjectId] ?? 0) + roundToTenth(
-        (block.actualMinutes ?? block.estimatedMinutes) / 60,
-      );
-    }
-  });
+      if (block.status === "done" || block.status === "partial") {
+        completedHoursBySubject[block.subjectId] =
+          (completedHoursBySubject[block.subjectId] ?? 0) +
+          roundToTenth(
+            (block.actualMinutes ?? block.estimatedMinutes) / 60,
+          );
+      }
+    });
 
   return {
     weekStart: options.weekStart,

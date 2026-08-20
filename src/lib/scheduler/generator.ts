@@ -48,7 +48,11 @@ import {
   getCumulativeCoreSyllabusAssignedMinutes,
   type CoreSyllabusPacingPlan,
 } from "@/lib/scheduler/core-syllabus-pacing";
-import { buildWeeklyAllocationIndexes } from "@/lib/scheduler/allocation-indexes";
+import {
+  buildWeeklyAllocationIndexes,
+  createAllocationIndexInstrumentation,
+  type AllocationIndexInstrumentation,
+} from "@/lib/scheduler/allocation-indexes";
 import {
   STUDY_BREAK_TRIGGER_MINUTES,
   buildEffectiveStudyCapacityMinutesByDate,
@@ -1796,7 +1800,9 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
       ),
     ),
   );
-  const blockedStudyBlocks = options.lockedBlocks ?? [];
+  const blockedStudyBlocks = (options.lockedBlocks ?? []).filter((block) =>
+    isSchedulableStudyBlockStatus(block.status),
+  );
   const targetCapacityMinutes = calculateSoftCommitmentTargetCapacityMinutes({
     currentWeek: options.currentWeek,
     referenceDate,
@@ -2097,6 +2103,7 @@ function allocateTasksToSlots(options: {
   coreSyllabusPacingPlan?: CoreSyllabusPacingPlan;
   requiredStudyLayers?: StudyLayer[];
   schedulingContext?: SchedulingRunContext;
+  allocationIndexInstrumentation?: AllocationIndexInstrumentation;
 }) {
   const weekStartKey = toDateKey(options.weekStart);
   const subjectMap = new Map(options.subjects.map((subject) => [subject.id, subject]));
@@ -2494,6 +2501,7 @@ function allocateTasksToSlots(options: {
         toDateKey(addDays(options.weekStart, index)),
       ),
     ],
+    instrumentation: options.allocationIndexInstrumentation,
   });
   const coreStudyDateKeysBySubject = Object.fromEntries(
     IB_ANCHOR_SUBJECT_IDS.map((subjectId) => [subjectId, new Set<string>()]),
@@ -4436,6 +4444,9 @@ function buildCoreSyllabusPacingPlanForSchedulingRun(options: {
   const targetDate = fromDateKey(targetDateKey);
   const targetWeek = startOfPlannerWeek(targetDate);
   const effectiveBreakMinutes = getEffectiveStudyBreakMinutes(options.preferences);
+  const schedulablePreservedStudyBlocks = (
+    options.preservedStudyBlocks ?? []
+  ).filter((block) => isSchedulableStudyBlockStatus(block.status));
 
   for (
     let currentWeek = startOfPlannerWeek(options.referenceDate);
@@ -4447,7 +4458,7 @@ function buildCoreSyllabusPacingPlanForSchedulingRun(options: {
       fixedEvents: options.fixedEvents,
       sickDays: options.sickDays,
       preferences: options.preferences,
-      blockedStudyBlocks: [],
+      blockedStudyBlocks: schedulablePreservedStudyBlocks,
       planningStart: options.referenceDate,
       schedulingContext: options.schedulingContext,
     });
@@ -4459,7 +4470,7 @@ function buildCoreSyllabusPacingPlanForSchedulingRun(options: {
 
   const capacityMinutesByDate = buildEffectiveStudyCapacityMinutesByDate({
     availableSlots,
-    preservedStudyBlocks: options.preservedStudyBlocks ?? [],
+    preservedStudyBlocks: schedulablePreservedStudyBlocks,
     breakMinutes: effectiveBreakMinutes,
   });
 
@@ -4513,7 +4524,11 @@ function buildWeeklyPacingDiagnostics(options: {
 
   options.studyBlocks.forEach((block) => {
     const topic = block.topicId ? topicById.get(block.topicId) : null;
-    if (!topic || !isCoreHlSyllabusTopic(topic) || block.status === "missed") {
+    if (
+      !topic ||
+      !isCoreHlSyllabusTopic(topic) ||
+      !isSchedulableStudyBlockStatus(block.status)
+    ) {
       return;
     }
 
@@ -4591,7 +4606,7 @@ function buildAllocationPasses(baseDailyCapBoostMinutes: number) {
   return passes;
 }
 
-export function generateStudyPlanForWeek(options: {
+export interface GenerateStudyPlanForWeekOptions {
   weekStart?: Date;
   referenceDate?: Date;
   goals: Goal[];
@@ -4616,11 +4631,31 @@ export function generateStudyPlanForWeek(options: {
   fillAvailableStudyDays?: boolean;
   coreSyllabusPacingPlan?: CoreSyllabusPacingPlan;
   schedulingContext?: SchedulingRunContext;
-}): SchedulerResult {
+}
+
+interface StudyPlanGeneratorDependencies {
+  createAllocationIndexInstrumentation: () =>
+    | AllocationIndexInstrumentation
+    | undefined;
+  onCoreSyllabusPacingPlanBuilt?: (plan: CoreSyllabusPacingPlan) => void;
+}
+
+const defaultStudyPlanGeneratorDependencies: StudyPlanGeneratorDependencies =
+  Object.freeze({
+    createAllocationIndexInstrumentation: () => undefined,
+  });
+
+function generateStudyPlanForWeekWithDependencies(
+  options: GenerateStudyPlanForWeekOptions,
+  dependencies: StudyPlanGeneratorDependencies,
+): SchedulerResult {
   const weekStart = startOfPlannerWeek(options.weekStart ?? new Date());
   const referenceDate = getPlannerReferenceDate(weekStart, options.referenceDate);
   const horizonStartDate = options.horizonStartDate ?? getPlannerReferenceDate(startOfPlannerWeek(new Date()));
   const lockedBlocks = options.lockedBlocks ?? [];
+  const schedulableLockedBlocks = lockedBlocks.filter((block) =>
+    isSchedulableStudyBlockStatus(block.status),
+  );
   const sickDays = options.sickDays ?? [];
   const schedulingContext =
     options.schedulingContext ?? createSchedulingRunContext();
@@ -4633,9 +4668,10 @@ export function generateStudyPlanForWeek(options: {
       sickDays,
       preferences: options.preferences,
       schedulingContext,
-      preservedStudyBlocks: lockedBlocks,
+      preservedStudyBlocks: schedulableLockedBlocks,
       targetDateKey: toDateKey(endOfPlannerWeek(weekStart)),
     });
+  dependencies.onCoreSyllabusPacingPlanBuilt?.(coreSyllabusPacingPlan);
   const focusedDays = options.focusedDays ?? [];
   const focusedWeeks = options.focusedWeeks ?? [];
   const existingPlannedBlocks = options.existingPlannedBlocks ?? lockedBlocks;
@@ -4750,7 +4786,7 @@ export function generateStudyPlanForWeek(options: {
     fixedEvents: options.fixedEvents,
     sickDays,
     preferences: options.preferences,
-    blockedStudyBlocks: lockedBlocks,
+    blockedStudyBlocks: schedulableLockedBlocks,
     planningStart: referenceDate,
     effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
     excludedReservedCommitmentRuleIds: options.excludedReservedCommitmentRuleIds,
@@ -4761,7 +4797,7 @@ export function generateStudyPlanForWeek(options: {
     fixedEvents: options.fixedEvents,
     sickDays,
     preferences: options.preferences,
-    blockedStudyBlocks: lockedBlocks,
+    blockedStudyBlocks: schedulableLockedBlocks,
     planningStart: referenceDate,
     skipMovableRecovery: true,
     effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
@@ -4856,7 +4892,7 @@ export function generateStudyPlanForWeek(options: {
       sickDays,
       preferences: options.preferences,
       blockedStudyBlocks: [
-        ...lockedBlocks,
+        ...schedulableLockedBlocks,
         ...scheduledBlocks.filter(isCapacityBlockingStudyBlock),
       ],
       planningStart: referenceDate,
@@ -4884,7 +4920,7 @@ export function generateStudyPlanForWeek(options: {
       sickDays,
       preferences: options.preferences,
       lockedBlocks: [
-        ...lockedBlocks,
+        ...schedulableLockedBlocks,
         ...scheduledBlocks.filter(isCapacityBlockingStudyBlock),
       ],
       priorPlannedBlocks: existingPlannedBlocks,
@@ -4906,6 +4942,8 @@ export function generateStudyPlanForWeek(options: {
       dayStudyCapOverrideMinutesByDate: schoolTermTemplate.dayStudyCapOverrideMinutesByDate,
       schoolTermTemplate,
       coreSyllabusPacingPlan,
+      allocationIndexInstrumentation:
+        dependencies.createAllocationIndexInstrumentation(),
     });
 
     if (!result.scheduledBlocks.length) {
@@ -4945,7 +4983,7 @@ export function generateStudyPlanForWeek(options: {
     sickDays,
     preferences: options.preferences,
     blockedStudyBlocks: [
-      ...lockedBlocks,
+      ...schedulableLockedBlocks,
       ...scheduledBlocks.filter(isCapacityBlockingStudyBlock),
     ],
     planningStart: referenceDate,
@@ -4991,7 +5029,7 @@ export function generateStudyPlanForWeek(options: {
         sickDays,
         preferences: options.preferences,
         lockedBlocks: [
-          ...lockedBlocks,
+          ...schedulableLockedBlocks,
           ...scheduledBlocks.filter(isCapacityBlockingStudyBlock),
         ],
         priorPlannedBlocks: existingPlannedBlocks,
@@ -5017,6 +5055,8 @@ export function generateStudyPlanForWeek(options: {
         schoolTermTemplate,
         coreSyllabusPacingPlan,
         allowLargeGapAbsorption: true,
+        allocationIndexInstrumentation:
+          dependencies.createAllocationIndexInstrumentation(),
       });
 
       if (!cleanupResult.scheduledBlocks.length) {
@@ -5043,7 +5083,7 @@ export function generateStudyPlanForWeek(options: {
         sickDays,
         preferences: options.preferences,
         blockedStudyBlocks: [
-          ...lockedBlocks,
+          ...schedulableLockedBlocks,
           ...scheduledBlocks.filter(isCapacityBlockingStudyBlock),
         ],
         planningStart: referenceDate,
@@ -5149,6 +5189,36 @@ export function generateStudyPlanForWeek(options: {
     freeSlots: finalFreeSlots,
     unscheduledTasks: finalTasks,
   };
+}
+
+export function generateStudyPlanForWeek(
+  options: GenerateStudyPlanForWeekOptions,
+): SchedulerResult {
+  return generateStudyPlanForWeekWithDependencies(
+    options,
+    defaultStudyPlanGeneratorDependencies,
+  );
+}
+
+export function createStudyPlanGeneratorForTesting(hooks: {
+  onAllocationIndexInitialized?: (
+    instrumentation: AllocationIndexInstrumentation,
+  ) => void;
+  onCoreSyllabusPacingPlanBuilt?: (plan: CoreSyllabusPacingPlan) => void;
+}) {
+  const immutableHooks = Object.freeze({ ...hooks });
+  const dependencies: StudyPlanGeneratorDependencies = Object.freeze({
+    createAllocationIndexInstrumentation: () => {
+      const instrumentation = createAllocationIndexInstrumentation();
+      immutableHooks.onAllocationIndexInitialized?.(instrumentation);
+      return instrumentation;
+    },
+    onCoreSyllabusPacingPlanBuilt:
+      immutableHooks.onCoreSyllabusPacingPlanBuilt,
+  });
+
+  return (options: GenerateStudyPlanForWeekOptions) =>
+    generateStudyPlanForWeekWithDependencies(options, dependencies);
 }
 
 export function getPlanningHorizonEndWeek(goals: Goal[], subjects: Subject[], referenceDate: Date) {
@@ -5610,11 +5680,14 @@ function areStudyBlockListsEquivalent(
 
 function buildComparableWeeklyPlan(
   weeklyPlan: WeeklyPlan | null | undefined,
-  options?: { ignoreReinforcementOutputDiagnostics?: boolean },
+  options?: {
+    outputDiagnostics?: ReturnType<typeof buildStudyOutputDiagnostics>;
+  },
 ) {
   if (!weeklyPlan) {
     return null;
   }
+  const outputDiagnostics = options?.outputDiagnostics;
 
   return {
     weekStart: weeklyPlan.weekStart,
@@ -5640,15 +5713,12 @@ function buildComparableWeeklyPlan(
       weeklyPlan.corePacingAssignedMinutesBySubject,
     coreDistinctStudyDaysBySubject: weeklyPlan.coreDistinctStudyDaysBySubject,
     maxConsecutiveStudyMinutesBySubject:
-      options?.ignoreReinforcementOutputDiagnostics
-        ? null
-        : weeklyPlan.maxConsecutiveStudyMinutesBySubject,
-    plannedBreakCount: options?.ignoreReinforcementOutputDiagnostics
-      ? null
-      : weeklyPlan.plannedBreakCount,
-    plannedBreakMinutes: options?.ignoreReinforcementOutputDiagnostics
-      ? null
-      : weeklyPlan.plannedBreakMinutes,
+      outputDiagnostics?.maxConsecutiveStudyMinutesBySubject ??
+      weeklyPlan.maxConsecutiveStudyMinutesBySubject,
+    plannedBreakCount:
+      outputDiagnostics?.plannedBreakCount ?? weeklyPlan.plannedBreakCount,
+    plannedBreakMinutes:
+      outputDiagnostics?.plannedBreakMinutes ?? weeklyPlan.plannedBreakMinutes,
     pacingRescueReasonBySubject: weeklyPlan.pacingRescueReasonBySubject,
     effectiveReservedCommitmentDurations: weeklyPlan.effectiveReservedCommitmentDurations,
     excludedReservedCommitmentRuleIds: weeklyPlan.excludedReservedCommitmentRuleIds,
@@ -5659,11 +5729,38 @@ function buildComparableWeeklyPlan(
 function areWeeklyPlansEquivalent(
   left: WeeklyPlan | null | undefined,
   right: WeeklyPlan | null | undefined,
-  options?: { ignoreReinforcementOutputDiagnostics?: boolean },
+  options?: {
+    leftOutputDiagnostics?: ReturnType<typeof buildStudyOutputDiagnostics>;
+    rightOutputDiagnostics?: ReturnType<typeof buildStudyOutputDiagnostics>;
+  },
 ) {
   return (
-    JSON.stringify(buildComparableWeeklyPlan(left, options)) ===
-    JSON.stringify(buildComparableWeeklyPlan(right, options))
+    JSON.stringify(
+      buildComparableWeeklyPlan(left, {
+        outputDiagnostics: options?.leftOutputDiagnostics,
+      }),
+    ) ===
+    JSON.stringify(
+      buildComparableWeeklyPlan(right, {
+        outputDiagnostics: options?.rightOutputDiagnostics,
+      }),
+    )
+  );
+}
+
+function weeklyPlanMatchesOutputDiagnostics(
+  weeklyPlan: WeeklyPlan | null | undefined,
+  diagnostics: ReturnType<typeof buildStudyOutputDiagnostics>,
+) {
+  return (
+    !!weeklyPlan &&
+    JSON.stringify({
+      maxConsecutiveStudyMinutesBySubject:
+        weeklyPlan.maxConsecutiveStudyMinutesBySubject,
+      plannedBreakCount: weeklyPlan.plannedBreakCount,
+      plannedBreakMinutes: weeklyPlan.plannedBreakMinutes,
+    }) ===
+      JSON.stringify(diagnostics)
   );
 }
 
@@ -6032,14 +6129,41 @@ function generateIncrementalStudyPlanTailWithRun(
       persistedWeekBlocks,
       { includeReinforcement: true },
     );
-    const weekPlanEqual = areWeeklyPlansEquivalent(
-      result.weeklyPlan,
-      existingWeeklyPlanByWeek.get(weekKey),
-      {
-        ignoreReinforcementOutputDiagnostics:
-          weekBlocksEqual && !allWeekBlocksEqual,
-      },
+    const existingWeeklyPlan = existingWeeklyPlanByWeek.get(weekKey);
+    const normalizeReinforcementOutputDiagnostics =
+      weekBlocksEqual && !allWeekBlocksEqual;
+    const effectiveStudyResetMinutes = Math.max(
+      15,
+      getEffectiveStudyBreakMinutes(options.preferences),
     );
+    const rebuiltOutputDiagnostics = buildStudyOutputDiagnostics(
+      result.studyBlocks,
+      effectiveStudyResetMinutes,
+    );
+    const persistedOutputDiagnostics = buildStudyOutputDiagnostics(
+      persistedWeekBlocks,
+      effectiveStudyResetMinutes,
+    );
+    const weekPlanEqual = normalizeReinforcementOutputDiagnostics
+      ? weeklyPlanMatchesOutputDiagnostics(
+          result.weeklyPlan,
+          rebuiltOutputDiagnostics,
+        ) &&
+        weeklyPlanMatchesOutputDiagnostics(
+          existingWeeklyPlan,
+          persistedOutputDiagnostics,
+        ) &&
+        areWeeklyPlansEquivalent(result.weeklyPlan, existingWeeklyPlan, {
+          leftOutputDiagnostics: buildStudyOutputDiagnostics(
+            getComparableRealStudyBlocks(result.studyBlocks),
+            effectiveStudyResetMinutes,
+          ),
+          rightOutputDiagnostics: buildStudyOutputDiagnostics(
+            getComparableRealStudyBlocks(persistedWeekBlocks),
+            effectiveStudyResetMinutes,
+          ),
+        })
+      : areWeeklyPlansEquivalent(result.weeklyPlan, existingWeeklyPlan);
     const carryStateEqual =
       buildCarryForwardPlanningSignature(rebuiltAccumulatedBlocks) ===
       buildCarryForwardPlanningSignature(persistedAccumulatedBlocks);

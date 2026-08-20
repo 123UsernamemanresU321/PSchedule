@@ -1,6 +1,7 @@
 import { addDays, addMinutes, differenceInCalendarDays, startOfDay } from "date-fns";
 
 import { classifySlotEnergy } from "@/lib/scheduler/slot-classifier";
+import { isSchedulableStudyBlockStatus } from "@/lib/scheduler/study-breaks";
 import {
   FRENCH_TUNE_UP_RULE_ID,
   FRENCH_TUNE_UP_WEEKLY_SESSION_COUNT,
@@ -484,7 +485,11 @@ function getFixedEventIntervalsByDateForWeek(options: {
 
 function buildStudyBlockIntervals(day: Date, studyBlocks: StudyBlock[]) {
   return studyBlocks
-    .filter((block) => toDateKey(new Date(block.start)) === toDateKey(day))
+    .filter(
+      (block) =>
+        isSchedulableStudyBlockStatus(block.status) &&
+        toDateKey(new Date(block.start)) === toDateKey(day),
+    )
     .map((block) => createInterval(new Date(block.start), new Date(block.end)));
 }
 

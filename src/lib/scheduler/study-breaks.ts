@@ -334,8 +334,8 @@ export function getStudyContinuityContext(options: {
     })
     .sort(
       (left, right) =>
-        new Date(left.end).getTime() - new Date(right.end).getTime() ||
-        new Date(left.start).getTime() - new Date(right.start).getTime(),
+        new Date(left.start).getTime() - new Date(right.start).getTime() ||
+        new Date(left.end).getTime() - new Date(right.end).getTime(),
     );
 
   const previousSubjectId =
@@ -349,44 +349,59 @@ export function getStudyContinuityContext(options: {
 
   let continuousStudyMinutes = 0;
   let sameSubjectRunMinutes = 0;
-  let finalRunSubjectId: SubjectId | null = null;
-  let finalRunIsContiguous = true;
+  let currentRunSubjectId: SubjectId | null = null;
   let previousStudyWasExactExam = false;
-  let boundaryTime = cursorTime;
+  let previousStudyEndTime: number | null = null;
   const resetMinutes = Math.max(0, options.resetMinutes);
   const relevantStudyBlocks = relevantBlocks.filter(
     (block) => block.subjectId !== null,
   );
 
-  for (let index = relevantStudyBlocks.length - 1; index >= 0; index -= 1) {
-    const block = relevantStudyBlocks[index];
-    const blockStartTime = new Date(block.start).getTime();
-    const blockEndTime = new Date(block.end).getTime();
-    const gapMinutes = Math.max(0, (boundaryTime - blockEndTime) / 60000);
+  function applyNaturalPause(nextStartTime: number) {
+    if (previousStudyEndTime == null) {
+      return;
+    }
+
+    const gapMinutes = Math.max(
+      0,
+      (nextStartTime - previousStudyEndTime) / 60000,
+    );
     const requiredResetMinutes = getRequiredResetMinutesAfterStudy(
-      block.studyLayer === "exam_sim",
+      previousStudyWasExactExam,
       resetMinutes,
     );
-
-    if (requiredResetMinutes > 0 && gapMinutes >= requiredResetMinutes) {
-      break;
+    if (requiredResetMinutes <= 0 || gapMinutes < requiredResetMinutes) {
+      return;
     }
+
+    continuousStudyMinutes = 0;
+    sameSubjectRunMinutes = 0;
+    currentRunSubjectId = null;
+    previousStudyWasExactExam = false;
+  }
+
+  relevantStudyBlocks.forEach((block) => {
+    const blockStartTime = new Date(block.start).getTime();
+    const blockEndTime = new Date(block.end).getTime();
+    applyNaturalPause(blockStartTime);
 
     const durationMinutes = getBlockDurationMinutes(block);
     continuousStudyMinutes += durationMinutes;
-    if (finalRunSubjectId === null) {
-      finalRunSubjectId = block.subjectId;
-      sameSubjectRunMinutes = durationMinutes;
-    } else if (finalRunIsContiguous && finalRunSubjectId === block.subjectId) {
+    if (currentRunSubjectId === block.subjectId) {
       sameSubjectRunMinutes += durationMinutes;
     } else {
-      finalRunIsContiguous = false;
+      currentRunSubjectId = block.subjectId;
+      sameSubjectRunMinutes = durationMinutes;
     }
     previousStudyWasExactExam =
       previousStudyWasExactExam || block.studyLayer === "exam_sim";
+    previousStudyEndTime = Math.max(
+      previousStudyEndTime ?? Number.NEGATIVE_INFINITY,
+      blockEndTime,
+    );
+  });
 
-    boundaryTime = blockStartTime;
-  }
+  applyNaturalPause(cursorTime);
 
   return {
     continuousStudyMinutes,
