@@ -10,6 +10,7 @@ export interface CoreSyllabusPacingPlan {
   startDateKey: string;
   targetDateKey: string;
   capacityMinutesByDate: Record<string, number>;
+  remainingCapacityMinutesByDate: Record<string, number>;
   totalMinutesBySubject: Record<string, number>;
   targetMinutesByDate: Record<string, Record<string, number>>;
 }
@@ -66,6 +67,13 @@ export function buildCoreSyllabusPacingPlan(options: {
     (total, dateKey) => total + Math.max(0, options.capacityMinutesByDate[dateKey] ?? 0),
     0,
   );
+  const remainingCapacityMinutesByDate: Record<string, number> = {};
+  let remainingCapacity = 0;
+  for (let index = dateKeys.length - 1; index >= 0; index -= 1) {
+    const dateKey = dateKeys[index];
+    remainingCapacity += Math.max(0, options.capacityMinutesByDate[dateKey] ?? 0);
+    remainingCapacityMinutesByDate[dateKey] = remainingCapacity;
+  }
   const targetMinutesByDate: Record<string, Record<string, number>> = {};
   let cumulativeCapacity = 0;
   const previousTargetBySubject: Record<string, number> = {};
@@ -103,6 +111,7 @@ export function buildCoreSyllabusPacingPlan(options: {
     startDateKey,
     targetDateKey,
     capacityMinutesByDate: { ...options.capacityMinutesByDate },
+    remainingCapacityMinutesByDate,
     totalMinutesBySubject,
     targetMinutesByDate,
   };

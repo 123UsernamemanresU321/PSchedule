@@ -65,6 +65,10 @@ const PLANNING_SYNC_SUBJECT_IDS: SubjectId[] = [
   "geography-transition",
 ];
 
+export const plannerGenerationBoundary = {
+  generateStudyPlanHorizon,
+};
+
 function normalizeLockedRecoveryWindows(
   preferences: Partial<Preferences> | null | undefined,
   seedPreferences: Preferences,
@@ -1253,7 +1257,7 @@ async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Da
   const syncedSnapshot = await syncPlanningSubjectsToCurrentSeed(snapshot, referenceDate);
   const preservedStudyBlockIds = collectActiveStudyBlockIds(syncedSnapshot.studyBlocks, referenceDate);
   const repairState = getCollapsedCoverageRepairState(syncedSnapshot, referenceDate);
-  const replanned = generateStudyPlanHorizon({
+  const replanned = plannerGenerationBoundary.generateStudyPlanHorizon({
     startWeek: weekStart,
     referenceDate,
     goals: syncedSnapshot.goals,
@@ -1308,7 +1312,7 @@ export async function regeneratePlanningHorizon(referenceDate = new Date()) {
   repairState = getCollapsedCoverageRepairState(syncedSnapshot, referenceDate);
   const weekStart = startOfPlannerWeek(referenceDate);
   const weekStartKey = toDateKey(weekStart);
-  const repaired = generateStudyPlanHorizon({
+  const repaired = plannerGenerationBoundary.generateStudyPlanHorizon({
     startWeek: weekStart,
     referenceDate,
     goals: syncedSnapshot.goals,

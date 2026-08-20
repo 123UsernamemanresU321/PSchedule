@@ -2457,6 +2457,9 @@ function allocateTasksToSlots(options: {
   });
   let consumedStudyMinutes = 0;
   let workingTasks = cloneTasks(options.tasks);
+  const remainingCoreDemandMinutesByTaskPool = new WeakMap<TaskCandidate[], number>();
+  const remainingCoreMinutesByTopic = new Map<string, number>();
+  let remainingCoreDemandMinutes = 0;
   const scheduledBlocks: StudyBlock[] = [];
   let usedSundayMinutes = 0;
   const uniquePriorAndLockedBlocks = Array.from(
@@ -2629,6 +2632,7 @@ function allocateTasksToSlots(options: {
 
   function syncWorkingTasks(restrictedSubjectIds?: string[]) {
     workingTasks = getRefreshedWorkingTasks(restrictedSubjectIds);
+    rebuildRemainingCoreDemand(workingTasks);
   }
 
   function applyScheduledTaskCoverage(task: TaskCandidate, durationMinutes: number) {
@@ -2649,6 +2653,7 @@ function allocateTasksToSlots(options: {
         topicStillOpen = true;
       }
     });
+    refreshRemainingCoreDemandForTopic(task.topicId);
 
     return !topicStillOpen;
   }
@@ -2694,6 +2699,61 @@ function allocateTasksToSlots(options: {
     const topic = task.topicId ? topicMap.get(task.topicId) : null;
     return !!topic && isCoreHlSyllabusTopic(topic);
   }
+
+  function getRemainingCoreMinutesByTopic(taskPool: TaskCandidate[]) {
+    const remainingByTopic = new Map<string, number>();
+    taskPool.forEach((task) => {
+      if (!task.topicId || !isCoreHlSyllabusTask(task)) {
+        return;
+      }
+
+      remainingByTopic.set(
+        task.topicId,
+        Math.max(remainingByTopic.get(task.topicId) ?? 0, task.remainingMinutes),
+      );
+    });
+    return remainingByTopic;
+  }
+
+  function rebuildRemainingCoreDemand(taskPool: TaskCandidate[]) {
+    remainingCoreMinutesByTopic.clear();
+    getRemainingCoreMinutesByTopic(taskPool).forEach((minutes, topicId) => {
+      remainingCoreMinutesByTopic.set(topicId, minutes);
+    });
+    remainingCoreDemandMinutes = sum(Array.from(remainingCoreMinutesByTopic.values()));
+    remainingCoreDemandMinutesByTaskPool.set(taskPool, remainingCoreDemandMinutes);
+  }
+
+  function refreshRemainingCoreDemandForTopic(topicId: string) {
+    const previousMinutes = remainingCoreMinutesByTopic.get(topicId) ?? 0;
+    const nextMinutes = workingTasks.reduce(
+      (maximum, task) =>
+        task.topicId === topicId && isCoreHlSyllabusTask(task)
+          ? Math.max(maximum, task.remainingMinutes)
+          : maximum,
+      0,
+    );
+    remainingCoreMinutesByTopic.set(topicId, nextMinutes);
+    remainingCoreDemandMinutes += nextMinutes - previousMinutes;
+    remainingCoreDemandMinutesByTaskPool.set(workingTasks, remainingCoreDemandMinutes);
+  }
+
+  function getRemainingCoreDemandMinutes(taskPool: TaskCandidate[]) {
+    if (taskPool === workingTasks) {
+      return remainingCoreDemandMinutes;
+    }
+
+    const cachedDemand = remainingCoreDemandMinutesByTaskPool.get(taskPool);
+    if (cachedDemand != null) {
+      return cachedDemand;
+    }
+
+    const demand = sum(Array.from(getRemainingCoreMinutesByTopic(taskPool).values()));
+    remainingCoreDemandMinutesByTaskPool.set(taskPool, demand);
+    return demand;
+  }
+
+  rebuildRemainingCoreDemand(workingTasks);
 
   function hasLegacyCoreHlSyllabusPriority(
     slotStart: Date,
@@ -2750,31 +2810,9 @@ function allocateTasksToSlots(options: {
       return false;
     }
 
-    const remainingMinutesByTopic = new Map<string, number>();
-    taskPool.forEach((task) => {
-      if (!task.topicId || !isCoreHlSyllabusTask(task)) {
-        return;
-      }
-
-      remainingMinutesByTopic.set(
-        task.topicId,
-        Math.max(
-          remainingMinutesByTopic.get(task.topicId) ?? 0,
-          task.remainingMinutes,
-        ),
-      );
-    });
-    const remainingCoreMinutes = sum(Array.from(remainingMinutesByTopic.values()));
-    const remainingCapacityMinutes = Object.entries(
-      options.coreSyllabusPacingPlan.capacityMinutesByDate,
-    ).reduce(
-      (total, [capacityDateKey, minutes]) =>
-        capacityDateKey >= dateKey &&
-        capacityDateKey <= options.coreSyllabusPacingPlan!.targetDateKey
-          ? total + minutes
-          : total,
-      0,
-    );
+    const remainingCoreMinutes = getRemainingCoreDemandMinutes(taskPool);
+    const remainingCapacityMinutes =
+      options.coreSyllabusPacingPlan.remainingCapacityMinutesByDate[dateKey] ?? 0;
 
     return remainingCoreMinutes > remainingCapacityMinutes;
   }
@@ -3434,6 +3472,7 @@ function allocateTasksToSlots(options: {
     task: TaskCandidate;
     blockOption: NonNullable<ReturnType<typeof selectBlockOption>>;
     scoreBreakdown: StudyBlock["scoreBreakdown"];
+    pacingRescueReason?: "projected_capacity_shortfall" | "safety_buffer_completion";
   };
 
   function buildScoredOptionsForSlot(config: {
@@ -3496,6 +3535,10 @@ function allocateTasksToSlots(options: {
       slot.dateKey,
       taskPool,
     );
+    const pacingRescueReasonByTaskId = new Map<
+      TaskCandidate["id"],
+      NonNullable<ScoredTaskBlockOption["pacingRescueReason"]>
+    >();
     const selectionPolicy =
       allowWeeklyTargetOverride || mustFillEndOfDaySlot
         ? {
@@ -3543,11 +3586,17 @@ function allocateTasksToSlots(options: {
               (options.coreSyllabusPacingPlan.totalMinutesBySubject[
                 task.subjectId
               ] ?? Number.POSITIVE_INFINITY);
-          return (
-            corePacingRescueActive ||
-            slot.dateKey >= CORE_HL_PACING_SAFETY_BUFFER_START_DATE_KEY ||
-            subjectPacingTargetIsComplete
-          );
+          if (corePacingRescueActive) {
+            pacingRescueReasonByTaskId.set(task.id, "projected_capacity_shortfall");
+            return true;
+          }
+
+          if (slot.dateKey >= CORE_HL_PACING_SAFETY_BUFFER_START_DATE_KEY) {
+            pacingRescueReasonByTaskId.set(task.id, "safety_buffer_completion");
+            return true;
+          }
+
+          return subjectPacingTargetIsComplete;
         }
 
         return legacyCorePriorityActive ? isCoreHlSyllabusTask(task) : true;
@@ -3625,11 +3674,16 @@ function allocateTasksToSlots(options: {
           return null;
         }
 
-        return { task, blockOption };
+        return {
+          task,
+          blockOption,
+          pacingRescueReason: pacingRescueReasonByTaskId.get(task.id),
+        };
       })
       .filter(Boolean) as Array<{
         task: TaskCandidate;
         blockOption: NonNullable<ReturnType<typeof selectBlockOption>>;
+        pacingRescueReason?: ScoredTaskBlockOption["pacingRescueReason"];
       }>;
     const shouldPreferDifferentSubject = shouldPreferDifferentStudySubject(
       continuity,
@@ -3644,7 +3698,7 @@ function allocateTasksToSlots(options: {
       : eligibleBlockOptions;
 
     return interleavedBlockOptions
-      .map(({ task, blockOption }) => {
+      .map(({ task, blockOption, pacingRescueReason }) => {
         const hasAlternativeDueSubject = eligibleBlockOptions.some(
           ({ task: candidateTask }) =>
             !!candidateTask.subjectId &&
@@ -3727,6 +3781,7 @@ function allocateTasksToSlots(options: {
           task,
           blockOption,
           scoreBreakdown: adjustedScoreBreakdown,
+          pacingRescueReason,
           pacingDeficitMinutes,
           lastSubjectStudyTimestamp: task.subjectId
             ? getLastSubjectStudyTimestamp(task.subjectId, slot.start)
@@ -4089,7 +4144,10 @@ function allocateTasksToSlots(options: {
           cadenceTransition.flexibleStudyCapacityMinutes,
         taskPool: workingTasks,
       });
-      workingTasks = selection.taskPool;
+      if (workingTasks !== selection.taskPool) {
+        workingTasks = selection.taskPool;
+        rebuildRemainingCoreDemand(workingTasks);
+      }
       const slotSlice = selection.slotSlice;
 
       if (selection.kind === "overflow") {
@@ -4202,28 +4260,10 @@ function allocateTasksToSlots(options: {
       if (
         winner.task.subjectId &&
         isCoreHlSyllabusTask(winner.task) &&
-        hasProjectedCorePacingCapacityShortfall(block.date, workingTasks)
+        winner.pacingRescueReason
       ) {
         pacingRescueReasonBySubject[winner.task.subjectId] =
-          "projected_capacity_shortfall";
-      } else if (
-        winner.task.subjectId &&
-        isCoreHlSyllabusTask(winner.task) &&
-        block.date >= CORE_HL_PACING_SAFETY_BUFFER_START_DATE_KEY &&
-        block.date < (options.coreSyllabusPacingPlan?.targetDateKey ?? "") &&
-        getCoreSyllabusPacingDeficitMinutes(
-          options.coreSyllabusPacingPlan,
-          winner.task.subjectId,
-          block.date,
-          getCumulativeCoreSyllabusAssignedMinutes(
-            corePacingAssignedMinutesByDate,
-            winner.task.subjectId,
-            block.date,
-          ),
-        ) === 0
-      ) {
-        pacingRescueReasonBySubject[winner.task.subjectId] =
-          "safety_buffer_completion";
+          winner.pacingRescueReason;
       }
       recordCoreSyllabusMinutes({
         topicId: block.topicId,
@@ -4476,6 +4516,10 @@ function buildActualStudyOutputDiagnostics(studyBlocks: StudyBlock[]) {
       0,
     ),
   };
+}
+
+function deduplicateStudyBlocksById(studyBlocks: StudyBlock[]) {
+  return Array.from(new Map(studyBlocks.map((block) => [block.id, block])).values());
 }
 
 function buildWeeklyPacingDiagnostics(options: {
@@ -5104,7 +5148,10 @@ export function generateStudyPlanForWeek(options: {
     plan: coreSyllabusPacingPlan,
     topics: options.topics,
     studyBlocks,
-    cumulativeStudyBlocks: [...existingPlannedBlocks, ...studyBlocks],
+    cumulativeStudyBlocks: deduplicateStudyBlocksById([
+      ...existingPlannedBlocks,
+      ...studyBlocks,
+    ]),
     pacingRescueReasonBySubject,
   });
   const weeklyPlan = buildWeeklyPlan({
@@ -5679,7 +5726,7 @@ function buildCarryForwardPlanningSignature(studyBlocks: StudyBlock[]) {
   });
 }
 
-export function generateIncrementalStudyPlanTail(options: {
+interface GenerateIncrementalStudyPlanTailOptions {
   startWeek?: Date;
   endWeek?: Date;
   referenceDate?: Date;
@@ -5697,8 +5744,12 @@ export function generateIncrementalStudyPlanTail(options: {
   preservedStudyBlockIds?: string[];
   preserveFlexibleFutureBlocks?: boolean;
   availabilityOverrideSubjectIds?: Subject["id"][];
-}) {
-  const startWeek = startOfPlannerWeek(options.startWeek ?? new Date());
+  allowReinforcement?: boolean;
+}
+
+export function generateIncrementalStudyPlanTail(
+  options: GenerateIncrementalStudyPlanTailOptions,
+) {
   const referenceDate = options.referenceDate ?? new Date();
   const schedulingContext = createSchedulingRunContext();
   const coreSyllabusPacingPlan = buildCoreSyllabusPacingPlanForSchedulingRun({
@@ -5709,6 +5760,25 @@ export function generateIncrementalStudyPlanTail(options: {
     preferences: options.preferences,
     schedulingContext,
   });
+
+  return generateIncrementalStudyPlanTailWithRun(options, {
+    schedulingContext,
+    coreSyllabusPacingPlan,
+  });
+}
+
+function generateIncrementalStudyPlanTailWithRun(
+  options: GenerateIncrementalStudyPlanTailOptions,
+  run: HorizonSchedulingRun,
+): {
+  studyBlocks: StudyBlock[];
+  weeklyPlans: WeeklyPlan[];
+  changedWeekStarts: string[];
+  horizonEndDate: string;
+} {
+  const startWeek = startOfPlannerWeek(options.startWeek ?? new Date());
+  const referenceDate = options.referenceDate ?? new Date();
+  const { schedulingContext, coreSyllabusPacingPlan } = run;
   const horizonStartDate = referenceDate;
   const configuredEndWeek = clampPlanningHorizonEndWeek(
     options.endWeek
@@ -5739,6 +5809,20 @@ export function generateIncrementalStudyPlanTail(options: {
     },
     {},
   );
+  const topicById = new Map(options.topics.map((topic) => [topic.id, topic]));
+  const existingTailUsesOlympiadAvailabilityRescue = options.existingStudyBlocks.some(
+    (block) => {
+      const topic = block.topicId ? topicById.get(block.topicId) : null;
+      return (
+        block.isAutoGenerated &&
+        (block.status === "planned" || block.status === "rescheduled") &&
+        block.date >= toDateKey(startWeek) &&
+        topic?.subjectId === "olympiad" &&
+        !!topic.availableFrom &&
+        block.date < topic.availableFrom
+      );
+    },
+  );
   const existingPrefixBlocks = options.existingStudyBlocks.filter(
     (block) =>
       toDateKey(startOfPlannerWeek(new Date(block.start))) < toDateKey(startWeek),
@@ -5767,12 +5851,51 @@ export function generateIncrementalStudyPlanTail(options: {
   const existingHorizonEndDate =
     options.existingWeeklyPlans.at(-1)?.horizonEndDate ?? toDateKey(configuredEndWeek);
   const shouldFillAvailableStudyDays = true;
-  const tailAvailabilityOverrideSubjectIds = Array.from(
-    new Set(["olympiad", ...(options.availabilityOverrideSubjectIds ?? [])]),
-  ) as Subject["id"][];
+  const tailAvailabilityOverrideSubjectIds = options.availabilityOverrideSubjectIds;
   let effectiveEndWeek = configuredEndWeek;
   let extensionWeeksUsed = 0;
   let finalWeek = configuredEndWeek;
+
+  function buildProjectedStudyBlocks() {
+    const rebuiltWeekStartKeys = new Set(
+      rebuiltWeeklyPlans.map((weeklyPlan) => weeklyPlan.weekStart),
+    );
+    return [
+      ...options.existingStudyBlocks.filter((block) => {
+        const weekStartKey =
+          block.weekStart || toDateKey(startOfPlannerWeek(new Date(block.start)));
+        return !rebuiltWeekStartKeys.has(weekStartKey);
+      }),
+      ...rebuiltStudyBlocks,
+    ];
+  }
+
+  function needsOlympiadAvailabilityRescue() {
+    if ((options.availabilityOverrideSubjectIds ?? []).includes("olympiad")) {
+      return false;
+    }
+
+    const unscheduledBySubject = getRealCoverageUnscheduledMinutesBySubject({
+      subjects: options.subjects,
+      topics: options.topics,
+      studyBlocks: buildProjectedStudyBlocks(),
+      referenceDate,
+    });
+    return (unscheduledBySubject.olympiad ?? 0) > 0;
+  }
+
+  function retryWithOlympiadAvailabilityOverride() {
+    return generateIncrementalStudyPlanTailWithRun(
+      {
+        ...options,
+        availabilityOverrideSubjectIds: [
+          ...(options.availabilityOverrideSubjectIds ?? []),
+          "olympiad",
+        ],
+      },
+      run,
+    );
+  }
 
   for (
     let currentWeek = startWeek;
@@ -5868,7 +5991,7 @@ export function generateIncrementalStudyPlanTail(options: {
       reservedCommitmentFallbackTierUsed:
         effectiveReservedCommitmentPlan.fallbackTierUsed,
       fillAvailableStudyDays: shouldFillAvailableStudyDays,
-      allowReinforcement: true,
+      allowReinforcement: options.allowReinforcement ?? false,
       coreSyllabusPacingPlan,
       schedulingContext,
     });
@@ -5890,6 +6013,14 @@ export function generateIncrementalStudyPlanTail(options: {
     const carryStateEqual =
       buildCarryForwardPlanningSignature(rebuiltAccumulatedBlocks) ===
       buildCarryForwardPlanningSignature(persistedAccumulatedBlocks);
+
+    if (
+      existingTailUsesOlympiadAvailabilityRescue &&
+      !(options.availabilityOverrideSubjectIds ?? []).includes("olympiad") &&
+      (!weekBlocksEqual || !weekPlanEqual || !carryStateEqual)
+    ) {
+      return retryWithOlympiadAvailabilityOverride();
+    }
 
     if (!weekBlocksEqual || !weekPlanEqual) {
       changedWeekStarts.add(weekKey);
@@ -5913,6 +6044,10 @@ export function generateIncrementalStudyPlanTail(options: {
     if (weekBlocksEqual && weekPlanEqual && carryStateEqual) {
       break;
     }
+  }
+
+  if (needsOlympiadAvailabilityRescue()) {
+    return retryWithOlympiadAvailabilityOverride();
   }
 
   const horizonEndDate =

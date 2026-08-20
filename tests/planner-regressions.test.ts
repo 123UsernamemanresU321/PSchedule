@@ -53,10 +53,14 @@ import {
   getCollapsedCoverageRepairState,
   getScopedReplanPrecheckState,
   derivePlannerHorizonStatus,
+  initializePlannerDatabase,
+  loadPlannerSnapshot,
   normalizePreferences,
   type PlannerSnapshot,
   normalizeStudyBlock,
 } from "@/lib/storage/planner-repository";
+import * as plannerRepository from "@/lib/storage/planner-repository";
+import { db } from "@/lib/storage/db";
 import {
   getActiveSickDaySeverity,
   isDateInActiveSchoolTerm,
@@ -106,6 +110,7 @@ import { aiBlockPlanResponseSchema } from "@/lib/ai/contracts";
 import { weeklyPlanSchema } from "@/lib/types/schemas";
 import type {
   CalendarSlot,
+  CompletionLog,
   FixedEvent,
   Preferences,
   StudyBlock,
@@ -2469,7 +2474,7 @@ test("planner replan scope selection prefers local scope before escalation", () 
   assert.equal(getEscalatedPlannerReplanScope("full_horizon"), null);
 });
 
-test("stale model version on startup and hard refresh only mark the horizon stale", () => {
+test("horizon status derives stale model and missing metadata without requesting regeneration", () => {
   const currentWeekStart = "2026-05-04";
 
   assert.deepEqual(
@@ -2538,6 +2543,90 @@ test("legacy weekly plans default pacing and break diagnostics", () => {
   assert.deepEqual(parsed.pacingRescueReasonBySubject, {});
 });
 
+test("bootstrap and load keep stale legacy horizons read-only", async (context) => {
+  const referenceDate = new Date("2026-08-20T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const currentWeekStart = toDateKey(startOfPlannerWeek(referenceDate));
+  const legacyWeeklyPlan = createWeeklyPlan({
+    weekStart: currentWeekStart,
+    horizonEndDate: toDateKey(addDays(referenceDate, 70)),
+  });
+  assert.equal("corePacingTargetMinutesByDate" in legacyWeeklyPlan, false);
+
+  let planningModelVersion: string | null = "stale";
+  const metaValues = () =>
+    new Map<string, string>([
+      ["seeded", "true"],
+      ["preferences-defaults-version", "2026-05-01-french-tune-up-commitments-v4"],
+      ["olympiad-roadmap-version", "2026-04-30-olympiad-final-june-v12"],
+      ["extended-goals-version", "2026-08-11-first-milestones-oct-31-v11"],
+      ["language-maintenance-version", "2026-06-02-school-paper-rotation-v6"],
+      ["seed-topic-ordering-version", "2026-08-11-school-paper-start-nov-2-v11"],
+      ...(planningModelVersion
+        ? [["planning-model-version", planningModelVersion] as [string, string]]
+        : []),
+    ]);
+  const stubTableArray = <T>(table: { toArray: () => Promise<T[]> }, rows: T[]) =>
+    context.mock.method(table, "toArray", async () => rows);
+
+  stubTableArray(db.goals, dataset.goals);
+  stubTableArray(db.subjects, dataset.subjects);
+  stubTableArray(db.topics, dataset.topics);
+  stubTableArray(db.fixedEvents, dataset.fixedEvents);
+  stubTableArray(db.sickDays, dataset.sickDays);
+  stubTableArray(db.focusedDays, dataset.focusedDays);
+  stubTableArray(db.focusedWeeks, dataset.focusedWeeks);
+  stubTableArray(db.studyBlocks, [] as StudyBlock[]);
+  stubTableArray(db.completionLogs, [] as CompletionLog[]);
+  stubTableArray(db.weeklyPlans, [legacyWeeklyPlan]);
+  context.mock.method(db.preferences, "get", async () => dataset.preferences);
+  context.mock.method(db.meta, "get", async (key: string) => {
+    const value = metaValues().get(key);
+    return value == null ? undefined : { key, value };
+  });
+  context.mock.method(db.meta, "toArray", async () =>
+    Array.from(metaValues(), ([key, value]) => ({ key, value })),
+  );
+
+  const generationBoundary = (
+    plannerRepository as unknown as {
+      plannerGenerationBoundary?: {
+        generateStudyPlanHorizon: typeof generateStudyPlanHorizon;
+      };
+    }
+  ).plannerGenerationBoundary;
+  assert.ok(generationBoundary, "expected the repository generation boundary to be spyable");
+  const generationSpy = context.mock.method(
+    generationBoundary,
+    "generateStudyPlanHorizon",
+    () => {
+      throw new Error("bootstrap must not generate");
+    },
+  );
+  const weeklyPlanWriteSpy = context.mock.method(db.weeklyPlans, "put");
+  const weeklyPlanBulkWriteSpy = context.mock.method(db.weeklyPlans, "bulkPut");
+  const studyBlockWriteSpy = context.mock.method(db.studyBlocks, "bulkPut");
+
+  const staleSnapshot = await initializePlannerDatabase(referenceDate);
+  assert.equal(staleSnapshot.horizonStatus, "stale");
+  const normalizedLegacyPlan = staleSnapshot.weeklyPlans[0];
+  assert.deepEqual(normalizedLegacyPlan.corePacingTargetMinutesByDate, {});
+  assert.deepEqual(normalizedLegacyPlan.corePacingAssignedMinutesBySubject, {});
+  assert.deepEqual(normalizedLegacyPlan.coreDistinctStudyDaysBySubject, {});
+  assert.deepEqual(normalizedLegacyPlan.maxConsecutiveStudyMinutesBySubject, {});
+  assert.equal(normalizedLegacyPlan.plannedBreakCount, 0);
+  assert.equal(normalizedLegacyPlan.plannedBreakMinutes, 0);
+  assert.deepEqual(normalizedLegacyPlan.pacingRescueReasonBySubject, {});
+
+  planningModelVersion = null;
+  const missingMetadataSnapshot = await loadPlannerSnapshot();
+  assert.equal(missingMetadataSnapshot.horizonStatus, "stale");
+  assert.equal(generationSpy.mock.callCount(), 0);
+  assert.equal(weeklyPlanWriteSpy.mock.callCount(), 0);
+  assert.equal(weeklyPlanBulkWriteSpy.mock.callCount(), 0);
+  assert.equal(studyBlockWriteSpy.mock.callCount(), 0);
+});
+
 test("healthy snapshots pass the cheap scoped replan precheck", () => {
   const referenceDate = new Date("2026-04-20T08:00:00.000Z");
   const dataset = buildSeedDataset(referenceDate);
@@ -2597,6 +2686,7 @@ test("incremental tail generation stops after the first unchanged week on benign
     focusedDays: dataset.focusedDays,
     focusedWeeks: dataset.focusedWeeks,
     preferences: dataset.preferences,
+    allowReinforcement: false,
   });
   const affectedWeekStart = addDays(startOfPlannerWeek(referenceDate), 28);
   const affectedWeekKey = toDateKey(affectedWeekStart);
@@ -2626,8 +2716,164 @@ test("incremental tail generation stops after the first unchanged week on benign
     preserveFlexibleFutureBlocks: false,
   });
 
-  assert.ok(incremental.changedWeekStarts.length <= 2);
+  assert.ok(
+    incremental.changedWeekStarts.length <= 2,
+    `expected at most two changed weeks, got ${incremental.changedWeekStarts.join(", ")}`,
+  );
   assert.equal(incremental.changedWeekStarts[0], affectedWeekKey);
+});
+
+test("incremental tail keeps available Olympiad work in its existing week", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const secondWeek = addDays(startOfPlannerWeek(referenceDate), 7);
+  const dataset = buildSeedDataset(referenceDate);
+  const olympiadSubject = dataset.subjects.find((subject) => subject.id === "olympiad");
+  const olympiadGoal = dataset.goals.find((goal) => goal.subjectId === "olympiad");
+  const baseTopic = dataset.topics.find(
+    (topic) => topic.subjectId === "olympiad" && !topic.dependsOnTopicId,
+  );
+  assert.ok(olympiadSubject);
+  assert.ok(olympiadGoal);
+  assert.ok(baseTopic);
+  const topic = {
+    ...baseTopic,
+    id: "incremental-available-next-week",
+    unitId: "incremental-availability",
+    unitTitle: "Incremental availability",
+    title: "Available next week",
+    estHours: 1,
+    completedHours: 0,
+    status: "not_started" as const,
+    mastery: 0,
+    lastStudiedAt: null,
+    reviewDue: null,
+    availableFrom: toDateKey(secondWeek),
+    dependsOnTopicId: null,
+    minDaysAfterDependency: null,
+    maxDaysAfterDependency: null,
+    order: 1,
+  };
+  const preferences = {
+    ...dataset.preferences,
+    reservedCommitmentRules: [],
+    lockedRecoveryWindows: [],
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: false,
+      terms: [],
+    },
+    holidaySchedule: {
+      ...dataset.preferences.holidaySchedule,
+      enabled: true,
+      dailyStudyWindow: { start: "08:00", end: "10:00" },
+    },
+  };
+  const firstWeek = generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: [olympiadGoal],
+    subjects: [olympiadSubject],
+    topics: [topic],
+    fixedEvents: [],
+    preferences,
+    fillAvailableStudyDays: true,
+    allowReinforcement: false,
+  });
+  const secondWeekPlan = generateStudyPlanForWeek({
+    weekStart: secondWeek,
+    referenceDate,
+    goals: [olympiadGoal],
+    subjects: [olympiadSubject],
+    topics: [topic],
+    fixedEvents: [],
+    preferences,
+    existingPlannedBlocks: firstWeek.studyBlocks,
+    fillAvailableStudyDays: true,
+    allowReinforcement: false,
+  });
+
+  assert.equal(firstWeek.studyBlocks.some((block) => block.topicId === topic.id), false);
+  assert.ok(secondWeekPlan.studyBlocks.some((block) => block.topicId === topic.id));
+
+  const incremental = generateIncrementalStudyPlanTail({
+    startWeek: startOfPlannerWeek(referenceDate),
+    endWeek: secondWeek,
+    referenceDate,
+    goals: [olympiadGoal],
+    subjects: [olympiadSubject],
+    topics: [topic],
+    fixedEvents: [],
+    preferences,
+    existingStudyBlocks: [...firstWeek.studyBlocks, ...secondWeekPlan.studyBlocks],
+    existingWeeklyPlans: [firstWeek.weeklyPlan, secondWeekPlan.weeklyPlan],
+  });
+
+  assert.deepEqual(incremental.changedWeekStarts, []);
+
+  const rescued = generateIncrementalStudyPlanTail({
+    startWeek: startOfPlannerWeek(referenceDate),
+    endWeek: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: [olympiadGoal],
+    subjects: [olympiadSubject],
+    topics: [topic],
+    fixedEvents: [],
+    preferences,
+    existingStudyBlocks: [],
+    existingWeeklyPlans: [],
+  });
+  assert.ok(
+    rescued.studyBlocks.some(
+      (block) => block.topicId === topic.id && block.date < toDateKey(secondWeek),
+    ),
+    "expected the conditional rescue pass to pull otherwise-unscheduled Olympiad work forward",
+  );
+});
+
+test("incremental reinforcement remains opt-in", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const subject = dataset.subjects.find((candidate) => candidate.id === "maths-aa-hl");
+  const goal = dataset.goals.find((candidate) => candidate.subjectId === "maths-aa-hl");
+  assert.ok(subject);
+  assert.ok(goal);
+  const preferences = {
+    ...dataset.preferences,
+    reservedCommitmentRules: [],
+    lockedRecoveryWindows: [],
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: false,
+      terms: [],
+    },
+    holidaySchedule: {
+      ...dataset.preferences.holidaySchedule,
+      enabled: true,
+      dailyStudyWindow: { start: "08:00", end: "10:00" },
+    },
+  };
+  const options = {
+    startWeek: startOfPlannerWeek(referenceDate),
+    endWeek: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: [goal],
+    subjects: [subject],
+    topics: [],
+    fixedEvents: [],
+    preferences,
+    existingStudyBlocks: [],
+    existingWeeklyPlans: [],
+  };
+  const defaultResult = generateIncrementalStudyPlanTail(options);
+  const optInResult = generateIncrementalStudyPlanTail({
+    ...options,
+    allowReinforcement: true,
+  });
+  const isReinforcement = (block: StudyBlock) =>
+    block.topicId == null && block.title.includes("reinforcement");
+
+  assert.equal(defaultResult.studyBlocks.some(isReinforcement), false);
+  assert.equal(optInResult.studyBlocks.some(isReinforcement), true);
 });
 
 test("physics topics are hard-gated in seeded syllabus order", () => {
@@ -7902,6 +8148,321 @@ test("direct weekly generation builds a local core pacing fallback", () => {
       `expected a local ${subjectId} pacing target`,
     );
   });
+});
+
+test("direct weekly generation preserves a supplied sentinel pacing plan", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const dateKey = toDateKey(referenceDate);
+  const coreSyllabusPacingPlan = buildCoreSyllabusPacingPlan({
+    startDate: referenceDate,
+    topics: [],
+    capacityMinutesByDate: { [dateKey]: 60 },
+    targetDateKey: dateKey,
+  });
+  coreSyllabusPacingPlan.targetMinutesByDate[dateKey] = {
+    "sentinel-subject": 73,
+  };
+  const suppliedPlanSnapshot = structuredClone(coreSyllabusPacingPlan);
+
+  const result = generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: [],
+    subjects: [],
+    topics: [],
+    fixedEvents: [],
+    preferences: {
+      ...dataset.preferences,
+      reservedCommitmentRules: [],
+      lockedRecoveryWindows: [],
+      schoolSchedule: {
+        ...dataset.preferences.schoolSchedule,
+        enabled: false,
+        terms: [],
+      },
+      holidaySchedule: {
+        ...dataset.preferences.holidaySchedule,
+        enabled: true,
+        dailyStudyWindow: { start: "08:00", end: "09:00" },
+      },
+    },
+    fillAvailableStudyDays: false,
+    coreSyllabusPacingPlan,
+  });
+
+  assert.equal(
+    result.weeklyPlan.corePacingTargetMinutesByDate?.[dateKey]?.["sentinel-subject"],
+    73,
+  );
+  assert.deepEqual(coreSyllabusPacingPlan, suppliedPlanSnapshot);
+});
+
+test("weekly cumulative diagnostics count a locked core block once by stable ID", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const subject = dataset.subjects.find((candidate) => candidate.id === "maths-aa-hl");
+  const goal = dataset.goals.find((candidate) => candidate.subjectId === "maths-aa-hl");
+  const baseTopic = dataset.topics.find(
+    (candidate) =>
+      candidate.subjectId === "maths-aa-hl" && !candidate.unitId.includes("past-papers"),
+  );
+  assert.ok(subject);
+  assert.ok(goal);
+  assert.ok(baseTopic);
+  const topic = {
+    ...baseTopic,
+    id: "locked-diagnostic-core",
+    unitId: "locked-diagnostic-core-syllabus",
+    unitTitle: "Locked diagnostic",
+    title: "Locked diagnostic topic",
+    estHours: 0,
+    completedHours: 0,
+    status: "strong" as const,
+    mastery: 0,
+    lastStudiedAt: null,
+    reviewDue: null,
+    availableFrom: null,
+    dependsOnTopicId: null,
+    minDaysAfterDependency: null,
+    maxDaysAfterDependency: null,
+    order: 1,
+  };
+  const dateKey = toDateKey(referenceDate);
+  const weekStartKey = toDateKey(startOfPlannerWeek(referenceDate));
+  const lockedBlock = createStudyBlock({
+    id: "stable-locked-diagnostic-core",
+    weekStart: weekStartKey,
+    date: dateKey,
+    start: createDateAtTime(referenceDate, "08:00").toISOString(),
+    end: createDateAtTime(referenceDate, "09:00").toISOString(),
+    subjectId: "maths-aa-hl",
+    topicId: topic.id,
+    estimatedMinutes: 60,
+    assignmentLocked: true,
+  });
+  const coreSyllabusPacingPlan = buildCoreSyllabusPacingPlan({
+    startDate: referenceDate,
+    topics: [topic],
+    capacityMinutesByDate: { [dateKey]: 60 },
+    targetDateKey: dateKey,
+  });
+  const result = generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: [goal],
+    subjects: [subject],
+    topics: [topic],
+    fixedEvents: [],
+    lockedBlocks: [lockedBlock],
+    existingPlannedBlocks: [lockedBlock],
+    preferences: {
+      ...dataset.preferences,
+      reservedCommitmentRules: [],
+      lockedRecoveryWindows: [],
+      schoolSchedule: {
+        ...dataset.preferences.schoolSchedule,
+        enabled: false,
+        terms: [],
+      },
+      holidaySchedule: {
+        ...dataset.preferences.holidaySchedule,
+        enabled: true,
+        dailyStudyWindow: { start: "08:00", end: "10:00" },
+      },
+    },
+    fillAvailableStudyDays: false,
+    coreSyllabusPacingPlan,
+  });
+
+  assert.equal(
+    result.weeklyPlan.corePacingAssignedMinutesBySubject?.["maths-aa-hl"],
+    60,
+  );
+});
+
+test("pacing rescue diagnostics follow the winning candidate admission reason", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const subject = dataset.subjects.find((candidate) => candidate.id === "maths-aa-hl");
+  const goal = dataset.goals.find((candidate) => candidate.subjectId === "maths-aa-hl");
+  const baseTopic = dataset.topics.find(
+    (candidate) =>
+      candidate.subjectId === "maths-aa-hl" && !candidate.unitId.includes("past-papers"),
+  );
+  assert.ok(subject);
+  assert.ok(goal);
+  assert.ok(baseTopic);
+  const topic = {
+    ...baseTopic,
+    id: "under-pace-shortfall-core",
+    unitId: "under-pace-shortfall-core-syllabus",
+    unitTitle: "Under-pace shortfall",
+    title: "Under-pace shortfall topic",
+    estHours: 4,
+    completedHours: 0,
+    status: "not_started" as const,
+    mastery: 0,
+    lastStudiedAt: null,
+    reviewDue: null,
+    availableFrom: null,
+    dependsOnTopicId: null,
+    minDaysAfterDependency: null,
+    maxDaysAfterDependency: null,
+    order: 1,
+  };
+  const dateKey = toDateKey(referenceDate);
+  const coreSyllabusPacingPlan = buildCoreSyllabusPacingPlan({
+    startDate: referenceDate,
+    topics: [topic],
+    capacityMinutesByDate: { [dateKey]: 60 },
+    targetDateKey: dateKey,
+  });
+  const preferences = {
+    ...dataset.preferences,
+    reservedCommitmentRules: [],
+    lockedRecoveryWindows: [],
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: false,
+      terms: [],
+    },
+    holidaySchedule: {
+      ...dataset.preferences.holidaySchedule,
+      enabled: true,
+      dailyStudyWindow: { start: "08:00", end: "09:00" },
+    },
+  };
+  const result = generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: [goal],
+    subjects: [subject],
+    topics: [topic],
+    fixedEvents: [],
+    preferences,
+    fillAvailableStudyDays: false,
+    coreSyllabusPacingPlan,
+  });
+
+  assert.ok(result.studyBlocks.some((block) => block.topicId === topic.id));
+  assert.equal(
+    result.weeklyPlan.pacingRescueReasonBySubject?.["maths-aa-hl"],
+    undefined,
+  );
+
+  const rescuePlan = buildCoreSyllabusPacingPlan({
+    startDate: referenceDate,
+    topics: [topic],
+    capacityMinutesByDate: {
+      [dateKey]: 60,
+      [toDateKey(addDays(referenceDate, 1))]: 0,
+    },
+    targetDateKey: toDateKey(addDays(referenceDate, 1)),
+  });
+  rescuePlan.targetMinutesByDate[dateKey] = { "maths-aa-hl": 0 };
+  const rescuedResult = generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: [goal],
+    subjects: [subject],
+    topics: [topic],
+    fixedEvents: [],
+    preferences,
+    fillAvailableStudyDays: false,
+    coreSyllabusPacingPlan: rescuePlan,
+  });
+
+  assert.ok(rescuedResult.studyBlocks.some((block) => block.topicId === topic.id));
+  assert.equal(
+    rescuedResult.weeklyPlan.pacingRescueReasonBySubject?.["maths-aa-hl"],
+    "projected_capacity_shortfall",
+  );
+});
+
+test("weekly pacing admission does not rescan horizon capacity per slot", () => {
+  const referenceDate = new Date("2026-03-23T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const subject = dataset.subjects.find((candidate) => candidate.id === "maths-aa-hl");
+  const goal = dataset.goals.find((candidate) => candidate.subjectId === "maths-aa-hl");
+  const baseTopic = dataset.topics.find(
+    (candidate) =>
+      candidate.subjectId === "maths-aa-hl" && !candidate.unitId.includes("past-papers"),
+  );
+  assert.ok(subject);
+  assert.ok(goal);
+  assert.ok(baseTopic);
+  const topic = {
+    ...baseTopic,
+    id: "suffix-capacity-core",
+    unitId: "suffix-capacity-core-syllabus",
+    unitTitle: "Suffix capacity",
+    title: "Suffix capacity topic",
+    estHours: 40,
+    completedHours: 0,
+    status: "not_started" as const,
+    mastery: 0,
+    lastStudiedAt: null,
+    reviewDue: null,
+    availableFrom: null,
+    dependsOnTopicId: null,
+    minDaysAfterDependency: null,
+    maxDaysAfterDependency: null,
+    order: 1,
+  };
+  const capacityMinutesByDate = Object.fromEntries(
+    Array.from({ length: 7 }, (_, offset) => [
+      toDateKey(addDays(referenceDate, offset)),
+      120,
+    ]),
+  );
+  const coreSyllabusPacingPlan = buildCoreSyllabusPacingPlan({
+    startDate: referenceDate,
+    topics: [topic],
+    capacityMinutesByDate,
+    targetDateKey: toDateKey(addDays(referenceDate, 6)),
+  });
+  let fullCapacityMapScans = 0;
+  coreSyllabusPacingPlan.capacityMinutesByDate = new Proxy(
+    coreSyllabusPacingPlan.capacityMinutesByDate,
+    {
+      ownKeys(target) {
+        fullCapacityMapScans += 1;
+        return Reflect.ownKeys(target);
+      },
+    },
+  );
+
+  generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: [goal],
+    subjects: [subject],
+    topics: [topic],
+    fixedEvents: [],
+    preferences: {
+      ...dataset.preferences,
+      reservedCommitmentRules: [],
+      lockedRecoveryWindows: [],
+      schoolSchedule: {
+        ...dataset.preferences.schoolSchedule,
+        enabled: false,
+        terms: [],
+      },
+      holidaySchedule: {
+        ...dataset.preferences.holidaySchedule,
+        enabled: true,
+        dailyStudyWindow: { start: "08:00", end: "10:00" },
+      },
+    },
+    fillAvailableStudyDays: false,
+    coreSyllabusPacingPlan,
+  });
+
+  assert.ok(
+    fullCapacityMapScans <= 1,
+    `expected a precomputed suffix lookup, observed ${fullCapacityMapScans} full scans`,
+  );
 });
 
 test("dependency-only capacity remains schedulable", () => {
