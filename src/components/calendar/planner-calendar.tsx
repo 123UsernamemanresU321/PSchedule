@@ -45,11 +45,8 @@ export function buildVisibleBreakEvents(options: {
   minBreakMinutes: number;
   blockedIntervals: Array<{ start: Date; end: Date }>;
 }) {
-  if (!Number.isFinite(options.minBreakMinutes) || options.minBreakMinutes <= 0) {
-    return [];
-  }
-
-  const maxVisibleBreakMinutes = Math.max(options.minBreakMinutes * 2, 45);
+  const canInferLegacyBreaks =
+    Number.isFinite(options.minBreakMinutes) && options.minBreakMinutes > 0;
   const blocks = options.studyBlocks
     .filter((block) => blockFallsInVisibleWeek(block, options.weekStart))
     .sort((left, right) => new Date(left.start).getTime() - new Date(right.start).getTime());
@@ -71,6 +68,11 @@ export function buildVisibleBreakEvents(options: {
       },
     };
   });
+  if (!canInferLegacyBreaks) {
+    return persistedBreakEvents;
+  }
+
+  const maxVisibleBreakMinutes = Math.max(options.minBreakMinutes * 2, 45);
   const legacyBlocks = blocks.filter((block) => !isPlannedStudyBreakBlock(block));
 
   const legacyBreakEvents = legacyBlocks.flatMap((block, index) => {
@@ -132,12 +134,53 @@ export function buildVisibleBreakEvents(options: {
         extendedProps: {
           kind: "break" as const,
           gapMinutes,
+          readOnly: true,
         },
       },
     ];
   });
 
-  return [...persistedBreakEvents, ...legacyBreakEvents];
+  return [...persistedBreakEvents, ...legacyBreakEvents].sort(
+    (left, right) =>
+      new Date(left.start).getTime() - new Date(right.start).getTime() ||
+      left.id.localeCompare(right.id),
+  );
+}
+
+export function buildCalendarStudyEvents(options: {
+  studyBlocks: StudyBlock[];
+  weekStart: string;
+  breaksEnabled: boolean;
+  minBreakMinutes: number;
+  blockedIntervals: Array<{ start: Date; end: Date }>;
+}) {
+  const breakEvents = buildVisibleBreakEvents({
+    studyBlocks: options.studyBlocks,
+    weekStart: options.weekStart,
+    minBreakMinutes: options.breaksEnabled ? options.minBreakMinutes : 0,
+    blockedIntervals: options.blockedIntervals,
+  });
+
+  return [
+    ...breakEvents,
+    ...options.studyBlocks
+      .filter(
+        (block) =>
+          blockFallsInVisibleWeek(block, options.weekStart) &&
+          !isPlannedStudyBreakBlock(block),
+      )
+      .map((block) => ({
+        id: block.id,
+        title: block.title,
+        start: new Date(block.start),
+        end: new Date(block.end),
+        allDay: false,
+        extendedProps: {
+          kind: "study" as const,
+          block,
+        },
+      })),
+  ];
 }
 
 function getStudyBlockStatusVariant(status: StudyBlock["status"]) {
@@ -383,14 +426,6 @@ export function PlannerCalendar({
       end: new Date(event.end),
     })),
   ];
-  const breakEvents = (preferences.breaksEnabled ?? false)
-    ? buildVisibleBreakEvents({
-        studyBlocks: activeStudyBlocks,
-        weekStart,
-        minBreakMinutes: preferences.minBreakMinutes,
-        blockedIntervals,
-      })
-    : [];
   const calendarEvents = [
     ...visibleRecoveryWindows.map((window) => ({
       id: `recovery:${window.id}`,
@@ -441,24 +476,13 @@ export function PlannerCalendar({
         commitment,
       },
     })),
-    ...breakEvents,
-    ...activeStudyBlocks
-      .filter(
-        (block) =>
-          blockFallsInVisibleWeek(block, weekStart) &&
-          !isPlannedStudyBreakBlock(block),
-      )
-      .map((block) => ({
-        id: block.id,
-        title: block.title,
-        start: new Date(block.start),
-        end: new Date(block.end),
-        allDay: false,
-        extendedProps: {
-          kind: "study" as const,
-          block,
-        },
-      })),
+    ...buildCalendarStudyEvents({
+      studyBlocks: activeStudyBlocks,
+      weekStart,
+      breaksEnabled: preferences.breaksEnabled ?? false,
+      minBreakMinutes: preferences.minBreakMinutes,
+      blockedIntervals,
+    }),
   ];
 
   return (
