@@ -65,10 +65,6 @@ const PLANNING_SYNC_SUBJECT_IDS: SubjectId[] = [
   "geography-transition",
 ];
 
-export const plannerGenerationBoundary = {
-  generateStudyPlanHorizon,
-};
-
 function normalizeLockedRecoveryWindows(
   preferences: Partial<Preferences> | null | undefined,
   seedPreferences: Preferences,
@@ -1257,7 +1253,7 @@ async function refreshPlanningModel(snapshot: PlannerSnapshot, referenceDate: Da
   const syncedSnapshot = await syncPlanningSubjectsToCurrentSeed(snapshot, referenceDate);
   const preservedStudyBlockIds = collectActiveStudyBlockIds(syncedSnapshot.studyBlocks, referenceDate);
   const repairState = getCollapsedCoverageRepairState(syncedSnapshot, referenceDate);
-  const replanned = plannerGenerationBoundary.generateStudyPlanHorizon({
+  const replanned = generateStudyPlanHorizon({
     startWeek: weekStart,
     referenceDate,
     goals: syncedSnapshot.goals,
@@ -1312,7 +1308,7 @@ export async function regeneratePlanningHorizon(referenceDate = new Date()) {
   repairState = getCollapsedCoverageRepairState(syncedSnapshot, referenceDate);
   const weekStart = startOfPlannerWeek(referenceDate);
   const weekStartKey = toDateKey(weekStart);
-  const repaired = plannerGenerationBoundary.generateStudyPlanHorizon({
+  const repaired = generateStudyPlanHorizon({
     startWeek: weekStart,
     referenceDate,
     goals: syncedSnapshot.goals,
@@ -2224,7 +2220,20 @@ export async function markPlanningHorizonReady(referenceDate = new Date()) {
   });
 }
 
-export async function initializePlannerDatabase(referenceDate = new Date()) {
+interface PlannerRepositoryInitializationDependencies {
+  generateStudyPlanHorizon: typeof generateStudyPlanHorizon;
+}
+
+const plannerRepositoryInitializationDependencies = Object.freeze({
+  generateStudyPlanHorizon,
+});
+
+async function initializePlannerDatabaseWithDependencies(
+  referenceDate: Date,
+  dependencies: PlannerRepositoryInitializationDependencies,
+) {
+  // Initialization owns the dependency but intentionally never crosses generation.
+  void dependencies.generateStudyPlanHorizon;
   const seeded = await db.meta.get("seeded");
   if (!seeded) {
     const seedDataset = buildSeedDataset(referenceDate);
@@ -2241,6 +2250,20 @@ export async function initializePlannerDatabase(referenceDate = new Date()) {
   snapshot = await syncLanguageMaintenanceSubjects(snapshot, referenceDate);
   await syncSeedOrderedSubjects(snapshot, referenceDate);
   return loadPlannerSnapshot();
+}
+
+export function createPlannerRepositoryInitializationForTesting(
+  dependencies: PlannerRepositoryInitializationDependencies,
+) {
+  return (referenceDate = new Date()) =>
+    initializePlannerDatabaseWithDependencies(referenceDate, dependencies);
+}
+
+export async function initializePlannerDatabase(referenceDate = new Date()) {
+  return initializePlannerDatabaseWithDependencies(
+    referenceDate,
+    plannerRepositoryInitializationDependencies,
+  );
 }
 
 export async function replaceWeeklyPlan(studyBlocks: StudyBlock[], weeklyPlan: WeeklyPlan) {
