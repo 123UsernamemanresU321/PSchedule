@@ -4,12 +4,7 @@ const OLYMPIAD_NUMBER_THEORY_GROUP = "olympiad-nt";
 const EPSILON_MINUTES = 1;
 
 function isCoverageBlock(block: StudyBlock) {
-  return (
-    block.status === "planned" ||
-    block.status === "rescheduled" ||
-    block.status === "done" ||
-    block.status === "partial"
-  );
+  return block.status === "planned" || block.status === "rescheduled";
 }
 
 function coveredMinutesForTopic(topic: Topic, blocks: StudyBlock[], cutoff?: Date) {
@@ -26,9 +21,12 @@ function requiredMinutesForTopic(topic: Topic) {
   return Math.max(Math.round(topic.estHours * 60), 0);
 }
 
-function latestCoverageEndForTopic(topic: Topic, blocks: StudyBlock[]) {
+function latestCoverageEndForTopic(topic: Topic, blocks: StudyBlock[], cutoff?: Date) {
+  const cutoffTime = cutoff?.getTime() ?? null;
+
   return blocks
     .filter((block) => block.topicId === topic.id && isCoverageBlock(block))
+    .filter((block) => cutoffTime == null || new Date(block.end).getTime() <= cutoffTime)
     .map((block) => new Date(block.end))
     .filter((date) => !Number.isNaN(date.getTime()))
     .sort((left, right) => right.getTime() - left.getTime())[0] ?? null;
@@ -117,13 +115,13 @@ export function getOlympiadNumberTheoryFrontierStatus(_options: {
     .sort((left, right) => left.order - right.order);
   const frontier = foundationTopics.find(
     (topic) =>
-      coveredMinutesForTopic(topic, _options.blocks) <
+      coveredMinutesForTopic(topic, _options.blocks, _options.cutoff) <
       requiredMinutesForTopic(topic) - EPSILON_MINUTES,
   );
 
   if (!frontier) {
     const latestFoundationEnd = foundationTopics
-      .map((topic) => latestCoverageEndForTopic(topic, _options.blocks))
+      .map((topic) => latestCoverageEndForTopic(topic, _options.blocks, _options.cutoff))
       .filter((date): date is Date => !!date)
       .sort((left, right) => right.getTime() - left.getTime())[0] ?? null;
 
@@ -139,11 +137,11 @@ export function getOlympiadNumberTheoryFrontierStatus(_options: {
     frontierTopicId: frontier.id,
     remainingMinutes: Math.max(
       requiredMinutesForTopic(frontier) -
-        coveredMinutesForTopic(frontier, _options.blocks),
+        coveredMinutesForTopic(frontier, _options.blocks, _options.cutoff),
       0,
     ),
-    blocked: false,
-    availableAt: latestCoverageEndForTopic(frontier, _options.blocks),
+    blocked: true,
+    availableAt: latestCoverageEndForTopic(frontier, _options.blocks, _options.cutoff),
   };
 }
 
@@ -182,7 +180,7 @@ export function getOlympiadNumberTheoryEligibilityStatus(options: {
 
   if (frontierStatus.frontierTopicId && !isCurrentFrontier) {
     return {
-      blocked: false,
+      blocked: true,
       availableAt: frontierStatus.availableAt,
       frontierTopicId: frontierStatus.frontierTopicId,
       remainingMinutes: frontierStatus.remainingMinutes,
@@ -191,7 +189,7 @@ export function getOlympiadNumberTheoryEligibilityStatus(options: {
 
   if (topicStage !== "foundation" && frontierStatus.frontierTopicId) {
     return {
-      blocked: false,
+      blocked: true,
       availableAt: frontierStatus.availableAt,
       frontierTopicId: frontierStatus.frontierTopicId,
       remainingMinutes: frontierStatus.remainingMinutes,
@@ -244,17 +242,17 @@ export function getOlympiadStageGateStatus(options: {
   const missingTopicIds = foundationTopics
     .filter(
       (topic) =>
-        coveredMinutesForTopic(topic, options.blocks) <
+        coveredMinutesForTopic(topic, options.blocks, options.cutoff) <
         requiredMinutesForTopic(topic) - EPSILON_MINUTES,
     )
     .map((topic) => topic.id);
   const latestFoundationEnd = foundationTopics
-    .map((topic) => latestCoverageEndForTopic(topic, options.blocks))
+    .map((topic) => latestCoverageEndForTopic(topic, options.blocks, options.cutoff))
     .filter((date): date is Date => !!date)
     .sort((left, right) => right.getTime() - left.getTime())[0] ?? null;
 
   return {
-    blocked: false,
+    blocked: missingTopicIds.length > 0,
     availableAt: missingTopicIds.length > 0 ? null : latestFoundationEnd,
     foundationTopicIds: foundationTopics.map((topic) => topic.id),
     missingTopicIds,

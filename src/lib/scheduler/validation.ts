@@ -10,7 +10,8 @@ import {
   getOlympiadNumberTheoryEligibilityStatus,
   getOlympiadStageGateStatus,
 } from "@/lib/scheduler/olympiad-stage-gates";
-import { startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
+import { buildTaskCandidates } from "@/lib/scheduler/task-candidates";
+import { fromDateKey, startOfPlannerWeek, toDateKey } from "@/lib/dates/helpers";
 import type { FixedEvent, Preferences, SickDay, StudyBlock, Topic, WeeklyPlan } from "@/lib/types/planner";
 
 export interface PlannerValidationIssue {
@@ -422,6 +423,23 @@ export function validateGeneratedHorizon(options: {
     }
 
     if (olympiadWeekStarts.has(plan.weekStart)) {
+      return;
+    }
+
+    const weekStart = fromDateKey(plan.weekStart);
+    const blocksBeforeWeek = options.studyBlocks.filter(
+      (block) => new Date(block.end).getTime() <= weekStart.getTime(),
+    );
+    const hasEligibleOlympiadTask = buildTaskCandidates({
+      topics: options.topics,
+      existingPlannedBlocks: blocksBeforeWeek,
+      referenceDate: weekStart,
+      coverageReferenceDate: referenceDate ?? weekStart,
+      subjectDeadlinesById: {},
+      goals: [],
+    }).some((candidate) => candidate.subjectId === "olympiad");
+
+    if (!hasEligibleOlympiadTask) {
       return;
     }
 

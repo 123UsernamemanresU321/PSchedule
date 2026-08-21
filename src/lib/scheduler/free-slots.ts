@@ -745,6 +745,7 @@ function resolveReservedCommitmentStart(options: {
   day: Date;
   preferences: Preferences;
   rule: Preferences["reservedCommitmentRules"][number];
+  durationMinutes: number;
   inSchoolTerm: boolean;
   priorCommitmentIntervals: Array<TimeInterval & { ruleId: string }>;
   hardBusyIntervals: TimeInterval[];
@@ -772,11 +773,12 @@ function resolveReservedCommitmentStart(options: {
       .sort((left, right) => right.end.getTime() - left.end.getTime())[0]?.end;
 
     if (latestHomeworkEnd) {
-      const hardBoundaryBetweenHomeworkAndPiano = options.hardBusyIntervals.some(
-        (interval) => latestHomeworkEnd < interval.end && preferredStart > interval.start,
+      const immediatePianoEnd = addMinutes(latestHomeworkEnd, options.durationMinutes);
+      const hardBoundaryDuringImmediatePiano = options.hardBusyIntervals.some(
+        (interval) => latestHomeworkEnd < interval.end && immediatePianoEnd > interval.start,
       );
 
-      if (!hardBoundaryBetweenHomeworkAndPiano) {
+      if (!hardBoundaryDuringImmediatePiano) {
         return latestHomeworkEnd;
       }
     }
@@ -1095,7 +1097,9 @@ export function expandReservedCommitmentWindowsForWeek(
       blockedStudyBlocks: [],
       skipMovableRecovery: false,
       eventIntervals: dayFixedEventIntervals,
-    }).map((window) => createInterval(window.start, window.end));
+    })
+      .filter((window) => !window.movable)
+      .map((window) => createInterval(window.start, window.end));
     const resolvedIntervals: Array<TimeInterval & { ruleId: string }> = [];
     const prioritizedRules = preferences.reservedCommitmentRules
       .filter((rule) => rule.id !== FRENCH_TUNE_UP_RULE_ID)
@@ -1146,6 +1150,7 @@ export function expandReservedCommitmentWindowsForWeek(
         day,
         preferences,
         rule,
+        durationMinutes,
         inSchoolTerm,
         priorCommitmentIntervals: resolvedIntervals,
         hardBusyIntervals,

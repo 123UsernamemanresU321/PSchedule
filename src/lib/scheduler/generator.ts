@@ -3905,7 +3905,7 @@ function allocateTasksToSlots(options: {
       });
     }
 
-    if (templateOnlyOptions.length === 0 && activeTemplateRequirement?.exactTopicId) {
+    if (templateOnlyOptions.length === 0 && activeTemplateRequirement) {
       taskPool = getRefreshedWorkingTasks(
         [activeTemplateRequirement.subjectId],
         taskPool,
@@ -3913,12 +3913,16 @@ function allocateTasksToSlots(options: {
       templateOnlyOptions = buildScoredOptionsForSlot({
         slot: slotSlice,
         allowWeeklyTargetOverride: true,
-        bypassCorePacingPriority: false,
+        bypassCorePacingPriority: isOlympiadContinuityPacingOverride(
+          activeTemplateRequirement,
+        ),
         restrictedSubjectIds: [activeTemplateRequirement.subjectId],
-        restrictedTopicIds: [activeTemplateRequirement.exactTopicId],
+        restrictedTopicIds: activeTemplateRequirement.exactTopicId
+          ? [activeTemplateRequirement.exactTopicId]
+          : undefined,
         requiredStudyLayers: activeTemplateRequirement.studyLayers,
         requiredTaskConstraint: activeTemplateRequirement.taskConstraint,
-        requiredExactTopicId: activeTemplateRequirement.exactTopicId,
+        requiredExactTopicId: activeTemplateRequirement.exactTopicId ?? undefined,
         mustFillEndOfDaySlot,
         strongFocusDemand: true,
         taskPool,
@@ -4708,15 +4712,10 @@ function generateStudyPlanForWeekWithDependencies(
       ...(options.availabilityOverrideSubjectIds ?? []),
     ]),
   ) as Subject["id"][];
-  const focusedAvailabilityOverrideSubjectIds = new Set(Object.values(focusedSubjectsByDate).flat());
   const hasCoverageRescueOlympiadPullForward = coverageRescueSubjectIds.includes("olympiad");
   const availabilityPullForwardCutoff = (() => {
     if (hasCoverageRescueOlympiadPullForward) {
       return null;
-    }
-
-    if (focusedAvailabilityOverrideSubjectIds.size > 0) {
-      return addDays(endOfPlannerWeek(weekStart), 7);
     }
 
     return addDays(endOfPlannerWeek(weekStart), OLYMPIAD_ROADMAP_PULL_FORWARD_DAYS);
