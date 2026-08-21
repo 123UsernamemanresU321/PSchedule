@@ -20,12 +20,28 @@ export type CoreSyllabusAssignedMinutesByDate = Record<
   Record<string, number>
 >;
 
+export interface CoreSyllabusCreditLedger {
+  assignedMinutesByDate: CoreSyllabusAssignedMinutesByDate;
+  creditedMinutesByTopic: Record<string, number>;
+}
+
 export interface CorePacingCandidatePriority {
   id: string;
   pacingDeficitMinutes: number;
   lastSubjectStudyTimestamp: number | null;
   aheadOfPacePriorityTier: number;
   score: number;
+}
+
+function getCoreSyllabusTopicPacingMinutes(topic: Topic) {
+  const remainingMinutes = Math.max(
+    0,
+    Math.round((topic.estHours - topic.completedHours) * 60),
+  );
+
+  return remainingMinutes > 0
+    ? Math.ceil(remainingMinutes / 30) * 30
+    : 0;
 }
 
 export function buildCoreSyllabusPacingPlan(options: {
@@ -43,10 +59,7 @@ export function buildCoreSyllabusPacingPlan(options: {
       continue;
     }
 
-    const remainingMinutes = Math.max(
-      0,
-      Math.round((topic.estHours - topic.completedHours) * 60),
-    );
+    const remainingMinutes = getCoreSyllabusTopicPacingMinutes(topic);
     totalMinutesBySubject[topic.subjectId] =
       (totalMinutesBySubject[topic.subjectId] ?? 0) + remainingMinutes;
   }
@@ -137,14 +150,21 @@ export function getCoreSyllabusPacingDeficitMinutes(
   );
 }
 
-export function buildCoreSyllabusAssignedMinutesByDate(options: {
+export function buildCoreSyllabusCreditLedger(options: {
   plan: CoreSyllabusPacingPlan;
   topics: Topic[];
   blocks: StudyBlock[];
-}): CoreSyllabusAssignedMinutesByDate {
+}): CoreSyllabusCreditLedger {
   const topicById = new Map(options.topics.map((topic) => [topic.id, topic]));
-  const uniqueBlocks = new Map(options.blocks.map((block) => [block.id, block])).values();
+  const uniqueBlocks = Array.from(
+    new Map(options.blocks.map((block) => [block.id, block])).values(),
+  ).sort(
+    (left, right) =>
+      new Date(left.start).getTime() - new Date(right.start).getTime() ||
+      left.id.localeCompare(right.id),
+  );
   const assignedMinutesByDate: CoreSyllabusAssignedMinutesByDate = {};
+  const creditedMinutesByTopic: Record<string, number> = {};
 
   for (const block of uniqueBlocks) {
     if (
@@ -159,15 +179,37 @@ export function buildCoreSyllabusAssignedMinutesByDate(options: {
       continue;
     }
 
+    const topicRemainingMinutes = getCoreSyllabusTopicPacingMinutes(topic);
+    const creditedMinutes = Math.min(
+      block.estimatedMinutes,
+      Math.max(
+        0,
+        topicRemainingMinutes - (creditedMinutesByTopic[topic.id] ?? 0),
+      ),
+    );
+    if (creditedMinutes <= 0) {
+      continue;
+    }
+
     assignedMinutesByDate[block.date] = {
       ...(assignedMinutesByDate[block.date] ?? {}),
       [topic.subjectId]:
         (assignedMinutesByDate[block.date]?.[topic.subjectId] ?? 0) +
-        block.estimatedMinutes,
+        creditedMinutes,
     };
+    creditedMinutesByTopic[topic.id] =
+      (creditedMinutesByTopic[topic.id] ?? 0) + creditedMinutes;
   }
 
-  return assignedMinutesByDate;
+  return { assignedMinutesByDate, creditedMinutesByTopic };
+}
+
+export function buildCoreSyllabusAssignedMinutesByDate(options: {
+  plan: CoreSyllabusPacingPlan;
+  topics: Topic[];
+  blocks: StudyBlock[];
+}): CoreSyllabusAssignedMinutesByDate {
+  return buildCoreSyllabusCreditLedger(options).assignedMinutesByDate;
 }
 
 export function getCumulativeCoreSyllabusAssignedMinutes(

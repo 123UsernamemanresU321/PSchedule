@@ -27,7 +27,7 @@ export interface SchoolTermTemplateRequirement {
   minimumMinutes: number;
   exactTopicId?: string | null;
   allowOverflowDayCap?: boolean;
-  taskConstraint?: "olympiad-bplus-content";
+  taskConstraint?: "olympiad-bplus-content" | "cpp-content-continuity";
 }
 
 export interface SchoolTermWeekTemplate {
@@ -71,6 +71,28 @@ export function isOlympiadContinuityPacingOverride(
     requirement.minimumMinutes === 30 &&
     !requirement.exactTopicId &&
     requirement.taskConstraint === "olympiad-bplus-content"
+  );
+}
+
+export function isCppContinuityPacingOverride(
+  requirement: Pick<
+    SchoolTermTemplateRequirement,
+    | "id"
+    | "subjectId"
+    | "studyLayers"
+    | "minimumMinutes"
+    | "exactTopicId"
+    | "taskConstraint"
+  >,
+) {
+  return (
+    /-cpp-continuity$/.test(requirement.id) &&
+    requirement.subjectId === "cpp-book" &&
+    requirement.studyLayers.length === 1 &&
+    requirement.studyLayers[0] === "learning" &&
+    requirement.minimumMinutes === 30 &&
+    !requirement.exactTopicId &&
+    requirement.taskConstraint === "cpp-content-continuity"
   );
 }
 
@@ -212,6 +234,17 @@ export function buildSchoolTermWeekTemplate(options: {
         taskConstraint: "olympiad-bplus-content",
       });
     });
+
+    if (continuityDateKeys.length > 0) {
+      requirements.push({
+        id: `${toDateKey(weekStart)}-cpp-continuity`,
+        allowedDateKeys: continuityDateKeys,
+        subjectId: "cpp-book",
+        studyLayers: ["learning"],
+        minimumMinutes: 30,
+        taskConstraint: "cpp-content-continuity",
+      });
+    }
   }
 
   if (!inTermDays.length) {

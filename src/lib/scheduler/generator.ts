@@ -33,6 +33,7 @@ import {
   buildSchoolTermWeekTemplate,
   CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY,
   IB_ANCHOR_SUBJECT_IDS,
+  isCppContinuityPacingOverride,
   isCoreHlSyllabusTopic,
   isOlympiadContinuityPacingOverride,
   shouldSuppressPacingTemplateRequirement,
@@ -40,6 +41,7 @@ import {
 import {
   buildCoreSyllabusPacingPlan,
   buildCoreSyllabusAssignedMinutesByDate,
+  buildCoreSyllabusCreditLedger,
   compareCorePacingCandidatePriority,
   CORE_HL_PACING_TARGET_DATE_KEY,
   getAheadOfPaceCandidatePriorityTier,
@@ -103,6 +105,7 @@ const FOCUS_STRICT_TOLERANCE_MINUTES = 10;
 const MAX_HORIZON_EXTENSION_WEEKS = 104;
 const MAX_CHAIN_UNLOCK_CLEANUP_PASSES = 64;
 const CORE_HL_PACING_SAFETY_BUFFER_START_DATE_KEY = "2026-10-18";
+const CORE_HL_FRONTIER_SAFETY_RESERVE_MINUTES = 360;
 const OLYMPIAD_ROADMAP_PULL_FORWARD_DAYS = 21;
 const OLYMPIAD_WEEKLY_CONTINUITY_BONUS = 1100;
 const OLYMPIAD_SCHOOL_TERM_CONTINUITY_BONUS = 1080;
@@ -1478,6 +1481,7 @@ function calculateFreeSlotCapacityForWeek(options: {
   planningStart: Date;
   effectiveReservedCommitmentDurations: EffectiveReservedCommitmentDuration[];
   schedulingContext?: SchedulingRunContext;
+  capacityEndDateKey?: string;
 }) {
   return sumFreeSlotMinutes(
     calculateFreeSlots({
@@ -1489,7 +1493,10 @@ function calculateFreeSlotCapacityForWeek(options: {
       planningStart: options.planningStart,
       effectiveReservedCommitmentDurations: options.effectiveReservedCommitmentDurations,
       schedulingContext: options.schedulingContext,
-    }),
+    }).filter(
+      (slot) =>
+        !options.capacityEndDateKey || slot.dateKey <= options.capacityEndDateKey,
+    ),
   );
 }
 
@@ -1503,6 +1510,7 @@ function chooseBestSoftCommitmentReduction(options: {
   blockedStudyBlocks: StudyBlock[];
   planningStart: Date;
   schedulingContext?: SchedulingRunContext;
+  capacityEndDateKey?: string;
 }):
   | {
       reducedDurations: EffectiveReservedCommitmentDuration[];
@@ -1511,7 +1519,10 @@ function chooseBestSoftCommitmentReduction(options: {
     }
   | null {
   const reducibleDurations = options.currentDurations.filter(
-    (entry) => entry.ruleId === options.ruleId && entry.durationMinutes >= SOFT_COMMITMENT_REDUCTION_STEP_MINUTES,
+    (entry) =>
+      entry.ruleId === options.ruleId &&
+      entry.durationMinutes >= SOFT_COMMITMENT_REDUCTION_STEP_MINUTES &&
+      (!options.capacityEndDateKey || entry.dateKey <= options.capacityEndDateKey),
   );
 
   if (!reducibleDurations.length) {
@@ -1535,6 +1546,7 @@ function chooseBestSoftCommitmentReduction(options: {
       planningStart: options.planningStart,
       effectiveReservedCommitmentDurations: reducedDurations,
       schedulingContext: options.schedulingContext,
+      capacityEndDateKey: options.capacityEndDateKey,
     });
 
     if (
@@ -1662,6 +1674,50 @@ function calculateSoftCommitmentTargetCapacityMinutes(options: {
   );
 }
 
+function calculateCorePacingWeekDemandMinutes(options: {
+  currentWeek: Date;
+  plan?: CoreSyllabusPacingPlan;
+  topics: Topic[];
+  existingPlannedBlocks: StudyBlock[];
+}) {
+  if (
+    !options.plan ||
+    toDateKey(options.currentWeek) > CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY
+  ) {
+    return 0;
+  }
+
+  const weekEndKey = toDateKey(addDays(options.currentWeek, 6));
+  const targetDateKey = Object.keys(options.plan.targetMinutesByDate)
+    .filter((dateKey) => dateKey <= weekEndKey)
+    .sort((left, right) => right.localeCompare(left))[0];
+  if (!targetDateKey) {
+    return 0;
+  }
+
+  const assignedMinutesByDate = buildCoreSyllabusAssignedMinutesByDate({
+    plan: options.plan,
+    topics: options.topics,
+    blocks: options.existingPlannedBlocks,
+  });
+
+  return Math.round(
+    sum(
+      IB_ANCHOR_SUBJECT_IDS.map((subjectId) =>
+        Math.max(
+          0,
+          (options.plan!.targetMinutesByDate[targetDateKey]?.[subjectId] ?? 0) -
+            getCumulativeCoreSyllabusAssignedMinutes(
+              assignedMinutesByDate,
+              subjectId,
+              weekEndKey,
+            ),
+        ),
+      ),
+    ),
+  );
+}
+
 function getDailyAnchorSubjectId(dateKey: string) {
   const day = new Date(`${dateKey}T12:00:00`);
   const dayIndex = day.getDay();
@@ -1743,6 +1799,7 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
   subjectDeadlinesById: Record<string, string>;
   availabilityOverrideSubjectIds?: Subject["id"][];
   schedulingContext?: SchedulingRunContext;
+  coreSyllabusPacingPlan?: CoreSyllabusPacingPlan;
 }) {
   const referenceDate = getPlannerReferenceDate(options.currentWeek, options.horizonStartDate);
   const baseDurations = buildBaseReservedCommitmentDurationsForWeek({
@@ -1766,8 +1823,17 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
   const remainingTaskMinutes = Math.round(
     sum(remainingTasks.map((task) => task.remainingMinutes)),
   );
+  const corePacingWeekDemandMinutes = calculateCorePacingWeekDemandMinutes({
+    currentWeek: options.currentWeek,
+    plan: options.coreSyllabusPacingPlan,
+    topics: options.topics,
+    existingPlannedBlocks: options.existingPlannedBlocks,
+  });
 
-  if (!baseDurations.length || remainingTaskMinutes <= 0) {
+  if (
+    !baseDurations.length ||
+    (remainingTaskMinutes <= 0 && corePacingWeekDemandMinutes <= 0)
+  ) {
     return {
       effectiveReservedCommitmentDurations: baseDurations,
       excludedReservedCommitmentRuleIds: deriveExcludedReservedCommitmentRuleIds({
@@ -1803,7 +1869,7 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
   const blockedStudyBlocks = (options.lockedBlocks ?? []).filter((block) =>
     isSchedulableStudyBlockStatus(block.status),
   );
-  const targetCapacityMinutes = calculateSoftCommitmentTargetCapacityMinutes({
+  const baseTargetCapacityMinutes = calculateSoftCommitmentTargetCapacityMinutes({
     currentWeek: options.currentWeek,
     referenceDate,
     fixedEvents: options.fixedEvents,
@@ -1816,6 +1882,29 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
     baseDurations,
     schedulingContext: options.schedulingContext,
   });
+  const continuityReserveMinutes =
+    corePacingWeekDemandMinutes > 0 &&
+    toDateKey(options.currentWeek) <= CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY
+      ? 90
+      : 0;
+  const dependencyFrontierReserveMinutes =
+    corePacingWeekDemandMinutes > 0 &&
+    toDateKey(addDays(options.currentWeek, 6)) >=
+      CORE_HL_PACING_SAFETY_BUFFER_START_DATE_KEY &&
+    toDateKey(options.currentWeek) <= CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY
+      ? CORE_HL_FRONTIER_SAFETY_RESERVE_MINUTES
+      : 0;
+  const corePacingCapacityEndDateKey =
+    corePacingWeekDemandMinutes > 0
+      ? [
+          toDateKey(addDays(options.currentWeek, 6)),
+          CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY,
+        ].sort((left, right) => left.localeCompare(right))[0]
+      : undefined;
+  let targetCapacityMinutes = Math.max(
+    baseTargetCapacityMinutes,
+    corePacingWeekDemandMinutes + continuityReserveMinutes,
+  );
   let currentDurations = baseDurations;
   const reducedRuleIds = new Set<string>();
   let fallbackTierUsed = 0;
@@ -1828,7 +1917,14 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
     planningStart: referenceDate,
     effectiveReservedCommitmentDurations: currentDurations,
     schedulingContext: options.schedulingContext,
+    capacityEndDateKey: corePacingCapacityEndDateKey,
   });
+  if (dependencyFrontierReserveMinutes > 0) {
+    targetCapacityMinutes = Math.max(
+      targetCapacityMinutes,
+      capacityMinutes + dependencyFrontierReserveMinutes,
+    );
+  }
 
   while (capacityMinutes + MIN_ALLOCATABLE_MINUTES < targetCapacityMinutes) {
     let reduced = false;
@@ -1844,6 +1940,7 @@ export function selectEffectiveReservedCommitmentPlanForWeek(options: {
         blockedStudyBlocks,
         planningStart: referenceDate,
         schedulingContext: options.schedulingContext,
+        capacityEndDateKey: corePacingCapacityEndDateKey,
       });
 
       if (!candidate) {
@@ -2135,6 +2232,15 @@ function allocateTasksToSlots(options: {
     return toDateKey(startOfPlannerWeek(new Date(`${dateKey}T12:00:00`)));
   }
 
+  function hasAllocatableTaskMinutes(task: TaskCandidate) {
+    return (
+      task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES ||
+      (!!task.subjectId &&
+        REAL_COVERAGE_SUBJECT_ID_SET.has(task.subjectId) &&
+        task.remainingMinutes > 0)
+    );
+  }
+
   function hasPendingTaskForSubject(
     subjectId: Subject["id"],
     taskPool: TaskCandidate[] = workingTasks,
@@ -2142,7 +2248,7 @@ function allocateTasksToSlots(options: {
     return taskPool.some(
       (task) =>
         task.subjectId === subjectId &&
-        task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
+        hasAllocatableTaskMinutes(task),
     );
   }
 
@@ -2154,7 +2260,7 @@ function allocateTasksToSlots(options: {
     return taskPool.some(
       (task) =>
         task.subjectId === subjectId &&
-        task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES &&
+        hasAllocatableTaskMinutes(task) &&
         (!task.availableAt || new Date(task.availableAt) <= slotStart) &&
         isTaskDependencySatisfied(task, slotStart),
     );
@@ -2168,7 +2274,7 @@ function allocateTasksToSlots(options: {
       (task) =>
         !!task.subjectId &&
         REAL_COVERAGE_SUBJECT_ID_SET.has(task.subjectId) &&
-        task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES &&
+        hasAllocatableTaskMinutes(task) &&
         (!task.availableAt || new Date(task.availableAt) <= slotStart) &&
         isTaskDependencySatisfied(task, slotStart),
     );
@@ -2261,7 +2367,7 @@ function allocateTasksToSlots(options: {
 
   function allWeeklyTargetsSatisfied() {
     if (options.fillAvailableStudyDays) {
-      return workingTasks.every((task) => task.remainingMinutes < MIN_ALLOCATABLE_MINUTES);
+      return workingTasks.every((task) => !hasAllocatableTaskMinutes(task));
     }
 
     return Object.entries(requiredMinutesBySubject)
@@ -2483,13 +2589,21 @@ function allocateTasksToSlots(options: {
       ]),
     ).values(),
   );
-  const corePacingAssignedMinutesByDate = options.coreSyllabusPacingPlan
-    ? buildCoreSyllabusAssignedMinutesByDate({
+  const coreSyllabusCreditLedger = options.coreSyllabusPacingPlan
+    ? buildCoreSyllabusCreditLedger({
         plan: options.coreSyllabusPacingPlan,
         topics: options.topics,
         blocks: uniquePriorAndLockedBlocks,
       })
-    : {};
+    : {
+        assignedMinutesByDate: {},
+        creditedMinutesByTopic: {},
+      };
+  const corePacingAssignedMinutesByDate =
+    coreSyllabusCreditLedger.assignedMinutesByDate;
+  const corePacingCreditedMinutesByTopic = new Map(
+    Object.entries(coreSyllabusCreditLedger.creditedMinutesByTopic),
+  );
   const allocationIndexes = buildWeeklyAllocationIndexes({
     studyBlocks: uniquePriorAndLockedBlocks,
     assignedMinutesByDate: corePacingAssignedMinutesByDate,
@@ -2521,6 +2635,31 @@ function allocateTasksToSlots(options: {
       return;
     }
 
+    const topicRemainingMinutes =
+      options.coreSyllabusPacingPlan?.totalMinutesBySubject[topic.subjectId] != null
+        ? Math.ceil(
+            Math.max(
+              0,
+              Math.round((topic.estHours - topic.completedHours) * 60),
+            ) / MIN_ALLOCATABLE_MINUTES,
+          ) * MIN_ALLOCATABLE_MINUTES
+        : 0;
+    const creditedMinutes = Math.min(
+      optionsForBlock.minutes,
+      Math.max(
+        0,
+        topicRemainingMinutes -
+          (corePacingCreditedMinutesByTopic.get(topic.id) ?? 0),
+      ),
+    );
+    if (creditedMinutes <= 0) {
+      return;
+    }
+    corePacingCreditedMinutesByTopic.set(
+      topic.id,
+      (corePacingCreditedMinutesByTopic.get(topic.id) ?? 0) + creditedMinutes,
+    );
+
     const subjectId = topic.subjectId as (typeof IB_ANCHOR_SUBJECT_IDS)[number];
     if (
       options.coreSyllabusPacingPlan &&
@@ -2530,12 +2669,12 @@ function allocateTasksToSlots(options: {
         ...(corePacingAssignedMinutesByDate[optionsForBlock.dateKey] ?? {}),
         [subjectId]:
           (corePacingAssignedMinutesByDate[optionsForBlock.dateKey]?.[subjectId] ?? 0) +
-          optionsForBlock.minutes,
+          creditedMinutes,
       };
       allocationIndexes.recordAssignedMinutes(
         subjectId,
         optionsForBlock.dateKey,
-        optionsForBlock.minutes,
+        creditedMinutes,
       );
     }
 
@@ -2576,6 +2715,13 @@ function allocateTasksToSlots(options: {
 
     if (requirement.exactTopicId && block.topicId !== requirement.exactTopicId) {
       return false;
+    }
+
+    if (
+      isOlympiadContinuityPacingOverride(requirement) &&
+      block.studyLayer === "exam_sim"
+    ) {
+      return true;
     }
 
     return !!block.studyLayer && requirement.studyLayers.includes(block.studyLayer);
@@ -2679,7 +2825,7 @@ function allocateTasksToSlots(options: {
       }
 
       candidate.remainingMinutes = Math.max(0, candidate.remainingMinutes - durationMinutes);
-      if (candidate.remainingMinutes >= MIN_ALLOCATABLE_MINUTES) {
+      if (hasAllocatableTaskMinutes(candidate)) {
         topicStillOpen = true;
       }
     });
@@ -2720,7 +2866,6 @@ function allocateTasksToSlots(options: {
       task.kind === "topic" &&
       task.studyLayer === "learning" &&
       task.sessionMode !== "exam" &&
-      !!task.olympiadStrand &&
       !task.followUpKind
     );
   }
@@ -2800,7 +2945,7 @@ function allocateTasksToSlots(options: {
 
     return taskPool.some(
       (task) =>
-        task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES &&
+        hasAllocatableTaskMinutes(task) &&
         isCoreHlSyllabusTask(task) &&
         (!task.availableAt || new Date(task.availableAt) <= slotStart) &&
         isTaskDependencySatisfied(task, slotStart),
@@ -2814,6 +2959,15 @@ function allocateTasksToSlots(options: {
   ) {
     if (!options.coreSyllabusPacingPlan) {
       return [];
+    }
+
+    if (
+      dateKey > options.coreSyllabusPacingPlan.targetDateKey &&
+      dateKey <= CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY
+    ) {
+      return IB_ANCHOR_SUBJECT_IDS.filter((subjectId) =>
+        hasEligibleTaskForSubject(subjectId, slotStart, taskPool),
+      );
     }
 
     return IB_ANCHOR_SUBJECT_IDS.filter(
@@ -2978,7 +3132,7 @@ function allocateTasksToSlots(options: {
       return taskPool.some(
         (task) =>
           task.subjectId === subjectId &&
-        task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES,
+        hasAllocatableTaskMinutes(task),
       );
     });
   }
@@ -3044,7 +3198,7 @@ function allocateTasksToSlots(options: {
               task.studyLayer === "learning" &&
               task.subjectId &&
               IB_ANCHOR_SUBJECT_IDS.includes(task.subjectId as (typeof IB_ANCHOR_SUBJECT_IDS)[number]) &&
-              task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES
+              hasAllocatableTaskMinutes(task)
           )
           .map((task) => task.subjectId as Subject["id"])
       )
@@ -3495,7 +3649,7 @@ function allocateTasksToSlots(options: {
     disallowedStudyLayers?: StudyLayer[];
     mustFillEndOfDaySlot?: boolean;
     strongFocusDemand?: boolean;
-    requiredTaskConstraint?: "olympiad-bplus-content";
+    requiredTaskConstraint?: "olympiad-bplus-content" | "cpp-content-continuity";
     requiredExactTopicId?: string;
     flexibleDurationLimitMinutes?: number;
     taskPool?: TaskCandidate[];
@@ -3559,10 +3713,27 @@ function allocateTasksToSlots(options: {
           }
         : options.blockSelectionPolicy;
     const eligibleBlockOptions = taskPool
-      .filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES)
+      .filter((task) => hasAllocatableTaskMinutes(task))
       .filter((task) => {
         if (requiredTaskConstraint === "olympiad-bplus-content") {
           return isOlympiadBplusContentTask(task);
+        }
+
+        if (requiredTaskConstraint === "cpp-content-continuity") {
+          return (
+            task.subjectId === "cpp-book" &&
+            task.kind === "topic" &&
+            task.studyLayer === "learning" &&
+            task.sessionMode !== "exam" &&
+            !task.followUpKind
+          );
+        }
+
+        if (
+          task.subjectId === "cpp-book" &&
+          slot.dateKey <= CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY
+        ) {
+          return false;
         }
 
         if (requiredExactTopicId) {
@@ -3864,9 +4035,9 @@ function allocateTasksToSlots(options: {
       ? buildScoredOptionsForSlot({
           slot: slotSlice,
           allowWeeklyTargetOverride: true,
-          bypassCorePacingPriority: isOlympiadContinuityPacingOverride(
-            activeTemplateRequirement,
-          ),
+          bypassCorePacingPriority:
+            isOlympiadContinuityPacingOverride(activeTemplateRequirement) ||
+            isCppContinuityPacingOverride(activeTemplateRequirement),
           restrictedSubjectIds: [activeTemplateRequirement.subjectId],
           restrictedTopicIds: activeTemplateRequirement.exactTopicId
             ? [activeTemplateRequirement.exactTopicId]
@@ -3913,9 +4084,9 @@ function allocateTasksToSlots(options: {
       templateOnlyOptions = buildScoredOptionsForSlot({
         slot: slotSlice,
         allowWeeklyTargetOverride: true,
-        bypassCorePacingPriority: isOlympiadContinuityPacingOverride(
-          activeTemplateRequirement,
-        ),
+        bypassCorePacingPriority:
+          isOlympiadContinuityPacingOverride(activeTemplateRequirement) ||
+          isCppContinuityPacingOverride(activeTemplateRequirement),
         restrictedSubjectIds: [activeTemplateRequirement.subjectId],
         restrictedTopicIds: activeTemplateRequirement.exactTopicId
           ? [activeTemplateRequirement.exactTopicId]
@@ -3927,6 +4098,35 @@ function allocateTasksToSlots(options: {
         strongFocusDemand: true,
         taskPool,
       });
+    }
+
+    if (
+      templateOnlyOptions.length === 0 &&
+      activeTemplateRequirement &&
+      isOlympiadContinuityPacingOverride(activeTemplateRequirement)
+    ) {
+      const fallbackDurationMinutes = Math.min(
+        remainingSlotMinutes,
+        availableToday,
+      );
+      if (fallbackDurationMinutes >= MIN_ALLOCATABLE_MINUTES) {
+        const fallbackSlot = {
+          ...slot,
+          start: cursor,
+          end: addMinutes(cursor, fallbackDurationMinutes),
+          durationMinutes: fallbackDurationMinutes,
+        };
+        templateOnlyOptions = buildScoredOptionsForSlot({
+          slot: fallbackSlot,
+          allowWeeklyTargetOverride: true,
+          bypassCorePacingPriority: true,
+          restrictedSubjectIds: ["olympiad"],
+          requiredStudyLayers: ["exam_sim"],
+          mustFillEndOfDaySlot,
+          strongFocusDemand: true,
+          taskPool,
+        });
+      }
     }
 
     const focusedDemandStillOpen =
@@ -4042,7 +4242,7 @@ function allocateTasksToSlots(options: {
       lastSlotEndByDate[slot.dateKey] === slot.end.getTime() &&
       slot.end.getHours() === 22 &&
       slot.end.getMinutes() === 30 &&
-      workingTasks.some((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES);
+      workingTasks.some((task) => hasAllocatableTaskMinutes(task));
 
     if (consumedStudyMinutes >= effectiveCapacityMinutes && !mustFillEndOfDaySlot) {
       return;
@@ -4403,7 +4603,7 @@ function allocateTasksToSlots(options: {
 
   return {
     scheduledBlocks,
-    unscheduledTasks: workingTasks.filter((task) => task.remainingMinutes >= MIN_ALLOCATABLE_MINUTES),
+    unscheduledTasks: workingTasks.filter((task) => hasAllocatableTaskMinutes(task)),
     usedSundayMinutes,
     scheduledStudyMinutes: consumedStudyMinutes,
     absorbedMicroGapDateKeys,
@@ -5425,6 +5625,7 @@ function generateStudyPlanHorizonWithRun(
       subjectDeadlinesById,
       availabilityOverrideSubjectIds: horizonAvailabilityOverrideSubjectIds,
       schedulingContext,
+      coreSyllabusPacingPlan,
     });
     const futureFocusedReserveMinutesBySubject = buildFutureFocusedReserveMinutesBySubject({
       currentWeek,
@@ -6047,6 +6248,7 @@ function generateIncrementalStudyPlanTailWithRun(
       subjectDeadlinesById,
       availabilityOverrideSubjectIds: tailAvailabilityOverrideSubjectIds,
       schedulingContext,
+      coreSyllabusPacingPlan,
     });
     const futureFocusedReserveMinutesBySubject = buildFutureFocusedReserveMinutesBySubject({
       currentWeek,

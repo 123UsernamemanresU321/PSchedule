@@ -300,13 +300,14 @@ function withFakeNow<T>(nowIso: string, callback: () => T): T {
 
 function buildBreakAllocationFixture(options: {
   breaksEnabled: boolean;
+  weekStart?: Date;
   minBreakMinutes?: number;
   studyWindowStart?: string;
   studyWindowEnd?: string;
   naturalPause?: { start: string; end: string };
   topics?: Topic[];
 }) {
-  const weekStart = new Date("2026-08-17T00:00:00");
+  const weekStart = options.weekStart ?? new Date("2026-08-17T00:00:00");
   const referenceDate = createDateAtTime(weekStart, "00:00");
   const dataset = buildSeedDataset(referenceDate);
   const physicsSubject = dataset.subjects.find(
@@ -413,7 +414,7 @@ function buildBreakAllocationFixture(options: {
 }
 
 function generateExactExamRecoveryPlan(naturalPauseMinutes?: number) {
-  const weekStart = new Date("2026-08-17T00:00:00");
+  const weekStart = new Date("2026-11-02T00:00:00");
   const referenceDate = createDateAtTime(weekStart, "00:00");
   const dataset = buildSeedDataset(referenceDate);
   const cppSubject = dataset.subjects.find(
@@ -470,6 +471,7 @@ function generateExactExamRecoveryPlan(naturalPauseMinutes?: number) {
         };
   const fixture = buildBreakAllocationFixture({
     breaksEnabled: true,
+    weekStart,
     studyWindowEnd: naturalPauseMinutes === 15 ? "12:15" : "12:00",
     naturalPause,
     topics: [examTopic, followUpTopic],
@@ -481,7 +483,7 @@ function generateExactExamRecoveryPlan(naturalPauseMinutes?: number) {
         id: "goal-cpp-exact-break",
         title: "Finish exact exam fixture",
         subjectId: "cpp-book",
-        deadline: "2026-08-17",
+        deadline: "2026-11-02",
         targetCompletion: 1,
         priorityWeight: 1,
       },
@@ -626,6 +628,63 @@ test("core pacing ledger counts future blocks only from their own date and dedup
     ),
     0,
   );
+  assert.equal(
+    getCumulativeCoreSyllabusAssignedMinutes(
+      assignedMinutesByDate,
+      "maths-aa-hl",
+      "2026-03-24",
+    ),
+    60,
+  );
+});
+
+test("core pacing ledger never credits more than a topic's real remaining minutes", () => {
+  const dataset = buildSeedDataset(new Date("2026-03-23T08:00:00"));
+  const baseTopic = dataset.topics.find(
+    (candidate) =>
+      candidate.subjectId === "maths-aa-hl" && !candidate.unitId.includes("past-papers"),
+  );
+  assert.ok(baseTopic);
+  const topic = {
+    ...baseTopic,
+    id: "capped-core-credit",
+    estHours: 1,
+    completedHours: 0,
+  };
+  const plan = buildCoreSyllabusPacingPlan({
+    startDate: new Date("2026-03-23T08:00:00"),
+    topics: [topic],
+    capacityMinutesByDate: {
+      "2026-03-23": 60,
+      "2026-03-24": 60,
+    },
+    targetDateKey: "2026-03-24",
+  });
+  const assignedMinutesByDate = buildCoreSyllabusAssignedMinutesByDate({
+    plan,
+    topics: [topic],
+    blocks: [
+      createStudyBlock({
+        id: "capped-core-credit-first",
+        date: "2026-03-23",
+        start: "2026-03-23T08:00:00.000Z",
+        end: "2026-03-23T09:00:00.000Z",
+        subjectId: "maths-aa-hl",
+        topicId: topic.id,
+        estimatedMinutes: 60,
+      }),
+      createStudyBlock({
+        id: "capped-core-credit-overflow",
+        date: "2026-03-24",
+        start: "2026-03-24T08:00:00.000Z",
+        end: "2026-03-24T09:00:00.000Z",
+        subjectId: "maths-aa-hl",
+        topicId: topic.id,
+        estimatedMinutes: 60,
+      }),
+    ],
+  });
+
   assert.equal(
     getCumulativeCoreSyllabusAssignedMinutes(
       assignedMinutesByDate,
@@ -8921,6 +8980,104 @@ test("direct weekly generation builds a local core pacing fallback", () => {
   });
 });
 
+test("unfinished core syllabus stays ahead of C++ after the pacing safety target", () => {
+  const referenceDate = new Date("2026-10-26T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const mathsSubject = dataset.subjects.find((subject) => subject.id === "maths-aa-hl");
+  const cppSubject = dataset.subjects.find((subject) => subject.id === "cpp-book");
+  const baseMathsTopic = dataset.topics.find(
+    (topic) => topic.subjectId === "maths-aa-hl" && isCoreHlSyllabusTopic(topic),
+  );
+  const baseCppTopic = dataset.topics.find((topic) => topic.subjectId === "cpp-book");
+  assert.ok(mathsSubject);
+  assert.ok(cppSubject);
+  assert.ok(baseMathsTopic);
+  assert.ok(baseCppTopic);
+  const mathsTopic = {
+    ...baseMathsTopic,
+    id: "deadline-rescue-maths",
+    unitId: "deadline-rescue-maths-syllabus",
+    title: "Deadline rescue maths",
+    estHours: 2,
+    completedHours: 0,
+    status: "not_started" as const,
+    mastery: 0,
+    lastStudiedAt: null,
+    reviewDue: null,
+    availableFrom: null,
+    dependsOnTopicId: null,
+    minDaysAfterDependency: null,
+    maxDaysAfterDependency: null,
+    order: 1,
+  };
+  const cppTopic = {
+    ...baseCppTopic,
+    id: "deadline-rescue-cpp",
+    unitId: "deadline-rescue-cpp-content",
+    title: "C++ continuity",
+    estHours: 4,
+    completedHours: 0,
+    status: "not_started" as const,
+    mastery: 0,
+    lastStudiedAt: null,
+    reviewDue: null,
+    availableFrom: null,
+    dependsOnTopicId: null,
+    minDaysAfterDependency: null,
+    maxDaysAfterDependency: null,
+    order: 1,
+  };
+  const coreSyllabusPacingPlan = buildCoreSyllabusPacingPlan({
+    startDate: new Date("2026-10-19T08:00:00"),
+    topics: [mathsTopic],
+    capacityMinutesByDate: {
+      "2026-10-19": 30,
+      "2026-10-20": 30,
+      "2026-10-21": 30,
+      "2026-10-22": 30,
+      "2026-10-23": 0,
+      "2026-10-24": 0,
+    },
+    targetDateKey: "2026-10-24",
+  });
+  const result = generateStudyPlanForWeek({
+    weekStart: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: dataset.goals.filter((goal) =>
+      ["maths-aa-hl", "cpp-book"].includes(goal.subjectId),
+    ),
+    subjects: [mathsSubject, cppSubject],
+    topics: [mathsTopic, cppTopic],
+    fixedEvents: [],
+    preferences: {
+      ...dataset.preferences,
+      reservedCommitmentRules: [],
+      lockedRecoveryWindows: [],
+      schoolSchedule: {
+        ...dataset.preferences.schoolSchedule,
+        enabled: false,
+        terms: [],
+      },
+      holidaySchedule: {
+        ...dataset.preferences.holidaySchedule,
+        enabled: true,
+        dailyStudyWindow: { start: "08:00", end: "12:00" },
+      },
+    },
+    focusedDays: [],
+    focusedWeeks: [],
+    fillAvailableStudyDays: true,
+    coreSyllabusPacingPlan,
+  });
+  const newlyPlannedBlocks = result.studyBlocks.filter((block) => block.subjectId);
+  const mathsMinutes = newlyPlannedBlocks
+    .filter((block) => block.subjectId === "maths-aa-hl")
+    .reduce((total, block) => total + block.estimatedMinutes, 0);
+
+  assert.equal(newlyPlannedBlocks[0]?.subjectId, "maths-aa-hl");
+  assert.equal(mathsMinutes, 120);
+});
+
 test("direct weekly generation preserves a supplied sentinel pacing plan", () => {
   const referenceDate = new Date("2026-03-23T08:00:00");
   const dataset = buildSeedDataset(referenceDate);
@@ -8987,7 +9144,7 @@ test("weekly cumulative diagnostics count a locked core block once by stable ID"
     unitId: "locked-diagnostic-core-syllabus",
     unitTitle: "Locked diagnostic",
     title: "Locked diagnostic topic",
-    estHours: 0,
+    estHours: 1,
     completedHours: 0,
     status: "strong" as const,
     mastery: 0,
@@ -10015,7 +10172,9 @@ test("marked no-school weekdays are treated as non-school days during active ter
     existingPlannedBlocks: [],
   });
   const schoolAnchorRequirements = template.requirements.filter(
-    (requirement) => !requirement.id.includes("olympiad-continuity"),
+    (requirement) =>
+      !requirement.id.includes("olympiad-continuity") &&
+      !requirement.id.includes("cpp-continuity"),
   );
   assert.equal(
     schoolAnchorRequirements.some((requirement) =>
@@ -11726,7 +11885,7 @@ test("olympiad B+ mock ladder uses exact continuous sitting durations across pha
   assert.equal(monthlyMockDayOne?.exactSessionMinutes, 240);
 });
 
-test("school-term deadline pacing keeps C++ at zero while Olympiad remains heavier in normal weeks than heavy weeks", () => {
+test("school-term deadline pacing keeps C++ at a tiny continuity load while Olympiad remains heavier in normal weeks than heavy weeks", () => {
   const dataset = buildSeedDataset(new Date("2026-04-18T08:00:00"));
   const preferences = withConfiguredSchoolTerm(dataset.preferences);
   const heavyAssessmentEvent = {
@@ -11768,11 +11927,11 @@ test("school-term deadline pacing keeps C++ at zero while Olympiad remains heavi
     (normalTracks.olympiad?.recommendedWeeklyHours ?? 0) >
       (heavyTracks.olympiad?.recommendedWeeklyHours ?? 0),
   );
-  assert.equal(heavyTracks["cpp-book"]?.recommendedWeeklyHours ?? 0, 0);
-  assert.equal(normalTracks["cpp-book"]?.recommendedWeeklyHours ?? 0, 0);
+  assert.equal(heavyTracks["cpp-book"]?.recommendedWeeklyHours ?? 0, 0.5);
+  assert.equal(normalTracks["cpp-book"]?.recommendedWeeklyHours ?? 0, 0.5);
 });
 
-test("configured school-term template prioritizes HL syllabus work with two small Olympiad continuity windows", () => {
+test("configured school-term template keeps small Olympiad and C++ continuity while prioritizing HL syllabus work", () => {
   const dataset = buildSeedDataset(new Date("2026-04-18T08:00:00.000Z"));
   const template = buildSchoolTermWeekTemplate({
     weekStart: new Date("2026-04-20T00:00:00.000Z"),
@@ -11792,6 +11951,9 @@ test("configured school-term template prioritizes HL syllabus work with two smal
   assert.equal(requirementById["2026-04-24-learning"]?.subjectId, "physics-hl");
   const olympiadContinuityRequirements = template.requirements.filter((requirement) =>
     requirement.id.includes("olympiad-continuity"),
+  );
+  const cppContinuityRequirements = template.requirements.filter((requirement) =>
+    requirement.id.includes("cpp-continuity"),
   );
 
   assert.equal(olympiadContinuityRequirements.length, 2);
@@ -11813,6 +11975,19 @@ test("configured school-term template prioritizes HL syllabus work with two smal
     "2026-04-22",
   ]);
   assert.deepEqual(olympiadContinuityRequirements[1]?.allowedDateKeys, [
+    "2026-04-23",
+    "2026-04-24",
+    "2026-04-25",
+    "2026-04-26",
+  ]);
+  assert.equal(cppContinuityRequirements.length, 1);
+  assert.equal(cppContinuityRequirements[0]?.subjectId, "cpp-book");
+  assert.equal(cppContinuityRequirements[0]?.minimumMinutes, 30);
+  assert.deepEqual(cppContinuityRequirements[0]?.studyLayers, ["learning"]);
+  assert.deepEqual(cppContinuityRequirements[0]?.allowedDateKeys, [
+    "2026-04-20",
+    "2026-04-21",
+    "2026-04-22",
     "2026-04-23",
     "2026-04-24",
     "2026-04-25",
@@ -11855,7 +12030,7 @@ test("pre-deadline holiday weeks retain the two small Olympiad continuity window
   );
 });
 
-test("school-term generation reserves only two small B+ content continuity blocks while HL syllabus remains open", () => {
+test("school-term generation reserves two B+ and one C++ continuity block while HL syllabus remains open", () => {
   const referenceDate = new Date("2026-04-20T08:00:00.000Z");
   const dataset = buildSeedDataset(referenceDate);
   const result = generateStudyPlanForWeek({
@@ -11898,7 +12073,10 @@ test("school-term generation reserves only two small B+ content continuity block
     }),
     "expected continuity sessions to use real B+ content rather than tests or critiques",
   );
-  assert.deepEqual(nonPrioritySubjectBlocks, []);
+  assert.equal(nonPrioritySubjectBlocks.length, 1);
+  assert.equal(nonPrioritySubjectBlocks[0]?.subjectId, "cpp-book");
+  assert.equal(nonPrioritySubjectBlocks[0]?.studyLayer, "learning");
+  assert.equal(nonPrioritySubjectBlocks[0]?.estimatedMinutes, 30);
   assert.ok(
     result.studyBlocks.some((block) => block.subjectId === "maths-aa-hl"),
     "expected Olympiad continuity not to erase IB syllabus work",
@@ -12292,6 +12470,106 @@ test("all three core HL syllabi finish in the October safety-buffer week and wee
       Math.round((minutes / 60) * 10) / 10,
     );
   });
+});
+
+test("constrained school-term horizon completes every HL syllabus by October 31 and keeps weekly C++ continuity", () => {
+  const referenceDate = new Date("2026-08-18T08:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const preferences = withConfiguredSchoolTerm(dataset.preferences, {
+    start: "06:00",
+    end: "15:30",
+    terms: [
+      {
+        id: "term-3",
+        label: "Term 3",
+        startDate: "2026-07-20",
+        endDate: "2026-09-30",
+      },
+      {
+        id: "term-4",
+        label: "Term 4",
+        startDate: "2026-10-05",
+        endDate: "2026-12-04",
+      },
+    ],
+  });
+  const result = generateStudyPlanHorizon({
+    startWeek: startOfPlannerWeek(referenceDate),
+    referenceDate,
+    goals: dataset.goals,
+    subjects: dataset.subjects,
+    topics: dataset.topics,
+    completionLogs: [],
+    fixedEvents: dataset.fixedEvents,
+    sickDays: dataset.sickDays,
+    focusedDays: dataset.focusedDays,
+    focusedWeeks: dataset.focusedWeeks,
+    preferences,
+  });
+  const topicById = new Map(dataset.topics.map((topic) => [topic.id, topic]));
+  const coreSubjectIds = ["maths-aa-hl", "physics-hl", "chemistry-hl"] as const;
+
+  coreSubjectIds.forEach((subjectId) => {
+    const syllabusTopics = dataset.topics.filter(
+      (topic) => topic.subjectId === subjectId && isCoreHlSyllabusTopic(topic),
+    );
+    const latestSyllabusDate = result.studyBlocks
+      .filter((block) => {
+        const topic = block.topicId ? topicById.get(block.topicId) : null;
+        return block.subjectId === subjectId && !!topic && isCoreHlSyllabusTopic(topic);
+      })
+      .map((block) => block.date)
+      .sort((left, right) => right.localeCompare(left))[0];
+
+    assert.ok(latestSyllabusDate, `expected ${subjectId} syllabus blocks`);
+    assert.ok(
+      latestSyllabusDate <= "2026-10-31",
+      `expected ${subjectId} to finish by October 31, got ${latestSyllabusDate}`,
+    );
+    syllabusTopics.forEach((topic) => {
+      const requiredMinutes = Math.max(
+        0,
+        Math.round((topic.estHours - topic.completedHours) * 60),
+      );
+      const scheduledByDeadlineMinutes = result.studyBlocks
+        .filter(
+          (block) =>
+            block.topicId === topic.id &&
+            block.date <= "2026-10-31" &&
+            (block.status === "planned" || block.status === "rescheduled"),
+        )
+        .reduce((total, block) => total + block.estimatedMinutes, 0);
+
+      assert.ok(
+        scheduledByDeadlineMinutes >= requiredMinutes,
+        `expected ${topic.id} to have all ${requiredMinutes} minutes scheduled by October 31, got ${scheduledByDeadlineMinutes}`,
+      );
+    });
+  });
+
+  const preDeadlineCppBlocks = result.studyBlocks.filter(
+    (block) =>
+      block.subjectId === "cpp-book" &&
+      block.date >= "2026-08-18" &&
+      block.date <= "2026-10-31",
+  );
+  const preDeadlinePlannerWeeks = result.weeklyPlans.filter(
+    (plan) => plan.weekStart >= "2026-08-17" && plan.weekStart <= "2026-10-26",
+  );
+
+  assert.ok(
+    new Set(preDeadlineCppBlocks.map((block) => block.weekStart)).size >=
+      preDeadlinePlannerWeeks.length - 1,
+    `expected C++ continuity whenever deadline capacity permits; got ${Array.from(
+      new Set(preDeadlineCppBlocks.map((block) => block.weekStart)),
+    ).join(", ")}`,
+  );
+  assert.ok(
+    preDeadlineCppBlocks.every((block) => block.estimatedMinutes === 30),
+    `expected C++ to remain a tiny continuity commitment before the HL deadline; got ${preDeadlineCppBlocks
+      .map((block) => `${block.date}:${block.estimatedMinutes}`)
+      .join(", ")}`,
+  );
 });
 
 test("generated configured school-term weeks follow the weekday template, fill Sunday normally, and avoid early full papers", () => {

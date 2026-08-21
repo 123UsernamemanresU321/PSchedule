@@ -15,6 +15,7 @@ import {
   toDateKey,
 } from "@/lib/dates/helpers";
 import { isDateInActiveSchoolTerm } from "@/lib/scheduler/schedule-regime";
+import { CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY } from "@/lib/scheduler/school-term-template";
 import { isSchedulableStudyBlockStatus } from "@/lib/scheduler/study-breaks";
 import {
   getOlympiadWeekLoadProfile,
@@ -210,7 +211,10 @@ function getSeasonalSubjectMinimumHours(options: {
   }
 
   if (options.subject.id === "cpp-book") {
-    return schoolTermWeek ? 0 : 2;
+    const comparisonDate = options.weekStartDate ?? options.referenceDate;
+    return toDateKey(comparisonDate) <= CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY
+      ? 0.5
+      : 2;
   }
 
   return options.subject.weeklyMinimumHours;
@@ -375,12 +379,11 @@ export function computeSubjectDeadlineTracks(options: {
     }
 
     if (subject.id === "cpp-book") {
-      const schoolTermWeek = isSchoolTermWeek({
-        weekStartDate: options.weekStartDate,
-        preferences: options.preferences,
-      });
-      recommendedWeeklyHours = schoolTermWeek
-        ? 0
+      const continuityOnlyWeek =
+        toDateKey(options.weekStartDate ?? options.referenceDate) <=
+        CORE_HL_SYLLABUS_PRIORITY_END_DATE_KEY;
+      recommendedWeeklyHours = continuityOnlyWeek
+        ? Math.min(targetRemainingHours, 0.5)
         : Math.min(
             targetRemainingHours,
             Math.max(recommendedWeeklyHours, seasonalMinimumHours),
