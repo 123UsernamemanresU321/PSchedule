@@ -2199,6 +2199,8 @@ function allocateTasksToSlots(options: {
   schoolTermTemplate?: ReturnType<typeof buildSchoolTermWeekTemplate>;
   coreSyllabusPacingPlan?: CoreSyllabusPacingPlan;
   requiredStudyLayers?: StudyLayer[];
+  effectiveReservedCommitmentDurations?: EffectiveReservedCommitmentDuration[];
+  excludedReservedCommitmentRuleIds?: string[];
   schedulingContext?: SchedulingRunContext;
   allocationIndexInstrumentation?: AllocationIndexInstrumentation;
 }) {
@@ -3568,6 +3570,10 @@ function allocateTasksToSlots(options: {
         blockedStudyBlocks: [...options.lockedBlocks, ...scheduledBlocks],
         planningStart: options.referenceDate,
         skipMovableRecovery: false,
+        effectiveReservedCommitmentDurations:
+          options.effectiveReservedCommitmentDurations,
+        excludedReservedCommitmentRuleIds:
+          options.excludedReservedCommitmentRuleIds,
         minimumDurationMinutes: 1,
         schedulingContext: options.schedulingContext,
       }).filter(
@@ -4535,6 +4541,10 @@ function allocateTasksToSlots(options: {
       blockedStudyBlocks: [...options.lockedBlocks, ...scheduledBlocks],
       planningStart: options.referenceDate,
       skipMovableRecovery: true,
+      effectiveReservedCommitmentDurations:
+        options.effectiveReservedCommitmentDurations,
+      excludedReservedCommitmentRuleIds:
+        options.excludedReservedCommitmentRuleIds,
       minimumDurationMinutes: 1,
       schedulingContext: options.schedulingContext,
     });
@@ -5141,6 +5151,10 @@ function generateStudyPlanForWeekWithDependencies(
       dayStudyCapOverrideMinutesByDate: schoolTermTemplate.dayStudyCapOverrideMinutesByDate,
       schoolTermTemplate,
       coreSyllabusPacingPlan,
+      effectiveReservedCommitmentDurations:
+        options.effectiveReservedCommitmentDurations,
+      excludedReservedCommitmentRuleIds:
+        options.excludedReservedCommitmentRuleIds,
       allocationIndexInstrumentation:
         dependencies.createAllocationIndexInstrumentation(),
     });
@@ -5253,6 +5267,10 @@ function generateStudyPlanForWeekWithDependencies(
         dayStudyCapOverrideMinutesByDate: schoolTermTemplate.dayStudyCapOverrideMinutesByDate,
         schoolTermTemplate,
         coreSyllabusPacingPlan,
+        effectiveReservedCommitmentDurations:
+          options.effectiveReservedCommitmentDurations,
+        excludedReservedCommitmentRuleIds:
+          options.excludedReservedCommitmentRuleIds,
         allowLargeGapAbsorption: true,
         allocationIndexInstrumentation:
           dependencies.createAllocationIndexInstrumentation(),

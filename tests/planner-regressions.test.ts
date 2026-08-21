@@ -2506,6 +2506,108 @@ test("French tune-ups are omitted for a week when no uninterrupted session can f
   assert.equal(commitments.length, 0);
 });
 
+test("late capacity fill preserves French tune-ups after soft commitment reductions", () => {
+  const referenceDate = new Date("2026-10-12T06:00:00");
+  const dataset = buildSeedDataset(referenceDate);
+  const weekStart = startOfPlannerWeek(referenceDate);
+  const physicsSubject = dataset.subjects.find((subject) => subject.id === "physics-hl");
+  const physicsTopic = dataset.topics.find((topic) => topic.id === "physics-a1-kinematics");
+
+  assert.ok(physicsSubject);
+  assert.ok(physicsTopic);
+
+  const preferences = {
+    ...dataset.preferences,
+    maxStudyHoursPerDay: 10,
+    maxHeavySessionsPerDay: 10,
+    reserveSundayEvening: false,
+    lateNightCutoff: "22:00",
+    schoolSchedule: {
+      ...dataset.preferences.schoolSchedule,
+      enabled: true,
+      start: "06:00",
+      end: "15:30",
+      terms: [
+        {
+          id: "term-4",
+          label: "Term 4",
+          startDate: "2026-10-06",
+          endDate: "2026-12-02",
+        },
+      ],
+      noSchoolDays: [],
+      schoolClubs: [],
+      examPeriods: [],
+    },
+    reservedCommitmentRules: dataset.preferences.reservedCommitmentRules.map((rule) => {
+      if (rule.id === "piano-practice") {
+        return { ...rule, days: [2, 4], preferredStart: "18:00" };
+      }
+
+      if (rule.id === "term-homework") {
+        return {
+          ...rule,
+          durationMinutes: 150,
+          days: [1, 2, 3, 4, 5],
+          preferredStart: "16:00",
+        };
+      }
+
+      return rule;
+    }),
+  };
+  const effectiveReservedCommitmentDurations = ["2026-10-13", "2026-10-15"].flatMap(
+    (dateKey) => [
+      { dateKey, ruleId: "piano-practice", durationMinutes: 0 },
+      { dateKey, ruleId: "term-homework", durationMinutes: 150 },
+    ],
+  );
+  const result = generateStudyPlanForWeek({
+    weekStart,
+    referenceDate,
+    goals: [],
+    subjects: [physicsSubject],
+    topics: [
+      {
+        ...physicsTopic,
+        estHours: 100,
+        completedHours: 0,
+        availableFrom: undefined,
+        dependsOnTopicId: undefined,
+        minDaysAfterDependency: undefined,
+        maxDaysAfterDependency: undefined,
+        sessionMode: "flexible",
+      },
+    ],
+    fixedEvents: [],
+    preferences,
+    effectiveReservedCommitmentDurations,
+    fillAvailableStudyDays: true,
+    allowReinforcement: false,
+  });
+  const effectiveCommitments = expandReservedCommitmentWindowsForWeek(
+    weekStart,
+    preferences,
+    [],
+    [],
+    [],
+    effectiveReservedCommitmentDurations,
+  );
+  const overlappingBlocks = result.studyBlocks.filter((block) =>
+    effectiveCommitments.some(
+      (commitment) =>
+        new Date(block.start).getTime() < new Date(commitment.end).getTime() &&
+        new Date(block.end).getTime() > new Date(commitment.start).getTime(),
+    ),
+  );
+
+  assert.deepEqual(
+    overlappingBlocks.map((block) => block.id),
+    [],
+    "late fill must use the same effective commitment windows as initial allocation",
+  );
+});
+
 test("AI block plan context includes guide metadata, schedule continuity, and pace targets", () => {
   const dataset = buildSeedDataset(new Date("2026-04-29T08:00:00"));
   const subject = dataset.subjects.find((candidate) => candidate.id === "maths-aa-hl") ?? null;
